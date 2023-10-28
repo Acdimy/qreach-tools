@@ -1,0 +1,29 @@
+{
+    "configurations": [
+        {
+            "name": "Win32",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/include/c++",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/include/c++/x86_64-w64-mingw32",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/include/c++/backward",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/include",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/include-fixed",
+                "D:/mingw64/bin/../lib/gcc/x86_64-w64-mingw32/12.2.0/../../../../x86_64-w64-mingw32/include",
+                "D:/study/proj/boost_1_82_0"
+            ],
+            "defines": [
+                "_DEBUG",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "windowsSdkVersion": "10.0.22000.0",
+            "compilerPath": "cl.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "windows-msvc-x86",
+            "configurationProvider": "ms-vscode.makefile-tools"
+        }
+    ],
+    "version": 4
+}

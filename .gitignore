@@ -1,0 +1,11 @@
+*.o
+
+*.so
+
+/cflobdd/CFLOBDD/*.o
+
+/python_pkg/*.so
+
+/python_pkg/benchmark/
+
+/python_pkg/output/
