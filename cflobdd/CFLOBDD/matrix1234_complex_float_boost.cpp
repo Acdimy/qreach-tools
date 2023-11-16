@@ -143,11 +143,11 @@ namespace CFL_OBDD {
 			return CFLOBDD_COMPLEX_BIG(MkU3GateInterleavedTop(i, v[0], v[1], v[2]));
 		}
 
-		CFLOBDD_COMPLEX_BIG MkArbitraryGateInterleaved(unsigned int i, std::vector<double> v)
+		CFLOBDD_COMPLEX_BIG MkArbitraryGateInterleaved(unsigned int i, std::vector<double> vec)
 		{
 			//v1_r, v1_i, v2_r, v2_i, v3_r, v3_i, v4_r, v4_i
 			assert(i == 1);
-			return CFLOBDD_COMPLEX_BIG(MkArbitraryGateInterleavedTop(i, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]));
+			return CFLOBDD_COMPLEX_BIG(MkArbitraryGateInterleavedTop(i, vec));
 		}
 
 		// Conjugate for a matrix

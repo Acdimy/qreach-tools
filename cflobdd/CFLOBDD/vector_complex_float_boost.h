@@ -36,6 +36,7 @@ namespace CFL_OBDD {
 		//#endif
 		extern CFLOBDD_COMPLEX_BIG VectorWithAmplitude(CFLOBDD_COMPLEX_BIG c);
 		extern void VectorPrintColumnMajor(CFLOBDD_COMPLEX_BIG c, std::ostream & out);
+		extern void VectorPrintColumnHead(CFLOBDD_COMPLEX_BIG c, std::ostream & out);
 		extern void VectorPrintColumnMajorInterleaved(CFLOBDD_COMPLEX_BIG c, std::ostream & out);
 		extern long double getNonZeroProbability(CFLOBDD_COMPLEX_BIG n);
 		extern unsigned long long int GetPathCount(CFLOBDD_COMPLEX_BIG n, long double p);

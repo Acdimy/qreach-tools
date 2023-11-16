@@ -65,8 +65,7 @@ namespace CFL_OBDD {
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkSGateInterleavedTop(unsigned int i);
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkPhaseShiftGateInterleavedTop(unsigned int i, double theta);
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkU3GateInterleavedTop(unsigned int i, double theta, double phi, double lambda);
-		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateInterleavedTop(unsigned int i, double v1_r, double v1_i, double v2_r, double v2_i,
-                                                                   					  double v3_r, double v3_i, double v4_r, double v4_i);
+		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateInterleavedTop(unsigned int i, std::vector<double> vec);
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkExchangeInterleavedTop(unsigned int i); // Representation of exchange matrix
 
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkRestrictTop(unsigned int level, std::string s);

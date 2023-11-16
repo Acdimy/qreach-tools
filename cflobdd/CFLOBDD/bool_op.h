@@ -77,6 +77,11 @@ T PlusFunc(T a, T b) {
 	return a + b;
 }
 
+// template <typename T>
+// T MinusFunc(T a, T b) {
+// 	return a - b;
+// }
+
 template <typename T>
 T TimesFunc(T a, T b) {
 	return a * b;

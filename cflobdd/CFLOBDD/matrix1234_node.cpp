@@ -333,19 +333,6 @@ namespace CFL_OBDD {
 	CFLOBDDNodeHandle MkU3GateInterleavedNode(unsigned int i, unsigned int eq_mark)
 	{
 		// Same as MkArbitraryGateInterleavedNode
-		// if((eq_mark >> 2) % 2 == 1) {
-		// 	if((eq_mark >> 1) % 2 == 1) {
-		// 		if(eq_mark % 2 == 1) {
-		// 			;
-		// 		} else {
-		// 			;
-		// 		}
-		// 	} else {
-				
-		// 	}
-		// } else {
-			
-		// }
 		CFLOBDDInternalNode *n = new CFLOBDDInternalNode(i);
 
 		CFLOBDDReturnMapHandle m01;

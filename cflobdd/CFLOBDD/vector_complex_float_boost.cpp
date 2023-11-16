@@ -88,6 +88,12 @@ namespace CFL_OBDD {
 			return;
 		}
 
+		void VectorPrintColumnHead(CFLOBDD_COMPLEX_BIG c, std::ostream & out)
+		{
+			VectorPrintColumnHeadTop(c.root, out);
+			return;
+		}
+
 		void VectorPrintColumnMajorInterleaved(CFLOBDD_COMPLEX_BIG c, std::ostream & out)
 		{
 			VectorPrintColumnMajorInterleavedTop(c.root, out);

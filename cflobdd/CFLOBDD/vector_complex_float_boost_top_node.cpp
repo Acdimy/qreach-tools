@@ -271,9 +271,9 @@ namespace CFL_OBDD {
 							a[2 * k + 1] = (j & maskVoc2);
 							maskVoc2 = maskVoc2 << 1;
 						}
-						out << "i = " << i << ", j = " << j << ", a = ";
-						a.print(out);
-						out << std::endl;
+						// out << "i = " << i << ", j = " << j << ", a = ";
+						// a.print(out);
+						// out << std::endl;
 
 						// double b1 = n->EvaluateIteratively(a).convert_to<double>();
 						// if (b1 != 0)
@@ -282,6 +282,39 @@ namespace CFL_OBDD {
 						b = n->EvaluateIteratively(a).str(5);
 						out << b << " ";
 					}
+				}
+				out << std::endl;
+			}
+			else {
+				std::cerr << "Cannot print matrix: level must be in [2 .. 4]" << std::endl;
+			}
+		}
+
+		void VectorPrintColumnHeadTop(CFLOBDDTopNodeComplexFloatBoostRefPtr n, std::ostream & out)
+		{
+			unsigned int level = n->rootConnection.entryPointHandle->handleContents->level;
+			if (level >= 2 && level <= 4 || true) {
+				unsigned int indexBits = 1 << (level - 1);
+				unsigned int totalBits = 2 * indexBits;
+				unsigned long int rows = 1UL << indexBits;
+				unsigned long int cols = rows;
+				SH_OBDD::Assignment a(totalBits);
+				for (unsigned long int i = 0UL; i < rows; i++) { // Vocs 1
+					// Fill in the even positions of a 
+					unsigned long int maskVoc1 = 1UL;
+					for (int k = (indexBits - 1); k >= 0; k--) {
+						a[2 * k] = (i & maskVoc1);
+						maskVoc1 = maskVoc1 << 1;
+					}
+					// Fill in the odd positions of a
+					// unsigned long int maskVoc2 = 1UL;
+					for (int k = (indexBits - 1); k >= 0; k--) {
+						a[2 * k + 1] = 0;
+						// maskVoc2 = maskVoc2 << 1;
+					}
+					std::string b;
+					b = n->EvaluateIteratively(a).str(5);
+					out << b << " ";
 				}
 				out << std::endl;
 			}

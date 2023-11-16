@@ -3,6 +3,90 @@
 
 #include "cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
 #include <random>
+#include <queue>
+#include <vector>
+
+
+class QuantumGate {
+    /* data */
+    public:
+    std::string name;
+    std::vector<unsigned int> index;
+    std::vector<double> vars;
+    public:
+    QuantumGate(std::string nam, std::vector<unsigned int> idx, std::vector<double> pars) {
+        this->name = nam;
+        this->index = idx;
+        this->vars = pars;
+    }
+    // QuantumGate(std::string name, unsigned int i) {
+    //     this->name = name;
+    //     this->index.push_back(i);
+    // }
+    // QuantumGate(std::string name, int idx1, int idx2) {
+    //     this->name = name;
+    //     this->index.push_back((unsigned int) idx1);
+    //     this->index.push_back((unsigned int) idx2);
+    // }
+    // QuantumGate(std::string name, int idx1, int idx2, int idx3) {
+    //     this->name = name;
+    //     this->index.push_back((unsigned int) idx1);
+    //     this->index.push_back((unsigned int) idx2);
+    //     this->index.push_back((unsigned int) idx3);
+    // }
+    // QuantumGate(std::string name, double f) {
+    //     // Global phase
+    //     this->name = name;
+    //     this->vars.push_back(f);
+    // }
+    // QuantumGate(std::string name, int idx, double f) {
+    //     // Global phase
+    //     this->name = name;
+    //     this->index.push_back((unsigned int) idx);
+    //     this->vars.push_back(f);
+    // }
+    // QuantumGate(std::string name, int idx1, int idx2, double f) {
+    //     // Global phase
+    //     this->name = name;
+    //     this->index.push_back((unsigned int) idx1);
+    //     this->index.push_back((unsigned int) idx2);
+    //     this->vars.push_back(f);
+    // }
+    // QuantumGate(std::string name, int idx, double f1, double f2, double f3) {
+    //     // Global phase
+    //     this->name = name;
+    //     this->index.push_back((unsigned int) idx);
+    //     this->vars.push_back(f1);
+    //     this->vars.push_back(f2);
+    //     this->vars.push_back(f3);
+    // }
+    ~QuantumGate() {
+        // necessary?
+        this->index.clear();
+        this->vars.clear();
+    }
+};
+
+class QuantumOperator
+{
+public:
+    int numChannel = 0;
+    std::vector<std::vector<QuantumGate>> operations;
+public:
+    QuantumOperator() {
+        numChannel = 0;
+    }
+    void appendChannel() {
+        numChannel++;
+        std::vector<QuantumGate> v;
+        operations.push_back(v);
+    }
+    void appendGate(std::string name, std::vector<unsigned int> idx, std::vector<double> par) {
+        operations[numChannel-1].push_back(QuantumGate(name, idx, par));
+    }
+    ~QuantumOperator(){};
+};
+
 
 
 class QuantumCircuit {
@@ -99,12 +183,11 @@ class CFLOBDDQuantumCircuit : public QuantumCircuit {
         void ApplyCCNOTGate(long int controller1, long int controller2, long int controlled);
         void ApplyCSwapGate(long int controller, long int index1, long int index2); 
         void ApplyU3Gate(unsigned int index, double theta, double phi, double lambda);
-        void ApplyArbitraryGate(unsigned int index, double v1_r, double v1_i, double v2_r, double v2_i, double v3_r, double v3_i, double v4_r, double v4_i);
+        void ApplyArbitraryGate(unsigned int index, std::vector<double> v);
         long double GetProbability(std::map<unsigned int, int>& qubit_vals);
         std::string Measure();
         unsigned long long int GetPathCount(long double prob);
 
-        void reachability();
 
         // Equivalence checking used
         void setBasicStateVector(std::string s);
@@ -117,56 +200,30 @@ class CFLOBDDQuantumCircuit : public QuantumCircuit {
         void pushStateToCache();
         void swapStateAndCache(unsigned int index = 0);
         void addCacheToState();
+
+        void appendGateSeries(std::string name, std::vector<unsigned int> index, std::vector<double> vars, bool newChannel=false);
+        void clearGateSeries();
+        void ApplyGateSeries(int channelIdx);
+        unsigned int reachability();
+
         void printStateColMajor();
-        void printStateColMajorInterleaved();
+        void printStateColHead();
         void printYield();
         void print();
         void printRV(std::string type = "state");
         unsigned int printSize(std::string type = "state");
+        void printProjector();
         void test();
     private:
         CFLOBDD_COMPLEX_BIG stateVector;
         std::vector<CFLOBDD_COMPLEX_BIG> stateVectorCache;
         std::vector<CFLOBDD_COMPLEX_BIG> stateProjector;
+        std::deque<unsigned int> state_queue;
+        QuantumOperator circuitGates;
         // std::vector<CFLOBDD_COMPLEX_BIG> kraus_operators;
         //unsigned int numQubits;
 };
 
-#include "cflobdd/cudd-complex-big/cplusplus/cuddObj.hh"
-
-class BDDQuantumCircuit : public QuantumCircuit {
-    public:
-        BDDQuantumCircuit(unsigned int numQubits, int seed);
-        BDDQuantumCircuit();
-        ~BDDQuantumCircuit();
-        void setNumQubits(unsigned int numQubits);
-        void ApplyIdentityGate(unsigned int index);
-        void ApplyHadamardGate(unsigned int index);
-        void ApplyNOTGate(unsigned int index);
-        void ApplyPauliYGate(unsigned int index);
-        void ApplyPauliZGate(unsigned int index);
-        void ApplySGate(unsigned int index);
-        void ApplyCNOTGate(long int controller, long int controlled);
-        void ApplyGlobalPhase(double phase);
-        void ApplySwapGate(long int index1, long int index2);
-        void ApplyiSwapGate(long int index1, long int index2);
-        void ApplyCZGate(long int controller, long int controlled);
-        void ApplyCPGate(long int controller, long int controlled, double theta);
-        void ApplyPhaseShiftGate(unsigned int index, double theta);
-        void ApplyTGate(unsigned int index);
-        void ApplyCSGate(long int controller, long int controlled);
-        void ApplyCCNOTGate(long int controller1, long int controller2, long int controlled);
-        void ApplyCSwapGate(long int controller, long int index1, long int index2); 
-        long double GetProbability(std::map<unsigned int, int>& qubit_vals);
-        std::string Measure();
-        unsigned long long int GetPathCount(long double prob);
-    private:
-        ADD stateVector;
-        Cudd* mgr;
-        std::vector<ADD> x_vars;
-        std::vector<ADD> y_vars;
-        //unsigned int numQubits;
-};
 
 #include "cflobdd/CFLOBDD/wmatrix1234_complex_fb_mul.h"
 

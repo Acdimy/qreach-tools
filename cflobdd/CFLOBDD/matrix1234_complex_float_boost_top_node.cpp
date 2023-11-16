@@ -420,25 +420,53 @@ namespace CFL_OBDD {
 			return v;	
 		}
 
-		CFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateInterleavedTop(unsigned int i, double v1_r, double v1_i, double v2_r, double v2_i,
-                                                                   					  double v3_r, double v3_i, double v4_r, double v4_i)
+		CFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateInterleavedTop(unsigned int i, std::vector<double> vec)
 		{
+			// double v1_r, double v1_i, double v2_r, double v2_i, double v3_r, double v3_i, double v4_r, double v4_i
 			// If equal??? Assume that the canonicalization would handle it.
 			CFLOBDDTopNodeComplexFloatBoostRefPtr v;
 			CFLOBDDNodeHandle tempHandle;
 			ComplexFloatBoostReturnMapHandle m;
 
 			assert(i == 1);
-			BIG_COMPLEX_FLOAT val1(v1_r, v1_i);
-			BIG_COMPLEX_FLOAT val2(v2_r, v2_i);
-			BIG_COMPLEX_FLOAT val3(v3_r, v3_i);
-			BIG_COMPLEX_FLOAT val4(v4_r, v4_i);
-			tempHandle = MkArbitraryGateInterleavedNode(i);
-			m.AddToEnd(val1);
-			m.AddToEnd(val2);
-			m.AddToEnd(val3);
-			m.AddToEnd(val4);
+			BIG_COMPLEX_FLOAT a(vec[0], vec[1]);
+			BIG_COMPLEX_FLOAT b(vec[2], vec[3]);
+			BIG_COMPLEX_FLOAT c(vec[4], vec[5]);
+			BIG_COMPLEX_FLOAT d(vec[6], vec[7]);
+			
+			// assign the return value tuples
+			unsigned int eq_mark = 0;
+			m.AddToEnd(a);
+			if(b != a) {
+				m.AddToEnd(b);
+			}
+			if(c != b && c != a) {
+				m.AddToEnd(c);
+			}
+			if(d != c && d != b && d != a) {
+				m.AddToEnd(d);
+			}
+			// assign the eq_mark
+			if(b == a) {
+				eq_mark = (eq_mark | (1 << 5));
+			}
+			if(c == a) {
+				eq_mark = (eq_mark | (1 << 4));
+			}
+			if(d == a) {
+				eq_mark = (eq_mark | (1 << 3));
+			}
+			if(c == b) {
+				eq_mark = (eq_mark | (1 << 2));
+			}
+			if(d == b) {
+				eq_mark = (eq_mark | (1 << 1));
+			}
+			if(d == c) {
+				eq_mark = (eq_mark | 1);
+			}
 			m.Canonicalize();
+			tempHandle = MkU3GateInterleavedNode(i, eq_mark);
 			v = new CFLOBDDTopNodeComplexFloatBoost(tempHandle, m);
 			return v;
 		}
@@ -929,6 +957,7 @@ namespace CFL_OBDD {
 		}
 
 		BIG_COMPLEX_FLOAT NormFormComplex(BIG_COMPLEX_FLOAT val) {
+			// Must be a constant method here!
 			auto real = val.real();
 			auto imag = val.imag();
 			real = round(real*1e10)/1e10;
@@ -965,9 +994,9 @@ namespace CFL_OBDD {
 				auto real = val.real();
 				auto imag = val.imag();
 				// May add a qnum factor
-				if (abs(real) < 1e-7)
+				if (abs(real) < 1e-10)
 					real = 0;
-				if (abs(imag) < 1e-7)
+				if (abs(imag) < 1e-10)
 					imag = 0;
 				val = BIG_COMPLEX_FLOAT(real, imag);
 

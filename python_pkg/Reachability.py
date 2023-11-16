@@ -14,6 +14,13 @@ from math import pi, log2, ceil
     #     # Ei\tensor Ei*
     #     pass
 
+class QuantumError:
+    def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
+        self.err_type = err_type
+        self.err_pos = err_pos
+        self.err_channel = err_channel
+        self.err_params = err_params
+
 def clean_pi(x):
     return round(x/pi, 6)
 
@@ -50,6 +57,8 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
                 qc.u3(idx[0], 0, 0, -0.5)
         elif name == 'cx':
             qc.cx(idx[0], idx[1])
+        elif name == 'ccx':
+            qc.ccx(idx[0], idx[1], idx[2])
         elif name == 'u1':
             if not isConj:
                 qc.u3(idx[0], 0, 0, clean_pi(gate[0].params[0]))
@@ -69,6 +78,28 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
             print("Not Supported gate")
     return qc
 
+def loadQiskitGates(cir, qc, e:QuantumError):
+    """
+    err_pos: [position in gate series, qubit index]
+    """
+    gates = cir.data
+    for i,gate in enumerate(gates):
+        if e.err_pos[0] != -1 and i == e.err_pos[0]:
+            err_idx = [e.err_pos[1], e.err_channel]
+            qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
+        idx = [cir.find_bit(bit).index for bit in gate.qubits]
+        name = gate[0].name
+        params = gate[0].params
+        params = [clean_pi(x) for x in params]
+        # print(name)
+        if i == 0:
+            qc.appendGateSeries(name, idx, params, True)
+        else:
+            qc.appendGateSeries(name, idx, params, False)
+    if e.err_pos[0] == len(gates):
+        err_idx = [e.err_pos[1], e.err_channel]
+        qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
+    return qc
 
 def generateCir(qnum):
     qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
