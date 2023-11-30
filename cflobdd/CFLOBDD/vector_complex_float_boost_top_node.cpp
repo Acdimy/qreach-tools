@@ -281,7 +281,7 @@ namespace CFL_OBDD {
 						std::string b;
 						b = n->EvaluateIteratively(a).str(5);
 						out << b << " ";
-					}
+					} out << "\n";
 				}
 				out << std::endl;
 			}

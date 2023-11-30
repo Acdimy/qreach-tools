@@ -40,7 +40,7 @@ dep:
 all: $(PROJECT)
 #$(DEPENDENCIES) -shared 
 $(PROJECT): $(OBJECTS)
-	$(CC) -shared -o $(PROJECT) $(OBJECTS) $(LIBS) -fPIC
+	$(CC) -shared -o $(PROJECT) $(OBJECTS) -fPIC
 
 # Include dependencies (if there are any)
 # ifneq "$(strip $(DEPENDENCIES))" ""

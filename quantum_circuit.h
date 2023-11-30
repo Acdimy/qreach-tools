@@ -203,7 +203,7 @@ class CFLOBDDQuantumCircuit : public QuantumCircuit {
 
         void appendGateSeries(std::string name, std::vector<unsigned int> index, std::vector<double> vars, bool newChannel=false);
         void clearGateSeries();
-        void ApplyGateSeries(int channelIdx);
+        int ApplyGateSeries(int channelIdx);
         unsigned int reachability();
 
         void printStateColMajor();

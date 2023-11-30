@@ -72,7 +72,7 @@ namespace CFL_OBDD {
 	extern CFLOBDDNodeHandle MatrixShiftVoc42Node(CFLOBDDNodeMemoTableRefPtr memoTable, CFLOBDDNodeHandle nh);
 	extern CFLOBDDNodeHandle MatrixShiftVocs13To24Node(CFLOBDDNodeMemoTableRefPtr memoTable, CFLOBDDNodeHandle nh);
 	extern CFLOBDDNodeHandle MatrixShiftVocs12To34Node(CFLOBDDNodeMemoTableRefPtr memoTable, CFLOBDDNodeHandle nh);
-	// extern CFLOBDDNodeHandle MatrixConjugateNode(CFLOBDDNodeMemoTableRefPtr memoTable, CFLOBDDNodeHandle nh);
+	extern CFLOBDDNodeHandle MatrixConjugateNode(CFLOBDDNodeHandle nh);
 	extern CFLOBDDNodeHandle MkDetensorConstraintInterleavedNode(unsigned int i);
 	// extern CFLOBDDTopNodeLinearMapRefPtr MatrixProjectVoc23Node(CFLOBDDLinearMapMemoTableRefPtr memoTable, CFLOBDDNodeHandle nh, VisitPosition position); // Vocabulary projection
 	extern CFLOBDDNodeHandle ReverseColumnsNode(CFLOBDDNodeHandle nh);

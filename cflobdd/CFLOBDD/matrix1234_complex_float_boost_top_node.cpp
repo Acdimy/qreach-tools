@@ -481,12 +481,17 @@ namespace CFL_OBDD {
 
 			// CFLOBDDNodeHandle tempHandle = MatrixConjugateNode(memoTable, *(n->rootConnection.entryPointHandle));
 			// CFLOBDDTopNodeComplexFloatBoostRefPtr v = new CFLOBDDTopNodeComplexFloatBoost(tempHandle, n->rootConnection.returnMapHandle);
-			for(int i=0; i<n->rootConnection.returnMapHandle.Size(); i++) {
-				// Error!!!
-				n->rootConnection.returnMapHandle[i].imag() = -n->rootConnection.returnMapHandle[i].imag();
-			}
 			
-			return n;
+			auto rMap = n->rootConnection.returnMapHandle;
+			ComplexFloatBoostReturnMapHandle m;
+			for(int i=0; i<rMap.Size(); i++) {
+				auto im = rMap[i].imag();
+				auto re = rMap[i].real();
+				m.AddToEnd(BIG_COMPLEX_FLOAT(re,-im));
+			}
+			m.Canonicalize();
+			CFLOBDDTopNodeComplexFloatBoostRefPtr v = new CFLOBDDTopNodeComplexFloatBoost(*(n->rootConnection.entryPointHandle), m);
+			return v;
 		}
 
 		CFLOBDDTopNodeComplexFloatBoostRefPtr MatrixTransposeTop(CFLOBDDTopNodeComplexFloatBoostRefPtr n)

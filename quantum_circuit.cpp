@@ -240,6 +240,7 @@ void CFLOBDDQuantumCircuit::ApplyArbitraryGate(unsigned int index, std::vector<d
     // v.push_back(v1_r); v.push_back(v1_i); v.push_back(v2_r); v.push_back(v2_i); v.push_back(v3_r); v.push_back(v3_i); v.push_back(v4_r); v.push_back(v4_i);
     auto U = ApplyGateFWithParamVec(std::pow(2, stateVector.root->level-1), index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
     // auto U = ApplyGateF(std::pow(2, stateVector.root->level-1), index, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
+    // VectorComplexFloatBoost::VectorPrintColumnMajor(U, std::cout);
     stateVector = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(U, stateVector);
 }
 
@@ -575,7 +576,41 @@ void CFLOBDDQuantumCircuit::appendGateSeries(std::string name, std::vector<unsig
     circuitGates.appendGate(name, index, vars);
 }
 
-void CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
+CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
+    auto H = ApplyGateF(std::pow(2, c.root->level-1), 0, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
+    CFLOBDD_COMPLEX_BIG c1 = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, c);
+    CFLOBDD_COMPLEX_BIG c1_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(c1);
+    // VectorComplexFloatBoost::VectorPrintColumnHead(c1_conj, std::cout);
+    c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1_conj);
+    auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
+    auto resMap = mulres.root->rootConnection.returnMapHandle;
+    assert(resMap.Size() <= 2);
+    BIG_COMPLEX_FLOAT amp;
+    if(resMap.Size() == 2) {
+        amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
+        // std::cout << amp.imag() << " " << amp.real() << std::endl;
+        assert(abs(amp.imag()) < 1e-7 && amp.real() > 0);
+        double factor = double(sqrt(amp.real()));
+        c1 = (1/factor) * c1;
+    } else {
+        assert(abs(amp.imag()) < 1e-7 && abs(amp.real()) < 1e-7);
+        c1 = VectorComplexFloatBoost::NoDistinctionNode(c.root->level, 0);
+    }
+    return c1;
+}
+
+bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
+    double threshold = 1e-9;
+    auto resMap = c.root->rootConnection.returnMapHandle;
+    for(int i = 0; i < resMap.Size(); i++) {
+        if(abs(resMap[i].real()) + abs(resMap[i].imag()) > threshold) {
+            return false;
+        }
+    }
+    return true;
+}
+
+int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
 {
     assert(channelIdx < circuitGates.numChannel);
     for(int i = 0; i < circuitGates.operations[channelIdx].size(); i++) {
@@ -610,44 +645,38 @@ void CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
                 std::vector<double> v{0,0,sqrt(g.vars[0]),0,0,0,0,0};
                 ApplyArbitraryGate(g.index[0], v);
                 // ApplyNOTGate(g.index[0]);
+            } else {
+                assert(1 == 0);
             }
-        } else if(g.name == "tr") {
-            
-        } else if(g.name == "dp") {
+        } else if(g.name == "measure") {
+            // normalized
+            if(g.index[1] == 1) {
+                std::vector<double> v{1,0,0,0,0,0,0,0};
+                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
+                ApplyArbitraryGate(g.index[0], v);
+                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
+                stateVector = normalize(stateVector);
+                if(checkifzero(stateVector)) {
+                    return -1;
+                }
+            } else if(g.index[1] == 2) {
+                std::vector<double> v{0,0,0,0,0,0,1,0};
+                ApplyArbitraryGate(g.index[0], v);
+                stateVector = normalize(stateVector);
+                if(checkifzero(stateVector)) {
+                    return -1;
+                }
+            } else {
+                assert(1 == 0);
+            }
+        } else if(g.name == "partial") {
+            // reset = partial trace + append
             
         } else {
             assert(1 == 0);
         }
     }
-}
-
-CFLOBDD_COMPLEX_BIG nomalize(CFLOBDD_COMPLEX_BIG c) {
-    auto H = ApplyGateF(std::pow(2, c.root->level-1), 0, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
-    CFLOBDD_COMPLEX_BIG c1 = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, c);
-    CFLOBDD_COMPLEX_BIG c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1);
-    c1_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(c1_conj);
-    auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
-    auto resMap = mulres.root->rootConnection.returnMapHandle;
-    assert(resMap.Size() <= 2);
-    BIG_COMPLEX_FLOAT amp;
-    if(resMap.Size() == 2) {
-        amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-        assert(amp.imag() == 0 && amp.real() > 0);
-        double factor = double(sqrt(amp.real()));
-        c1 = (1/factor) * c1;
-    }
-    return c1;
-}
-
-bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    double threshold = 1e-9;
-    auto resMap = c.root->rootConnection.returnMapHandle;
-    for(int i = 0; i < resMap.Size(); i++) {
-        if(abs(resMap[i].real()) + abs(resMap[i].imag()) > threshold) {
-            return false;
-        }
-    }
-    return true;
+    return 0;
 }
 
 unsigned int CFLOBDDQuantumCircuit::reachability()
@@ -660,7 +689,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
     unsigned int cnt = stateProjector.size();
     assert(cnt != 0 && state_queue.size() != 0);
     unsigned int d = 2 << numQubits;
-    /// main loop: if queue is not empty or cnt < d
+    /// main loop: if queue is not empty and cnt < d
     while(state_queue.empty() == false && cnt <= d) {
         // std::cout << cnt << std::endl;
         auto cur_state_idx = state_queue.front();
@@ -670,8 +699,10 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             //// make sure transpose value!!
             stateVector = stateProjector[cur_state_idx];
             //// Here, may introduce much complexity!!
-            ApplyGateSeries(j);
-            extended_states.push_back(stateVector);
+            int ck = ApplyGateSeries(j);
+            if(ck == 0) {
+                extended_states.push_back(stateVector);
+            }
         }
         //// arbitrary clear
         stateVector = VectorComplexFloatBoost::MkBasisVector(1, 0);
@@ -680,7 +711,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             stateVector = e_state;
             ApplyProjectorToState();
             CFLOBDD_COMPLEX_BIG tmp_state = e_state + (-1)*stateVector;
-            tmp_state = nomalize(tmp_state);
+            tmp_state = normalize(tmp_state);
             // Here, introduce some epsilon
             if(checkifzero(tmp_state) == false) {
                 // Need some benchmarks!!

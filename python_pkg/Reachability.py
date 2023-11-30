@@ -5,15 +5,6 @@ from utils import *
 from qiskit import QuantumCircuit
 from math import pi, log2, ceil
 
-# class KrausOperator:
-#     def __init__(self) -> None:
-#         self.ops = []
-#     def append(filename:str):
-#         cir=QuantumCircuit.from_qasm_file(filename)
-    # def concat():
-    #     # Ei\tensor Ei*
-    #     pass
-
 class QuantumError:
     def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
         self.err_type = err_type
@@ -78,28 +69,51 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
             print("Not Supported gate")
     return qc
 
-def loadQiskitGates(cir, qc, e:QuantumError):
+def loadQiskitGates(cir, qc, e_list:[]):
     """
     err_pos: [position in gate series, qubit index]
     """
-    gates = cir.data
+    gates = list(cir.data)
+    e_list = sorted(e_list, key=lambda x:x.err_pos[0], reverse=True)
+    for e in e_list:
+        gates.insert(e.err_pos[0], e)
     for i,gate in enumerate(gates):
-        if e.err_pos[0] != -1 and i == e.err_pos[0]:
-            err_idx = [e.err_pos[1], e.err_channel]
-            qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
-        idx = [cir.find_bit(bit).index for bit in gate.qubits]
-        name = gate[0].name
-        params = gate[0].params
-        params = [clean_pi(x) for x in params]
-        # print(name)
-        if i == 0:
-            qc.appendGateSeries(name, idx, params, True)
+        if isinstance(gate, QuantumError):
+            err_idx = [gate.err_pos[1], gate.err_channel]
+            qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, i==0)
         else:
-            qc.appendGateSeries(name, idx, params, False)
-    if e.err_pos[0] == len(gates):
-        err_idx = [e.err_pos[1], e.err_channel]
-        qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
+            idx = [cir.find_bit(bit).index for bit in gate.qubits]
+            name = gate[0].name
+            params = gate[0].params
+            params = [clean_pi(x) for x in params]
+            qc.appendGateSeries(name, idx, params, i==0)
     return qc
+
+# def loadQiskitGates(cir, qc, e:QuantumError):
+#     """
+#     err_pos: [position in gate series, qubit index]
+#     """
+#     gates = cir.data
+#     for i,gate in enumerate(gates):
+#         if i == e.err_pos[0] and i != 0:
+#             err_idx = [e.err_pos[1], e.err_channel]
+#             qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
+#         idx = [cir.find_bit(bit).index for bit in gate.qubits]
+#         name = gate[0].name
+#         params = gate[0].params
+#         params = [clean_pi(x) for x in params]
+#         # print(name)
+#         if i == 0:
+#             if i == e.err_pos[0]:
+#                 err_idx = [e.err_pos[1], e.err_channel]
+#                 qc.appendGateSeries(e.err_type, err_idx, e.err_params, True)
+#             qc.appendGateSeries(name, idx, params, True)
+#         else:
+#             qc.appendGateSeries(name, idx, params, False)
+#     if e.err_pos[0] == len(gates):
+#         err_idx = [e.err_pos[1], e.err_channel]
+#         qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
+#     return qc
 
 def generateCir(qnum):
     qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
