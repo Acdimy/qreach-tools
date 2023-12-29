@@ -5,9 +5,10 @@ from Reachability import *
 from math import sqrt
 
 t_start=time.time()
-cir=QuantumCircuit.from_qasm_file("benchmark/tus_1.qasm")
+cir=QuantumCircuit.from_qasm_file("benchmark/rus_1.qasm")
 
 qc = generateCir(cir.num_qubits)
+qc.setRealQubits(cir.num_qubits)
 e1 = QuantumError('measure', [len(cir), 0], 1, [])
 e2 = QuantumError('measure', [len(cir), 0], 2, [])
 e3 = QuantumError('measure', [len(cir), 1], 1, [])

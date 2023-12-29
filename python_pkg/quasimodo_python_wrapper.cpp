@@ -39,6 +39,7 @@ PYBIND11_MODULE(pyquasimodo, m) {
         .def("u3", &CFLOBDDQuantumCircuit::ApplyU3Gate, "ApplyU3Gate")
         .def("u", &CFLOBDDQuantumCircuit::ApplyArbitraryGate, "ApplyArbitraryGate")
         .def("setState", &CFLOBDDQuantumCircuit::setBasicStateVector, "setBasicStateVector")
+        .def("setRealQubits", &CFLOBDDQuantumCircuit::setRealQubits, "setRealQubits")
         .def("setInitGate", &CFLOBDDQuantumCircuit::setInitGate, "setInitGate")
         .def("setProjector", &CFLOBDDQuantumCircuit::setProjector, "setProjector")
         .def("setProjectorFS", &CFLOBDDQuantumCircuit::setProjectorFromS, "setProjectorFS")

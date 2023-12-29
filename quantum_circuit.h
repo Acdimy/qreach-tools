@@ -148,6 +148,7 @@ class QuantumCircuit {
     
     protected:
         unsigned int numQubits;
+        unsigned int realQubits;
         unsigned int hadamard_count;
         std::mt19937 mt;
 };
@@ -191,6 +192,7 @@ class CFLOBDDQuantumCircuit : public QuantumCircuit {
 
         // Equivalence checking used
         void setBasicStateVector(std::string s);
+        void setRealQubits(unsigned int q);
         void setInitGate();
         void setMaximalEntangledVec();
         void setProjector(std::vector<double> real, std::vector<double> imag, std::vector<int> index);

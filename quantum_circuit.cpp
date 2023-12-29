@@ -8,8 +8,9 @@ QuantumCircuit::QuantumCircuit(unsigned int numQubits, int seed) :  numQubits (n
     mt.seed(seed);
     srand(seed);
     hadamard_count = 0;
+    realQubits = 0;
 }
-QuantumCircuit::QuantumCircuit() :  numQubits (0), hadamard_count (0) {}
+QuantumCircuit::QuantumCircuit() :  numQubits (0), hadamard_count (0), realQubits (0) {}
 QuantumCircuit::~QuantumCircuit() {}
 
 // using namespace CFL_OBDD;
@@ -651,7 +652,7 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
         } else if(g.name == "measure") {
             // normalized
             if(g.index[1] == 1) {
-                std::vector<double> v{1,0,0,0,0,0,0,0};
+                std::vector<double> v{1,0,0,0,0,0, 0,0};
                 // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
                 ApplyArbitraryGate(g.index[0], v);
                 // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
@@ -688,10 +689,18 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
     }
     unsigned int cnt = stateProjector.size();
     assert(cnt != 0 && state_queue.size() != 0);
-    unsigned int d = 2 << numQubits;
+    unsigned int d;
+    if(realQubits == 0) {
+        d = 1 << numQubits;
+    } else {
+        d = 1 << realQubits;
+        // std::cout << d << std::endl;
+    }
     /// main loop: if queue is not empty and cnt < d
     while(state_queue.empty() == false && cnt <= d) {
-        // std::cout << cnt << std::endl;
+        // if(cnt % 10 == 0) {
+        //     std::cout << cnt << std::endl;
+        // }
         auto cur_state_idx = state_queue.front();
         state_queue.pop_front();
         std::vector<CFLOBDD_COMPLEX_BIG> extended_states;
@@ -711,6 +720,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             stateVector = e_state;
             ApplyProjectorToState();
             CFLOBDD_COMPLEX_BIG tmp_state = e_state + (-1)*stateVector;
+            // Normalization is necessary!!!
             tmp_state = normalize(tmp_state);
             // Here, introduce some epsilon
             if(checkifzero(tmp_state) == false) {
@@ -740,6 +750,12 @@ void CFLOBDDQuantumCircuit::setBasicStateVector(std::string s)
     unsigned int level = ceil(log2(numQubits));
     stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
     stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
+    return;
+}
+
+void CFLOBDDQuantumCircuit::setRealQubits(unsigned int q)
+{
+    realQubits = q;
     return;
 }
 
