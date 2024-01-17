@@ -1,3 +1,2 @@
-# qreach-tools
+# QReach: A Reachability Analysis Tool for Quantum Markov Chains
 
-* TODO: delete cudd packages

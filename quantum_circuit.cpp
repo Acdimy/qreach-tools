@@ -585,26 +585,35 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
     c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1_conj);
     auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
     auto resMap = mulres.root->rootConnection.returnMapHandle;
+    // Maybe #BUGS here!
+    double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
+    // double dimfactor = 1;
     assert(resMap.Size() <= 2);
     BIG_COMPLEX_FLOAT amp;
     if(resMap.Size() == 2) {
         amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
         // std::cout << amp.imag() << " " << amp.real() << std::endl;
-        assert(abs(amp.imag()) < 1e-7 && amp.real() > 0);
+        assert(abs(amp.imag()*dimfactor) < 1e-7 && amp.real() > 0);
         double factor = double(sqrt(amp.real()));
+        // std::cout << "Normalize: " << factor << std::endl;
         c1 = (1/factor) * c1;
     } else {
-        assert(abs(amp.imag()) < 1e-7 && abs(amp.real()) < 1e-7);
+        assert(abs(amp.imag()*dimfactor) < 1e-7 && abs(amp.real()*dimfactor) < 1e-7);
+        // std::cout << "Nodistinction!!!" << std::endl;
         c1 = VectorComplexFloatBoost::NoDistinctionNode(c.root->level, 0);
     }
     return c1;
 }
 
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    double threshold = 1e-9;
+    // Maybe #BUGS here!
+    double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
+    // double dimfactor = 1;
+    double threshold = 1e-7;
     auto resMap = c.root->rootConnection.returnMapHandle;
     for(int i = 0; i < resMap.Size(); i++) {
-        if(abs(resMap[i].real()) + abs(resMap[i].imag()) > threshold) {
+        if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
+            // std::cout << abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) << " ";
             return false;
         }
     }
@@ -626,7 +635,12 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
             ApplyPauliZGate(g.index[0]);
         } else if(g.name == "s") {
             ApplySGate(g.index[0]);
+        } else if(g.name == "t") {
+            ApplyTGate(g.index[0]);
+        } else if(g.name == "tdg") {
+            ApplyU3Gate(g.index[0], 0, 0, -0.25);
         } else if(g.name == "u1") {
+            // ApplyPhaseShiftGate
             ApplyU3Gate(g.index[0], 0, 0, g.vars[0]);
         } else if(g.name == "u2") {
             ApplyU3Gate(g.index[0], 0.5, g.vars[0], g.vars[1]);
@@ -634,6 +648,8 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
             ApplyU3Gate(g.index[0], g.vars[0], g.vars[1], g.vars[2]);
         } else if(g.name == "cx") {
             ApplyCNOTGate(g.index[0], g.index[1]);
+        } else if(g.name == "cz") {
+            ApplyCZGate(g.index[0], g.index[1]);
         } else if(g.name == "ccx") {
             ApplyCCNOTGate(g.index[0], g.index[1], g.index[2]);
         } else if(g.name == "ad") {
@@ -647,6 +663,7 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
                 ApplyArbitraryGate(g.index[0], v);
                 // ApplyNOTGate(g.index[0]);
             } else {
+                // CP CSWAP CS
                 assert(1 == 0);
             }
         } else if(g.name == "measure") {
@@ -668,13 +685,13 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
                     return -1;
                 }
             } else {
-                assert(1 == 0);
+                assert(2 == 0);
             }
         } else if(g.name == "partial") {
             // reset = partial trace + append
             
         } else {
-            assert(1 == 0);
+            assert(3 == 0);
         }
     }
     return 0;
@@ -701,6 +718,8 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
         // if(cnt % 10 == 0) {
         //     std::cout << cnt << std::endl;
         // }
+        // #DEBUG: Avoid long looping!!
+        // if(cnt >= 30) break;
         auto cur_state_idx = state_queue.front();
         state_queue.pop_front();
         std::vector<CFLOBDD_COMPLEX_BIG> extended_states;
@@ -709,6 +728,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             stateVector = stateProjector[cur_state_idx];
             //// Here, may introduce much complexity!!
             int ck = ApplyGateSeries(j);
+            // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
             if(ck == 0) {
                 extended_states.push_back(stateVector);
             }
@@ -721,10 +741,12 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             ApplyProjectorToState();
             CFLOBDD_COMPLEX_BIG tmp_state = e_state + (-1)*stateVector;
             // Normalization is necessary!!!
-            tmp_state = normalize(tmp_state);
+            // Here, put normalization into checkifzero block!
+            
             // Here, introduce some epsilon
             if(checkifzero(tmp_state) == false) {
                 // Need some benchmarks!!
+                tmp_state = normalize(tmp_state);
                 state_queue.push_back(cnt);
                 cnt++;
                 stateProjector.push_back(tmp_state);
@@ -766,23 +788,6 @@ void CFLOBDDQuantumCircuit::setInitGate()
     stateVector = H;
 }
 
-// void CFLOBDDQuantumCircuit::setMaximalEntangledVec()
-// {
-//     // Make stateVector maximally entangled in space of 2*numQubits.
-//     // A uniform phase is omitted
-//     unsigned int level = ceil(log2(numQubits)) + 1;
-//     stateVector = VectorComplexFloatBoost::MkBasisVector(level, 0);
-//     for(int j = 1; j <= ((1 << numQubits)-1); j++) {
-//         int index = j + (j << numQubits);
-//         // std::cout << index << " ";
-//         CFLOBDD_COMPLEX_BIG tmpVector = VectorComplexFloatBoost::MkBasisVector(level, index);
-//         stateVector = stateVector + tmpVector;
-//     }
-//     // printSize("state");
-//     stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
-//     // printSize("state");
-//     // std::cout << std::endl;
-// }
 
 void CFLOBDDQuantumCircuit::setProjector(std::vector<double> real, std::vector<double> imag, std::vector<int> index)
 {
@@ -860,6 +865,7 @@ void CFLOBDDQuantumCircuit::ApplyProjectorToState()
         else
             amp = resMap[0];
         amp = conj(amp);
+        // std::cout << "ApplyProjectorToState: " << amp << std::endl;
         res = res + (amp * stateProjector[i]);
     }
     stateVector = res;
@@ -918,18 +924,29 @@ void CFLOBDDQuantumCircuit::printRV(std::string type)
 
 unsigned int CFLOBDDQuantumCircuit::printSize(std::string type)
 {
-    unsigned int nodeCount, edgeCount;
-    unsigned int returnEdgesCount, returnEdgesObjCount;
     if (type == "state") {
+        unsigned int nodeCount, edgeCount;
+        unsigned int returnEdgesCount, returnEdgesObjCount;
         stateVector.CountNodesAndEdges(nodeCount, edgeCount, returnEdgesCount, returnEdgesObjCount);
         std::cout << "Number of values: " << 
                     stateVector.root->rootConnection.returnMapHandle.mapContents->mapArray.size() << std::endl;
-    } else {
-        std::cout << "test" << std::endl;
-        // kraus_operators[0].CountNodesAndEdges(nodeCount, edgeCount, returnEdgesCount, returnEdgesObjCount);
+        std::cout << "Nodes & Edges in stateVector: " << nodeCount << ", " << edgeCount << std::endl;
+    } else if (type == "projector") {
+        unsigned int nodeCount, edgeCount;
+        unsigned int returnEdgesCount, returnEdgesObjCount;
+        unsigned int nodeCountTotal = 0, edgeCountTotal = 0;
+        for(int i = 0; i < stateProjector.size(); i++) {
+            stateProjector[i].CountNodesAndEdges(nodeCount, edgeCount, returnEdgesCount, returnEdgesObjCount);
+            nodeCountTotal += nodeCount;
+            edgeCountTotal += edgeCount;
+            // std::cout << i << " " << nodeCount << " " << edgeCount << std::endl;
+            // std::cout << "Number of values " << i << ": "
+            //         stateProjector[i].root->rootConnection.returnMapHandle.mapContents->mapArray.size() << std::endl;
+        }
+        std::cout << "Nodes & Edges in projectors: " << nodeCountTotal << ", " << edgeCountTotal << std::endl;
     }
-    std::cout << nodeCount << ", " << edgeCount << std::endl;
-    return edgeCount;
+    
+    return 0;
 }
 
 void CFLOBDDQuantumCircuit::printProjector()
@@ -999,494 +1016,4 @@ void CFLOBDDQuantumCircuit::test()
     // std::cout << c << std::endl;
     return;
 }
-
-
-// *******************
-// Weighted BDD
-// *******************
-
-#include "cflobdd/CFLOBDD/wvector_complex_fb_mul.h"
-#include "cflobdd/CFLOBDD/weighted_cross_product.h"
-#include "cflobdd/CFLOBDD/weighted_cross_product_bdd.h"
-
-WeightedBDDQuantumCircuit::WeightedBDDQuantumCircuit(unsigned int numQubits, int seed) : QuantumCircuit(numQubits, seed)
-{
-    // Initialize
-    WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitNoDistinctionTable();
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitNoDistinctionTable_Ann();
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitIdentityNodeTable();	
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitReduceCache();
-	WeightedMatrix1234ComplexFloatBoostMul::Matrix1234Initializer();
-	WeightedVectorComplexFloatBoostMul::VectorInitializer();
-	InitWeightedPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-
-    WeightedBDDNodeHandle<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitLeafNodes();
-	InitWeightedBDDPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-    //
-    std::string s(2 * numQubits, '0');
-    stateVector = WeightedVectorComplexFloatBoostMul::MkBasisVector(2 * numQubits, s, 0);
-}
-
-WeightedBDDQuantumCircuit::WeightedBDDQuantumCircuit()
-{
-    // Initialize
-    WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitNoDistinctionTable();
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitNoDistinctionTable_Ann();
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitIdentityNodeTable();	
-	WeightedCFLOBDDNodeHandleT<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitReduceCache();
-	WeightedMatrix1234ComplexFloatBoostMul::Matrix1234Initializer();
-	WeightedVectorComplexFloatBoostMul::VectorInitializer();
-	InitWeightedPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-
-    WeightedBDDNodeHandle<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>::InitLeafNodes();
-	InitWeightedBDDPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-    numQubits = 0;
-    //
-}
-
-WeightedBDDQuantumCircuit::~WeightedBDDQuantumCircuit()
-{
-    DisposeOfWeightedPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-    DisposeOfWeightedBDDPairProductCache<BIG_COMPLEX_FLOAT, std::multiplies<BIG_COMPLEX_FLOAT>>();
-}
-
-void WeightedBDDQuantumCircuit::setNumQubits(unsigned int num)
-{
-    numQubits = num;
-    stateVector = WeightedVectorComplexFloatBoostMul::MkBasisVector(numQubits, 0, 0);
-}
-
-WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL ApplyGateF(unsigned int n, unsigned int i, WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(*f)(unsigned int, int))
-{
-    WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL H = f(2, 0);
-    if (i == 0)
-    {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n-1), 0);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(H, I); 
-    }
-    else if (i == n - 1)
-    {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n-1), 0);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(I, H);
-    }
-    else {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I1 = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * i, 0);
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I2 = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n - i - 1), 0);
-        auto T = WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(H, I2);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(I1, T);
-    }
-}
-
-WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL ApplyGateFWithParam(unsigned int n, unsigned int i, WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(*f)(unsigned int, double, int), double theta)
-{
-    WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL H = f(2, theta, 0);
-    if (i == 0)
-    {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n-1), 0);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(H, I); 
-    }
-    else if (i == n - 1)
-    {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n-1), 0);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(I, H);
-    }
-    else {
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I1 = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * i, 0);
-        WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL I2 = WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved(2 * (n - i - 1), 0);
-        auto T = WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(H, I2);
-        return WeightedMatrix1234ComplexFloatBoostMul::KroneckerProduct2Vocs(I1, T);
-    }
-}
-
-
-void WeightedBDDQuantumCircuit::ApplyIdentityGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto H = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkIdRelationInterleaved);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(H, stateVector);
-}
-
-void WeightedBDDQuantumCircuit::ApplyHadamardGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto H = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkWalshInterleaved);
-    // H.print(std::cout);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(H, stateVector);
-    // stateVector.print(std::cout);
-    // std::cout << std::endl;
-    hadamard_count++;
-}
-
-void WeightedBDDQuantumCircuit::ApplyNOTGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    // stateVector.print(std::cout);
-    auto X = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkNegationMatrixInterleaved);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(X, stateVector);
-    // stateVector.print(std::cout);
-}
-
-void WeightedBDDQuantumCircuit::ApplyPauliYGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto Y = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkPauliYGate);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(Y, stateVector);
-}
-
-void WeightedBDDQuantumCircuit::ApplyPauliZGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto Z = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkPauliZGate);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(Z, stateVector);
-}
-
-void WeightedBDDQuantumCircuit::ApplySGate(unsigned int index)
-{
-    auto S = ApplyGateF(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkSGate);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, stateVector);
-}
-
-void WeightedBDDQuantumCircuit::ApplyCNOTGate(long int controller, long int controlled)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(controller != controlled);
-    
-    if (controller < controlled)
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCNOT(2 * numQubits, numQubits, controller, controlled, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-        // stateVector.print(std::cout);
-    }
-    else
-    {
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCNOT(2 * numQubits, numQubits, controlled, controller, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplySwapGate(long int index1, long int index2)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(index1 != index2);
-    
-    if (index1 < index2)
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index1, index2, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index2, index1, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplyiSwapGate(long int index1, long int index2)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(index1 != index2);
-    
-    if (index1 < index2)
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkiSwapGate(2 * numQubits, index1, index2, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkiSwapGate(2 * numQubits, index2, index1, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplyCZGate(long int controller, long int controlled)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(controller != controlled);
-    
-    if (controller < controlled)
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCPGate(2 * numQubits, controller, controlled, 1.0, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else
-    {
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCPGate(2 * numQubits, controlled, controller, 1.0, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplyCPGate(long int controller, long int controlled, double theta)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(controller != controlled);
-    
-    if (controller < controlled)
-    {
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCPGate(2 * numQubits, controller, controlled, theta, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else
-    {
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCPGate(2 * numQubits, controlled, controller, theta, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    } 
-}
-
-void WeightedBDDQuantumCircuit::ApplyCSGate(long int controller, long int controlled)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    ApplyCPGate(controller, controlled, 0.5);
-}
-
-void WeightedBDDQuantumCircuit::ApplyPhaseShiftGate(unsigned int index, double theta)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto S = ApplyGateFWithParam(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkPhaseShiftGate, theta);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, stateVector); 
-}
-
-void WeightedBDDQuantumCircuit::ApplyTGate(unsigned int index)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto S = ApplyGateFWithParam(numQubits, index, WeightedMatrix1234ComplexFloatBoostMul::MkPhaseShiftGate, 0.25);
-    stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, stateVector); 
-}
-
-void WeightedBDDQuantumCircuit::ApplyCCNOTGate(long int controller1, long int controller2, long int controlled)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(controller1 != controlled);
-    assert(controller2 != controlled);
-    assert(controller1 != controller2);
-    if (controller1 < controller2 && controller2 < controlled)
-    {
-        // a b c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCCNOT(2 * numQubits, controller1, controller2, controlled, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (controller1 < controlled && controlled < controller2)
-    {
-        // a c b   
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller2, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCCNOT(2 * numQubits, controller1, controlled, controller2, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (controller2 < controller1 && controller1 < controlled)
-    {
-        // b a c
-        ApplyCCNOTGate(controller2, controller1, controlled);
-    }
-    else if (controller2 < controlled && controlled < controller1)
-    {
-        // b c a
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller1, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCCNOT(2 * numQubits, controller2, controlled, controller1, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector); 
-    }
-    else if (controlled < controller1 && controller1 < controller2)
-    {
-        // c a b
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller2, 0);
-        // b a c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCCNOT(2 * numQubits, controlled, controller1, controller2, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (controlled < controller2 && controller2 < controller1)
-    {
-        // c b a
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, controlled, controller1, 0);
-        // a b c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCCNOT(2 * numQubits, controlled, controller2, controller1, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplyCSwapGate(long int controller, long int index1, long int index2)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    assert(controller != index1);
-    assert(controller != index2);
-    assert(index1 != index2);
-    
-    if (controller < index1 && index1 < index2)
-    {
-        // a b c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, controller, index1, index2, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (controller < index2 && index2 < index1)
-    {
-        // a c b   
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, controller, index2, index1, 0);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (index1 < controller && controller < index2)
-    {
-        // b a c
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index1, controller, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, index1, controller, index2, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (index1 < index2 && index2 < controller)
-    {
-        // b c a
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index1, controller, 0);
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, index1, index2, controller, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (index2 < controller && controller < index1)
-    {
-        // c a b
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index2, controller, 0);
-        // b a c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, index2, controller, index1, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-    else if (index2 < index1 && index1 < controller)
-    {
-        // c b a
-        auto S = WeightedMatrix1234ComplexFloatBoostMul::MkSwapGate(2 * numQubits, index2, controller, 0);
-        // a b c
-        auto C = WeightedMatrix1234ComplexFloatBoostMul::MkCSwapGate(2 * numQubits, index2, index1, controller, 0);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, S);
-        C = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(S, C);
-        stateVector = WeightedMatrix1234ComplexFloatBoostMul::MatrixMultiplyV4(C, stateVector);
-    }
-}
-
-void WeightedBDDQuantumCircuit::ApplyGlobalPhase(double phase)
-{
-    if (checkForInit(numQubits) == false)
-    {
-        std::cout << "Number of Qubits is unset" << std::endl;
-        abort();   
-    }
-    auto cos_v = boost::math::cos_pi(phase);
-    auto sin_v = boost::math::sin_pi(phase);
-    BIG_COMPLEX_FLOAT phase_complex(cos_v, sin_v);
-    stateVector = phase_complex * stateVector;
-}
-
-long double WeightedBDDQuantumCircuit::GetProbability(std::map<unsigned int, int>& qubit_vals)
-{
-    auto tmp = stateVector;
-    std::string s(numQubits, 'X');
-    for (unsigned int i = 0; i < numQubits; i++)
-    {
-        if (qubit_vals.find(i) != qubit_vals.end())
-        {
-            if (qubit_vals[i] == 0)
-                s[i] = '0';
-            else if (qubit_vals[i] == 1)
-                s[i] = '1';   
-        }
-    }
-    auto restricted = WeightedMatrix1234ComplexFloatBoostMul::MkRestrictMatrix(2 * numQubits, s, 0);
-    tmp = tmp * restricted;
-    tmp.ComputeWeightOfPathsAsAmpsToExits();
-    return WeightedVectorComplexFloatBoostMul::getNonZeroProbability(tmp);
-}
-
-std::string WeightedBDDQuantumCircuit::Measure() 
-{
-    auto tmp = stateVector;
-    // tmp.print(std::cout);
-    tmp.ComputeWeightOfPathsAsAmpsToExits();
-    std::uniform_real_distribution<double> dis(0.0, 1.0);
-    return WeightedVectorComplexFloatBoostMul::Sampling(tmp, true, mt, dis).substr(0, numQubits); 
-}
-
-unsigned long long int WeightedBDDQuantumCircuit::GetPathCount(long double prob)
-{
-    std::cout << "Error! Operation not supported in WBDDs" << std::endl;
-    abort();
-} 
-
-
-
-
-
 

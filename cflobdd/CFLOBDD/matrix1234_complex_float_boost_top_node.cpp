@@ -965,8 +965,9 @@ namespace CFL_OBDD {
 			// Must be a constant method here!
 			auto real = val.real();
 			auto imag = val.imag();
-			real = round(real*1e10)/1e10;
-			imag = round(imag*1e10)/1e10;
+			// Potential #BUGS: too many precision digits
+			real = round(real*1e30)/1e30;
+			imag = round(imag*1e30)/1e30;
 			return BIG_COMPLEX_FLOAT(real, imag);
 		}
 
@@ -984,6 +985,9 @@ namespace CFL_OBDD {
 			ComplexFloatBoostReturnMapHandle v;
 			boost::unordered_map<BIG_COMPLEX_FLOAT, unsigned int> reductionMap;
 			ReductionMapHandle reductionMapHandle;
+			// Potential #BUGS!!
+			double checkFactor = std::pow(double(2), double(std::pow(2, c1->level-1)-1));
+			// double checkFactor = 1;
 			for (unsigned int i = 0; i < c->rootConnection.returnMapHandle.Size(); i++){
 				MatMultMapHandle r = c->rootConnection.returnMapHandle[i];
 				BIG_COMPLEX_FLOAT val = 0;
@@ -998,10 +1002,11 @@ namespace CFL_OBDD {
 				// Here, see if val is close to zero!!!
 				auto real = val.real();
 				auto imag = val.imag();
-				// May add a qnum factor
-				if (abs(real) < 1e-10)
+				// ADD an factor: double exponential to level
+				// Potential #BUGS
+				if (abs(real*checkFactor) < 1e-7)
 					real = 0;
-				if (abs(imag) < 1e-10)
+				if (abs(imag*checkFactor) < 1e-7)
 					imag = 0;
 				val = BIG_COMPLEX_FLOAT(real, imag);
 

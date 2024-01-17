@@ -30,7 +30,9 @@
 #include <iostream>
 #include <fstream>
 #include <complex>
+// import boost functions, Maybe #BUGS here!
 #include <boost/multiprecision/cpp_complex.hpp>
+#include <boost/math/special_functions/round.hpp>
 #include "cflobdd_t.h"
 #include "fourier_semiring.h"
 
