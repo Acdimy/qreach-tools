@@ -1,6 +1,6 @@
 # Amplitude amplification
 
-import quasimodo
+import qreach
 import time
 from math import pi
 from Reachability import *

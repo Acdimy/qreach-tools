@@ -1,5 +1,5 @@
 import sys
-import quasimodo
+import qreach
 import time
 from utils import *
 from qiskit import QuantumCircuit
@@ -116,13 +116,13 @@ def loadQiskitGates(cir, qc, e_list:[]):
 #     return qc
 
 def generateCir(qnum):
-    qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
+    qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
     return qc
 
 def readFile(path:str, filename:str, init_state:str):
     cir=QuantumCircuit.from_qasm_file(path+filename)
     # print(get_real_qubit_num(cir))
-    # qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
+    # qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
     qc = generateCir(cir.num_qubits)
     qc.setState(init_state)
     qc = applyQiskitGates(cir, qc)

@@ -1,4 +1,4 @@
-import quasimodo
+import qreach
 import time
 from math import pi
 from Reachability import *
@@ -71,7 +71,7 @@ print(f"use {time.time()-t_start} seconds")
 
 print(reachable_dim)
 
-# qc = quasimodo.QuantumCircuit("CFLOBDD", 2, seed=round(time.time()))
+# qc = qreach.QuantumCircuit("CFLOBDD", 2, seed=round(time.time()))
 # qc.setState("00")
 
 ## print

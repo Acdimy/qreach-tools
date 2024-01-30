@@ -1,5 +1,5 @@
 import sys
-import quasimodo
+import qreach
 
 from qiskit import QuantumCircuit
 
