@@ -5,7 +5,7 @@ from utils import *
 from qiskit import QuantumCircuit
 from math import pi, log2, ceil
 
-class QuantumError:
+class ChannelMode:
     def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
         self.err_type = err_type
         self.err_pos = err_pos
@@ -78,7 +78,7 @@ def loadQiskitGates(cir, qc, e_list:[]):
     for e in e_list:
         gates.insert(e.err_pos[0], e)
     for i,gate in enumerate(gates):
-        if isinstance(gate, QuantumError):
+        if isinstance(gate, ChannelMode):
             err_idx = [gate.err_pos[1], gate.err_channel]
             qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, i==0)
         else:
@@ -89,31 +89,6 @@ def loadQiskitGates(cir, qc, e_list:[]):
             qc.appendGateSeries(name, idx, params, i==0)
     return qc
 
-# def loadQiskitGates(cir, qc, e:QuantumError):
-#     """
-#     err_pos: [position in gate series, qubit index]
-#     """
-#     gates = cir.data
-#     for i,gate in enumerate(gates):
-#         if i == e.err_pos[0] and i != 0:
-#             err_idx = [e.err_pos[1], e.err_channel]
-#             qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
-#         idx = [cir.find_bit(bit).index for bit in gate.qubits]
-#         name = gate[0].name
-#         params = gate[0].params
-#         params = [clean_pi(x) for x in params]
-#         # print(name)
-#         if i == 0:
-#             if i == e.err_pos[0]:
-#                 err_idx = [e.err_pos[1], e.err_channel]
-#                 qc.appendGateSeries(e.err_type, err_idx, e.err_params, True)
-#             qc.appendGateSeries(name, idx, params, True)
-#         else:
-#             qc.appendGateSeries(name, idx, params, False)
-#     if e.err_pos[0] == len(gates):
-#         err_idx = [e.err_pos[1], e.err_channel]
-#         qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
-#     return qc
 
 def generateCir(qnum):
     qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
@@ -128,8 +103,20 @@ def readFile(path:str, filename:str, init_state:str):
     qc = applyQiskitGates(cir, qc)
     return cir, qc
 
-def fromMatrix(mat):
-    pass
+def fromMarkovModel(qmc:QuantumMarkovChain):
+    qchecker = generateCir(qmc.cir.num_qubits)
+    qchecker.setRealQubits(cir.num_qubits)
+    e_list = [ChannelMode(e.name, e.pos, 1, e.params) for e in qmc.err_model]
+    if len(e_list) >= 6:
+        raise RuntimeError("Too many channels to handle")
+    for mask in range(2**len(e_list)):
+        for i in range(len(e_list)):
+            flag = (mask >> i) & 1
+            e_list[i].err_channel = flag + 1
+        qchecker = loadQiskitGates(qmc.cir, qchecker, e_list)
+    return qchecker
+
+
 
 # Number 0, make sure everything is right!!
 # First, store the circuit in python, and make cpp just a calculation tool

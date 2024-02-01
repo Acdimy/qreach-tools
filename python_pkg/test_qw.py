@@ -17,7 +17,7 @@ qc = generateCir(cir.num_qubits)
 qc.setRealQubits(cir.num_qubits)
 
 if len(sys.argv) == 3:
-    e = QuantumError(err_type, [len(cir), 0], 1, [0.5])
+    e = ChannelMode(err_type, [len(cir), 0], 1, [0.5])
     # modified to "loadGates" with QMarkov module qc.fromQiskitGates(cir, [e]) qc.fromMarkovModel(cir, qmc)
     qc = loadQiskitGates(cir, qc, [e])
     e.err_channel = 2

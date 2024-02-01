@@ -666,6 +666,22 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
                 // CP CSWAP CS
                 assert(1 == 0);
             }
+        } else if(g.name == "Bflip") {
+            if(g.index[1] == 1) {
+                ApplyNOTGate(g.index[0]);
+            } else if(g.index[1] == 2) {
+                ApplyIdentityGate(g.index[0]);
+            } else {
+                assert(1 == 0);
+            }
+        } else if(g.name == "Pflip") {
+            if(g.index[1] == 1) {
+                ApplyPauliZGate(g.index[0]);
+            } else if(g.index[1] == 2) {
+                ApplyIdentityGate(g.index[0]);
+            } else {
+                assert(1 == 0);
+            }
         } else if(g.name == "measure") {
             // normalized
             if(g.index[1] == 1) {
@@ -958,62 +974,6 @@ void CFLOBDDQuantumCircuit::printProjector()
     for(int i = 0; i < stateProjector.size(); i++) {
         VectorComplexFloatBoost::VectorPrintColumnHead(stateProjector[i], std::cout);
     }
-    return;
-}
-
-void CFLOBDDQuantumCircuit::test()
-{
-    stateVector = VectorComplexFloatBoost::MkBasisVector(2, 5);
-    std::cout << stateVector << std::endl;
-    CFLOBDD_COMPLEX_BIG tmpVector = VectorComplexFloatBoost::MkBasisVector(2, 1);
-    stateVector = stateVector + tmpVector;
-    std::cout << stateVector << std::endl;
-    stateVector = stateVector + tmpVector;
-    std::cout << stateVector << std::endl;
-    // std::vector<double> vec;
-    // vec.push_back(0);
-    // vec.push_back(0);
-    // vec.push_back(0.25);
-    // auto U = Matrix1234ComplexFloatBoost::MkU3GateInterleaved(1, vec);
-    // std::cout << U << std::endl;
-
-    // double cos_theta = boost::math::cos_pi(0/2);
-    // double sin_theta = boost::math::sin_pi(0/2);
-    // double cos_lambda = boost::math::cos_pi(0.25);
-    // double sin_lambda = boost::math::sin_pi(0.25);
-    // double cos_phi = boost::math::cos_pi(0);
-    // double sin_phi = boost::math::sin_pi(0);
-    // BIG_COMPLEX_FLOAT exp_lambda(cos_lambda, sin_lambda);
-    // BIG_COMPLEX_FLOAT exp_phi(cos_phi, sin_phi);
-    // auto a = -exp_lambda*sin_theta;
-    // auto b = exp_phi*sin_theta;
-    // std::cout << a << " " << b << std::endl;
-    // std::cout << (a==b) << std::endl;
-    // std::cout << typeid(a).name() << " " << typeid(b).name() << std::endl;
-    // int size = stateVector.root->rootConnection.returnMapHandle.Size();
-    // std::cout << size << std::endl;
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << stateVector.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << stateVector.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // auto tmp = VectorComplexFloatBoost::VectorWithAmplitude(stateVector);
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << tmp.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << tmp.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // Matrix1234ComplexFloatBoost::MatrixConjugate(tmp);
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << tmp.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << tmp.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // BIG_COMPLEX_FLOAT c{0.2,1.3};
-    // std::cout << c << std::endl;
     return;
 }
 

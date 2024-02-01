@@ -40,7 +40,7 @@ cir=QuantumCircuit.from_qasm_file("benchmark/test.qasm")
 
 # real reachability testcase 1
 # qc = generateCir(cir.num_qubits)
-# e = QuantumError('ad', [len(cir), 0], 1, [0.5])
+# e = ChannelMode('ad', [len(cir), 0], 1, [0.5])
 # qc = loadQiskitGates(cir, qc, e)
 # e.err_channel = 2
 # qc = loadQiskitGates(cir, qc, e)
@@ -51,10 +51,10 @@ cir=QuantumCircuit.from_qasm_file("benchmark/test.qasm")
 # reachable_dim = qc.reachability()
 
 qc = generateCir(cir.num_qubits)
-e1 = QuantumError('measure', [len(cir), 0], 1, [])
-e2 = QuantumError('measure', [len(cir), 0], 2, [])
-e3 = QuantumError('measure', [len(cir), 1], 1, [])
-e4 = QuantumError('measure', [len(cir), 1], 2, [])
+e1 = ChannelMode('measure', [len(cir), 0], 1, [])
+e2 = ChannelMode('measure', [len(cir), 0], 2, [])
+e3 = ChannelMode('measure', [len(cir), 1], 1, [])
+e4 = ChannelMode('measure', [len(cir), 1], 2, [])
 qc = loadQiskitGates(cir, qc, [e1,e3])
 qc = loadQiskitGates(cir, qc, [e1,e4])
 qc.appendGateSeries("x", [1], [], False)
