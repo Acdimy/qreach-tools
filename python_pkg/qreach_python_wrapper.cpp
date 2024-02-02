@@ -40,6 +40,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("u", &CFLOBDDQuantumCircuit::ApplyArbitraryGate, "ApplyArbitraryGate")
         .def("setState", &CFLOBDDQuantumCircuit::setBasicStateVector, "setBasicStateVector")
         .def("setRealQubits", &CFLOBDDQuantumCircuit::setRealQubits, "setRealQubits")
+        .def("getRealQubits", &CFLOBDDQuantumCircuit::getRealQubits, "getRealQubits")
         .def("setInitGate", &CFLOBDDQuantumCircuit::setInitGate, "setInitGate")
         .def("setProjector", &CFLOBDDQuantumCircuit::setProjector, "setProjector")
         .def("setProjectorFS", &CFLOBDDQuantumCircuit::setProjectorFromS, "setProjectorFS")

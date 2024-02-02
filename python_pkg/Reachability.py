@@ -117,6 +117,14 @@ def fromMarkovModel(qmc:QuantumMarkovChain):
     return qchecker
 
 
+def initWithStr(qchecker, str_list=[]):
+    qnum = qchecker.getRealQubits()
+    for s in str_list:
+        if len(s) > qnum:
+            raise RuntimeError("Too long to initialize")
+        qchecker.setState(str_padding(s+"0"*(qnum-len(s))))
+        qchecker.setProjectorFS()
+    return qchecker
 
 # Number 0, make sure everything is right!!
 # First, store the circuit in python, and make cpp just a calculation tool

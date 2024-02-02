@@ -797,6 +797,11 @@ void CFLOBDDQuantumCircuit::setRealQubits(unsigned int q)
     return;
 }
 
+int CFLOBDDQuantumCircuit::getRealQubits()
+{
+    return realQubits;
+}
+
 void CFLOBDDQuantumCircuit::setInitGate()
 {
     unsigned int level = ceil(log2(numQubits));
