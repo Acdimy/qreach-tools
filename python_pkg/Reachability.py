@@ -3,6 +3,7 @@ import qreach
 import time
 from utils import *
 from qiskit import QuantumCircuit
+from QMarkov import *
 from math import pi, log2, ceil
 
 class ChannelMode:

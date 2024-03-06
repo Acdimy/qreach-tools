@@ -50,7 +50,6 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("appendGateSeries", &CFLOBDDQuantumCircuit::appendGateSeries, "appendGateSeries")
         .def("ApplyGateSeries", &CFLOBDDQuantumCircuit::ApplyGateSeries, "ApplyGateSeries")
         .def("reachability", &CFLOBDDQuantumCircuit::reachability, "reachability")
-        .def("test", &CFLOBDDQuantumCircuit::test, "test")
         .def("print", &CFLOBDDQuantumCircuit::print, "print")
         .def("printRV", &CFLOBDDQuantumCircuit::printRV, "printRV")
         .def("printSize", &CFLOBDDQuantumCircuit::printSize, "printSize")

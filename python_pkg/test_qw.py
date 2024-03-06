@@ -1,8 +1,6 @@
 import qreach
 import time
-from math import pi
 from Reachability import *
-from math import sqrt
 import sys
 
 n = int(sys.argv[1])

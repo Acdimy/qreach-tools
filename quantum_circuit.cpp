@@ -730,7 +730,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
         // std::cout << d << std::endl;
     }
     /// main loop: if queue is not empty and cnt < d
-    while(state_queue.empty() == false && cnt <= d) {
+    while(state_queue.empty() == false && cnt < d) {
         // if(cnt % 10 == 0) {
         //     std::cout << cnt << std::endl;
         // }
