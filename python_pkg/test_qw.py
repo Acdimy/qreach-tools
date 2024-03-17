@@ -18,7 +18,6 @@ qc.setRealQubits(cir.num_qubits)
 
 if len(sys.argv) == 3:
     e = QuantumError(err_type, [len(cir), 0], 1, [0.5])
-    # modified to "loadGates" with QMarkov module qc.fromQiskitGates(cir, [e]) qc.fromMarkovModel(cir, qmc)
     qc = loadQiskitGates(cir, qc, [e])
     e.err_channel = 2
     qc = loadQiskitGates(cir, qc, [e])
@@ -55,3 +54,5 @@ if cir.num_qubits <= 4:
 # For qrw10
 # use 1910.7084205150604 seconds
 # 4097
+    
+# 608097 185649 347626 
