@@ -593,12 +593,12 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
     if(resMap.Size() == 2) {
         amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
         // std::cout << amp.imag() << " " << amp.real() << std::endl;
-        assert(abs(amp.imag()*dimfactor) < 1e-7 && amp.real() > 0);
+        assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
         double factor = double(sqrt(amp.real()));
         // std::cout << "Normalize: " << factor << std::endl;
         c1 = (1/factor) * c1;
     } else {
-        assert(abs(amp.imag()*dimfactor) < 1e-7 && abs(amp.real()*dimfactor) < 1e-7);
+        assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
         // std::cout << "Nodistinction!!!" << std::endl;
         c1 = VectorComplexFloatBoost::NoDistinctionNode(c.root->level, 0);
     }
@@ -609,7 +609,7 @@ bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     // Maybe #BUGS here!
     double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
     // double dimfactor = 1;
-    double threshold = 1e-7;
+    double threshold = 1e-30;
     auto resMap = c.root->rootConnection.returnMapHandle;
     for(int i = 0; i < resMap.Size(); i++) {
         if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {

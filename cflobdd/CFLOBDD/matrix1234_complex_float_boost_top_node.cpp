@@ -1004,9 +1004,9 @@ namespace CFL_OBDD {
 				auto imag = val.imag();
 				// ADD an factor: double exponential to level
 				// Potential #BUGS
-				if (abs(real*checkFactor) < 1e-7)
+				if (abs(real*checkFactor) < 1e-8)
 					real = 0;
-				if (abs(imag*checkFactor) < 1e-7)
+				if (abs(imag*checkFactor) < 1e-8)
 					imag = 0;
 				val = BIG_COMPLEX_FLOAT(real, imag);
 
