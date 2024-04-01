@@ -610,7 +610,7 @@ bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     // double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
     double dimfactor = 1;
     // std::cout << dimfactor << std::endl;
-    double threshold = 1e-10;
+    double threshold = 1e-14;
     auto resMap = c.root->rootConnection.returnMapHandle;
     for(int i = 0; i < resMap.Size(); i++) {
         if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
@@ -761,6 +761,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
                 stateProjector.push_back(tmp_state);
                 // VectorComplexFloatBoost::VectorPrintColumnHead(tmp_state, std::cout);
             }
+            if(cnt >= d) break;
         }
     }
     return cnt;
