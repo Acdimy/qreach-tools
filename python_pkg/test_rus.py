@@ -17,7 +17,7 @@ if n == 1:
     e4 = ChannelMode('measure', [len(cir), 1], 2, [])
     qc = loadQiskitGates(cir, qc, [e1,e3])
     qc = loadQiskitGates(cir, qc, [e1,e4])
-    qc.appendGateSeries("x", [1], [], False)
+    qc.appendGateSeries("x", [1], [], False) # newChannel is false
     qc = loadQiskitGates(cir, qc, [e2,e3])
     qc.appendGateSeries("x", [0], [], False)
     qc = loadQiskitGates(cir, qc, [e2,e4])
@@ -36,7 +36,10 @@ else:
 
 print(f"use {time.time()-t_start} seconds")
 
-print(reachable_dim)
+
+if cir.num_qubits <= 4:
+    qc.printProjector()
+print("Reachable dimensions: ", reachable_dim)
 qc.printSize("state")
 qc.printSize("projector")
 qc.printProjector()

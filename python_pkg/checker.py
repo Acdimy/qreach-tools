@@ -1,7 +1,6 @@
 import sys
 import qreach
 import time
-from utils import *
 from qiskit import QuantumCircuit
 from QMarkov import *
 from math import pi, log2, ceil
@@ -9,6 +8,7 @@ from math import pi, log2, ceil
 class ChannelMode:
     def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
         # legal types: ad, Bflip, Pflip, measure
+        # err_pos: [position in the gate sequence, position of the qubit]
         self.err_type = err_type
         self.err_pos = err_pos
         self.err_channel = err_channel
@@ -71,7 +71,7 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
             print("Not Supported gate")
     return qc
 
-def loadQiskitGates(cir, qc, e_list:[]):
+def loadQiskitGates(cir, qc, e_list:list):
     """
     err_pos: [position in gate series, qubit index]
     """
@@ -82,13 +82,13 @@ def loadQiskitGates(cir, qc, e_list:[]):
     for i,gate in enumerate(gates):
         if isinstance(gate, ChannelMode):
             err_idx = [gate.err_pos[1], gate.err_channel]
-            qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, i==0)
+            qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, (i==0))
         else:
             idx = [cir.find_bit(bit).index for bit in gate.qubits]
             name = gate[0].name
             params = gate[0].params
             params = [clean_pi(x) for x in params]
-            qc.appendGateSeries(name, idx, params, i==0)
+            qc.appendGateSeries(name, idx, params, (i==0))
     return qc
 
 
@@ -98,7 +98,6 @@ def generateCir(qnum):
 
 def readFile(path:str, filename:str, init_state:str):
     cir=QuantumCircuit.from_qasm_file(path+filename)
-    # print(get_real_qubit_num(cir))
     # qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
     qc = generateCir(cir.num_qubits)
     qc.setState(init_state)
@@ -112,10 +111,17 @@ def fromMarkovModel(qmc:QuantumMarkovChain):
     if len(e_list) >= 6:
         raise RuntimeError("Too many channels to handle")
     for mask in range(2**len(e_list)):
+        reset_idx = []
         for i in range(len(e_list)):
             flag = (mask >> i) & 1
             e_list[i].err_channel = flag + 1
+            if flag + 1 == 2 and e_list[i].err_type == "measure" and e_list[i].err_params[0] == True:
+                # print("measure 1: ", e_list[i].err_pos)
+                # e_list.append(ChannelMode("Bflip", [e_list[i].err_pos[0]+1, e_list[i].err_pos[1]], 1, []))
+                reset_idx.append(e_list[i].err_pos[1])
         qchecker = loadQiskitGates(qmc.cir, qchecker, e_list)
+        for idx in reset_idx:
+            qchecker.appendGateSeries("x", [idx], [], False)
     return qchecker
 
 

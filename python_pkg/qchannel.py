@@ -12,7 +12,7 @@ class Noise(Qchannel):
     def check_legalty(self) -> int:
         if self.name == "ad":
             pass
-        elif self.name == "BFlip":
+        elif self.name == "Bflip":
             pass
         elif self.name == "Pflip":
             pass
@@ -20,5 +20,6 @@ class Noise(Qchannel):
             pass
 
 class Measurement(Qchannel):
-    def __init__(self, name="", pos=[-1, -1], params=[]) -> None:
+    def __init__(self, name="", pos=[-1, -1], params=[], reset=True) -> None:
         super().__init__(name, pos, params)
+        self.params = [reset]

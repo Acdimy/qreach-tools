@@ -1,7 +1,6 @@
 import sys
 import qreach
 import time
-from utils import *
 from qiskit import QuantumCircuit
 from QMarkov import *
 from math import pi, log2, ceil
@@ -97,7 +96,6 @@ def generateCir(qnum):
 
 def readFile(path:str, filename:str, init_state:str):
     cir=QuantumCircuit.from_qasm_file(path+filename)
-    # print(get_real_qubit_num(cir))
     # qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
     qc = generateCir(cir.num_qubits)
     qc.setState(init_state)

@@ -606,10 +606,11 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
 }
 
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    // Maybe #BUGS here!
-    double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
-    // double dimfactor = 1;
-    double threshold = 1e-30;
+    // Not precise here
+    // double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
+    double dimfactor = 1;
+    // std::cout << dimfactor << std::endl;
+    double threshold = 1e-10;
     auto resMap = c.root->rootConnection.returnMapHandle;
     for(int i = 0; i < resMap.Size(); i++) {
         if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
@@ -686,9 +687,7 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
             // normalized
             if(g.index[1] == 1) {
                 std::vector<double> v{1,0,0,0,0,0, 0,0};
-                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
                 ApplyArbitraryGate(g.index[0], v);
-                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
                 stateVector = normalize(stateVector);
                 if(checkifzero(stateVector)) {
                     return -1;
@@ -740,9 +739,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
         state_queue.pop_front();
         std::vector<CFLOBDD_COMPLEX_BIG> extended_states;
         for(int j = 0; j < circuitGates.numChannel; j++) {
-            //// make sure transpose value!!
             stateVector = stateProjector[cur_state_idx];
-            //// Here, may introduce much complexity!!
             int ck = ApplyGateSeries(j);
             // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
             if(ck == 0) {
@@ -756,16 +753,13 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
             stateVector = e_state;
             ApplyProjectorToState();
             CFLOBDD_COMPLEX_BIG tmp_state = e_state + (-1)*stateVector;
-            // Normalization is necessary!!!
-            // Here, put normalization into checkifzero block!
-            
-            // Here, introduce some epsilon
             if(checkifzero(tmp_state) == false) {
                 // Need some benchmarks!!
                 tmp_state = normalize(tmp_state);
                 state_queue.push_back(cnt);
                 cnt++;
                 stateProjector.push_back(tmp_state);
+                // VectorComplexFloatBoost::VectorPrintColumnHead(tmp_state, std::cout);
             }
         }
     }

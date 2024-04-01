@@ -37,8 +37,8 @@ qchecker.printProjector()
 
 qc.setState(str_padding("0"+"0"*(cir.num_qubits-1)))
 qc.setProjectorFS()
-qc.setState(str_padding("1"+"0"*(cir.num_qubits-1)))
-qc.setProjectorFS()
+# qc.setState(str_padding("1"+"0"*(cir.num_qubits-1)))
+# qc.setProjectorFS()
 
 reachable_dim = qc.reachability()
 

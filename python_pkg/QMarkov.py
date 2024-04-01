@@ -17,5 +17,6 @@ class QuantumMarkovChain:
         self.err_model = err_model
         for err in self.err_model:
             if err.pos[0] == -1:
+                # Maybe several position -1!
                 err.pos[0] = len(cir)
         self.bound = bound
