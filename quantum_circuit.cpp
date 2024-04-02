@@ -621,6 +621,24 @@ bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     return true;
 }
 
+bool checkifzero1(CFLOBDD_COMPLEX_BIG c) {
+    double threshold = 1e-5;
+    auto resMap = c.root->rootConnection.returnMapHandle;
+    if(resMap.Size() == 0) {
+        return true;
+    }
+    auto sum = abs(resMap[0].real()*dimfactor) + abs(resMap[0].imag()*dimfactor)
+    for(int i = 1; i < resMap.Size(); i++) {
+        // Hide an inequality!
+        sum += (abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor));
+    }
+    if(sum > threshold) {
+        return false;
+    } else {
+        return true;
+    }
+}
+
 int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
 {
     assert(channelIdx < circuitGates.numChannel);
