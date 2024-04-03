@@ -30,3 +30,4 @@ echo "---Eval info:  RUS   #Qubit:  2   Input dim:  1   Channel:  Measure  ---" 
 python test_new.py rus 2 1 >> output/result.txt
 echo "---Eval info:  RUS   #Qubit:  2   Input dim:  1   Channel:  Measure  ---" >> output/result.txt
 python test_new.py rus 3 1 >> output/result.txt
+sleep infinity

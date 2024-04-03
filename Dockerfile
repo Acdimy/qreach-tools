@@ -61,7 +61,8 @@ RUN invoke build-pybind11
 EXPOSE 8000
 
 # Run the application.
-CMD python3 /app/python_pkg/test_new.py qrw 2 1
+# CMD python3 /app/python_pkg/test_new.py qrw 2 1
 # CMD python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"
-# WORKDIR /app
+WORKDIR /app
 # CMD ["bash"]
+CMD ["bash", "run.sh"]
