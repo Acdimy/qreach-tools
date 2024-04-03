@@ -53,11 +53,23 @@ else:
     raise RuntimeError(info)
 
 reachable_dim = qchecker.reachability()
-if qmc.cir.num_qubits <= 4:
-    qchecker.printProjector()
 
 print(f"use {time.time()-t_start} seconds")
 
+# if expr_name == "rus":
+#     channel = "Measure"
+# elif expr_name == "grover":
+#     channel = "Unitary"
+# elif len(sys.argv) < 5:
+#     channel = "Unitary"
+# else:
+#     channel = "Noise"
+# print("---Eval info: ", expr_name, "  #Qubit: ", qmc.cir.num_qubits, "  Input dim: ", input_dim, "  Channel: ", channel, " ---")
+
+# if qmc.cir.num_qubits <= 4:
+#     print("Output basis of reachable space:\n")
+#     qchecker.printProjector()
+
 print("Reachable dimensions: ", reachable_dim)
-qchecker.printSize("state")
+# qchecker.printSize("state")
 qchecker.printSize("projector")
