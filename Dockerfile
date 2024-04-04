@@ -18,9 +18,7 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-RUN apt-get update
-RUN apt-get install -y make
-RUN apt-get install -y gcc g++
+RUN apt-get update && apt-get install -y make && apt-get install -y gcc g++
 
 
 # Create a non-privileged user that the app will run under.
@@ -49,20 +47,16 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy the source code into the container.
 COPY . /app
 
-RUN export PYTHON_INCLUDE=`python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"`
-RUN export BOOST_PATH=$(pwd)/boost_1_81_0/
+# RUN export PYTHON_INCLUDE=`python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"`
+# RUN export BOOST_PATH=$(pwd)/boost_1_81_0/
 # RUN export BOOST_PATH=/app/boost_1_81_0/
 
 WORKDIR /app/python_pkg
-RUN invoke build-qreach
-RUN invoke build-pybind11
+RUN invoke build-qreach && invoke build-pybind11
 
 # Expose the port that the application listens on.
 EXPOSE 8000
 
 # Run the application.
-# CMD python3 /app/python_pkg/test_new.py qrw 2 1
-# CMD python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"
 WORKDIR /app
-# CMD ["bash"]
 CMD ["bash", "run.sh"]
