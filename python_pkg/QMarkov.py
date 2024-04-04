@@ -9,7 +9,7 @@ class QuantumMarkovChain:
         if isinstance(cir, str):
             try:
                 cir=QuantumCircuit.from_qasm_file(cir)
-            except IOerror as e:
+            except Exception as e:
                 print(e)
         assert(isinstance(cir, QuantumCircuit))
         self.cir = cir
