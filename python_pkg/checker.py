@@ -5,6 +5,7 @@ from qiskit import QuantumCircuit
 from QMarkov import *
 from math import pi, log2, ceil
 
+# Different non-unitary operators: Noise, Measurement. Can be extended more
 class ChannelMode:
     def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
         # legal types: ad, Bflip, Pflip, measure
@@ -14,9 +15,11 @@ class ChannelMode:
         self.err_channel = err_channel
         self.err_params = err_params
 
+# remove the pi coefficient of a number
 def clean_pi(x):
     return round(x/pi, 6)
 
+# padding the string to length 2 to the k, adjust the CFLOBDD feature
 def str_padding(s):
     l = 2**ceil(log2(len(s)))
     return s+("0"*(l-len(s)))
@@ -104,6 +107,7 @@ def readFile(path:str, filename:str, init_state:str):
     qc = applyQiskitGates(cir, qc)
     return cir, qc
 
+# Construct a QuantumCircuit from a QuantumMarkovChain
 def fromMarkovModel(qmc:QuantumMarkovChain):
     qchecker = generateCir(qmc.cir.num_qubits)
     qchecker.setRealQubits(qmc.cir.num_qubits)
@@ -124,7 +128,7 @@ def fromMarkovModel(qmc:QuantumMarkovChain):
             qchecker.appendGateSeries("x", [idx], [], False)
     return qchecker
 
-
+# Initialize the quantum state
 def initWithStr(qchecker, str_list=[]):
     qnum = qchecker.getRealQubits()
     for s in str_list:
@@ -134,7 +138,6 @@ def initWithStr(qchecker, str_list=[]):
         qchecker.setProjectorFS()
     return qchecker
 
-# Number 0, make sure everything is right!!
 # First, store the circuit in python, and make cpp just a calculation tool
 # Then try to partite circuit in CFLOBDD in cpp, try to store different operators in cpp quantum circuit.
 def imageComputation(path:str, filename:str, init_state:str):
