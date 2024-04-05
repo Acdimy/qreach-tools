@@ -604,38 +604,38 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
 
 // An important issue: How to recognize a CFLOBDD element as zero? During cascading, turncation errors will accumulate.
 // Here we tried 1-norm, inf-norm and dynamical method with different threshold.
-bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    // Dynamically justify the zero threshold
-    // double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
-    // inf-norm
-    double dimfactor = 1;
-    double threshold = 1e-14;
-    auto resMap = c.root->rootConnection.returnMapHandle;
-    for(int i = 0; i < resMap.Size(); i++) {
-        if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
-            return false;
-        }
-    }
-    return true;
-}
-
-// 1-norm
 // bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-//     double threshold = 1e-5;
+//     // Dynamically justify the zero threshold
+//     // double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
+//     // inf-norm
+//     double dimfactor = 1;
+//     double threshold = 1e-14;
 //     auto resMap = c.root->rootConnection.returnMapHandle;
-//     if(resMap.Size() == 0) {
-//         return true;
-//     }
-//     auto sum = abs(resMap[0].real()) + abs(resMap[0].imag());
-//     for(int i = 1; i < resMap.Size(); i++) {
-//         // Hide an inequality!
-//         sum += (abs(resMap[i].real()) + abs(resMap[i].imag()));
-//         if(sum > threshold) {
+//     for(int i = 0; i < resMap.Size(); i++) {
+//         if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
 //             return false;
 //         }
 //     }
 //     return true;
 // }
+
+// 1-norm
+bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
+    double threshold = 1e-5;
+    auto resMap = c.root->rootConnection.returnMapHandle;
+    if(resMap.Size() == 0) {
+        return true;
+    }
+    auto sum = abs(resMap[0].real()) + abs(resMap[0].imag());
+    for(int i = 1; i < resMap.Size(); i++) {
+        // Hide an inequality!
+        sum += (abs(resMap[i].real()) + abs(resMap[i].imag()));
+        if(sum > threshold) {
+            return false;
+        }
+    }
+    return true;
+}
 
 int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
 {
