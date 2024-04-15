@@ -5,7 +5,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(pyquasimodo, m) {
+PYBIND11_MODULE(pyqreach, m) {
     m.doc() = "python wrapper for Quantum Simulation"; // Optional module docstring
 
     py::class_<QuantumCircuit>(m, "QuantumCircuit");
@@ -40,6 +40,7 @@ PYBIND11_MODULE(pyquasimodo, m) {
         .def("u", &CFLOBDDQuantumCircuit::ApplyArbitraryGate, "ApplyArbitraryGate")
         .def("setState", &CFLOBDDQuantumCircuit::setBasicStateVector, "setBasicStateVector")
         .def("setRealQubits", &CFLOBDDQuantumCircuit::setRealQubits, "setRealQubits")
+        .def("getRealQubits", &CFLOBDDQuantumCircuit::getRealQubits, "getRealQubits")
         .def("setInitGate", &CFLOBDDQuantumCircuit::setInitGate, "setInitGate")
         .def("setProjector", &CFLOBDDQuantumCircuit::setProjector, "setProjector")
         .def("setProjectorFS", &CFLOBDDQuantumCircuit::setProjectorFromS, "setProjectorFS")
@@ -49,7 +50,6 @@ PYBIND11_MODULE(pyquasimodo, m) {
         .def("appendGateSeries", &CFLOBDDQuantumCircuit::appendGateSeries, "appendGateSeries")
         .def("ApplyGateSeries", &CFLOBDDQuantumCircuit::ApplyGateSeries, "ApplyGateSeries")
         .def("reachability", &CFLOBDDQuantumCircuit::reachability, "reachability")
-        .def("test", &CFLOBDDQuantumCircuit::test, "test")
         .def("print", &CFLOBDDQuantumCircuit::print, "print")
         .def("printRV", &CFLOBDDQuantumCircuit::printRV, "printRV")
         .def("printSize", &CFLOBDDQuantumCircuit::printSize, "printSize")
@@ -58,32 +58,6 @@ PYBIND11_MODULE(pyquasimodo, m) {
         .def("printColHead", &CFLOBDDQuantumCircuit::printStateColHead, "printStateColHead")
         .def("printProjector", &CFLOBDDQuantumCircuit::printProjector, "printProjector");
         // .def("u2", &CFLOBDDQuantumCircuit::ApplyU2Gate, "ApplyU2Gate");
-
-    
-    // py::class_<WeightedBDDQuantumCircuit, QuantumCircuit>(m, "WeightedBDDQuantumCircuit")
-    //     .def(py::init<>())
-    //     .def(py::init<unsigned int, int>())
-    //     .def("setNumQubits", &WeightedBDDQuantumCircuit::setNumQubits, "setNumQubits")
-    //     .def("i", &WeightedBDDQuantumCircuit::ApplyIdentityGate, "ApplyIdentityGate")
-    //     .def("h", &WeightedBDDQuantumCircuit::ApplyHadamardGate, "ApplyHadamardGate")
-    //     .def("x", &WeightedBDDQuantumCircuit::ApplyNOTGate, "ApplyNOTGate")
-    //     .def("swap", &WeightedBDDQuantumCircuit::ApplySwapGate, "ApplySwapGate")
-    //     .def("iswap", &WeightedBDDQuantumCircuit::ApplyiSwapGate, "ApplyiSwapGate")
-    //     .def("prob", &WeightedBDDQuantumCircuit::GetProbability, "GetProbability")
-    //     .def("measure", &WeightedBDDQuantumCircuit::Measure, "Measure")
-    //     .def("measurement_counts", &WeightedBDDQuantumCircuit::GetPathCount, "MeasurementCount")
-    //     .def("y", &WeightedBDDQuantumCircuit::ApplyPauliYGate, "ApplyPauliYGate")
-    //     .def("z", &WeightedBDDQuantumCircuit::ApplyPauliZGate, "ApplyPauliZGate")
-    //     .def("p", &WeightedBDDQuantumCircuit::ApplyPhaseShiftGate, "ApplyPhaseShiftGate")
-    //     .def("s", &WeightedBDDQuantumCircuit::ApplySGate, "ApplySGate")
-    //     .def("t", &WeightedBDDQuantumCircuit::ApplyTGate, "ApplyTGate") 
-    //     .def("cz", &WeightedBDDQuantumCircuit::ApplyCZGate, "ApplyCZGate")
-    //     .def("cx", &WeightedBDDQuantumCircuit::ApplyCNOTGate, "ApplyCNOTGate")
-    //     .def("ccx", &WeightedBDDQuantumCircuit::ApplyCCNOTGate, "ApplyCCNOTGate")
-    //     .def("gp", &WeightedBDDQuantumCircuit::ApplyGlobalPhase, "ApplyGlobalPhase")
-    //     .def("cp", &WeightedBDDQuantumCircuit::ApplyCPGate, "ApplyCPGate")
-    //     .def("cs", &WeightedBDDQuantumCircuit::ApplyCSGate, "ApplyCSGate")
-    //     .def("cswap", &WeightedBDDQuantumCircuit::ApplyCSwapGate, "ApplyCSwapGate");
 
     // py::class_<QuantumState>(m, "QuantumState");
     

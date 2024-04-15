@@ -215,7 +215,7 @@ class CFLOBDDQuantumCircuit : public QuantumCircuit {
         void printRV(std::string type = "state");
         unsigned int printSize(std::string type = "state");
         void printProjector();
-        void test();
+        int getRealQubits();
     private:
         CFLOBDD_COMPLEX_BIG stateVector;
         std::vector<CFLOBDD_COMPLEX_BIG> stateVectorCache;

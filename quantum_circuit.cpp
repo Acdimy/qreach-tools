@@ -592,28 +592,45 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
     BIG_COMPLEX_FLOAT amp;
     if(resMap.Size() == 2) {
         amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-        // std::cout << amp.imag() << " " << amp.real() << std::endl;
-        assert(abs(amp.imag()*dimfactor) < 1e-7 && amp.real() > 0);
+        assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
         double factor = double(sqrt(amp.real()));
-        // std::cout << "Normalize: " << factor << std::endl;
         c1 = (1/factor) * c1;
     } else {
-        assert(abs(amp.imag()*dimfactor) < 1e-7 && abs(amp.real()*dimfactor) < 1e-7);
-        // std::cout << "Nodistinction!!!" << std::endl;
+        assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
         c1 = VectorComplexFloatBoost::NoDistinctionNode(c.root->level, 0);
     }
     return c1;
 }
 
+// An important issue: How to recognize a CFLOBDD element as zero? During cascading, turncation errors will accumulate.
+// Here we tried 1-norm, inf-norm and dynamical method with different threshold.
+// bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
+//     // Dynamically justify the zero threshold
+//     // double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
+//     // inf-norm
+//     double dimfactor = 1;
+//     double threshold = 1e-14;
+//     auto resMap = c.root->rootConnection.returnMapHandle;
+//     for(int i = 0; i < resMap.Size(); i++) {
+//         if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
+//             return false;
+//         }
+//     }
+//     return true;
+// }
+
+// 1-norm
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    // Maybe #BUGS here!
-    double dimfactor = std::pow(double(2), double(std::pow(2, c.root->level-1)-1));
-    // double dimfactor = 1;
-    double threshold = 1e-7;
+    double threshold = 1e-5;
     auto resMap = c.root->rootConnection.returnMapHandle;
-    for(int i = 0; i < resMap.Size(); i++) {
-        if(abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) > threshold) {
-            // std::cout << abs(resMap[i].real()*dimfactor) + abs(resMap[i].imag()*dimfactor) << " ";
+    if(resMap.Size() == 0) {
+        return true;
+    }
+    auto sum = abs(resMap[0].real()) + abs(resMap[0].imag());
+    for(int i = 1; i < resMap.Size(); i++) {
+        // Hide an inequality!
+        sum += (abs(resMap[i].real()) + abs(resMap[i].imag()));
+        if(sum > threshold) {
             return false;
         }
     }
@@ -666,13 +683,27 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
                 // CP CSWAP CS
                 assert(1 == 0);
             }
+        } else if(g.name == "Bflip") {
+            if(g.index[1] == 1) {
+                ApplyNOTGate(g.index[0]);
+            } else if(g.index[1] == 2) {
+                ApplyIdentityGate(g.index[0]);
+            } else {
+                assert(1 == 0);
+            }
+        } else if(g.name == "Pflip") {
+            if(g.index[1] == 1) {
+                ApplyPauliZGate(g.index[0]);
+            } else if(g.index[1] == 2) {
+                ApplyIdentityGate(g.index[0]);
+            } else {
+                assert(1 == 0);
+            }
         } else if(g.name == "measure") {
             // normalized
             if(g.index[1] == 1) {
                 std::vector<double> v{1,0,0,0,0,0, 0,0};
-                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
                 ApplyArbitraryGate(g.index[0], v);
-                // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
                 stateVector = normalize(stateVector);
                 if(checkifzero(stateVector)) {
                     return -1;
@@ -697,9 +728,11 @@ int CFLOBDDQuantumCircuit::ApplyGateSeries(int channelIdx)
     return 0;
 }
 
+
+// Main process of reachability analysis
 unsigned int CFLOBDDQuantumCircuit::reachability()
 {
-    // Initialize queue, projector and cnt
+    // Initialize queue, projector and cnt, cnt to record the searched dimensions
     state_queue.clear();
     for(int i = 0; i < stateProjector.size(); i++) {
         state_queue.push_back(i);
@@ -707,6 +740,7 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
     unsigned int cnt = stateProjector.size();
     assert(cnt != 0 && state_queue.size() != 0);
     unsigned int d;
+    // Initialize the real qubit number
     if(realQubits == 0) {
         d = 1 << numQubits;
     } else {
@@ -715,42 +749,35 @@ unsigned int CFLOBDDQuantumCircuit::reachability()
     }
     /// main loop: if queue is not empty and cnt < d
     while(state_queue.empty() == false && cnt < d) {
-        // if(cnt % 10 == 0) {
-        //     std::cout << cnt << std::endl;
-        // }
-        // #DEBUG: Avoid long looping!!
-        // if(cnt >= 30) break;
+        // pop out the first state in the waiting queue
         auto cur_state_idx = state_queue.front();
         state_queue.pop_front();
+        // try to expand the new reachable space from the poped state
         std::vector<CFLOBDD_COMPLEX_BIG> extended_states;
         for(int j = 0; j < circuitGates.numChannel; j++) {
-            //// make sure transpose value!!
             stateVector = stateProjector[cur_state_idx];
-            //// Here, may introduce much complexity!!
             int ck = ApplyGateSeries(j);
             // VectorComplexFloatBoost::VectorPrintColumnHead(stateVector, std::cout);
             if(ck == 0) {
                 extended_states.push_back(stateVector);
             }
         }
-        //// arbitrary clear
+        // To check if the extended states have new dimensions
         stateVector = VectorComplexFloatBoost::MkBasisVector(1, 0);
         for(int j = 0; j < extended_states.size(); j++) {
             CFLOBDD_COMPLEX_BIG e_state = extended_states[j];
             stateVector = e_state;
+            // Projection
             ApplyProjectorToState();
             CFLOBDD_COMPLEX_BIG tmp_state = e_state + (-1)*stateVector;
-            // Normalization is necessary!!!
-            // Here, put normalization into checkifzero block!
-            
-            // Here, introduce some epsilon
             if(checkifzero(tmp_state) == false) {
-                // Need some benchmarks!!
                 tmp_state = normalize(tmp_state);
                 state_queue.push_back(cnt);
                 cnt++;
                 stateProjector.push_back(tmp_state);
+                // VectorComplexFloatBoost::VectorPrintColumnHead(tmp_state, std::cout);
             }
+            if(cnt >= d) break;
         }
     }
     return cnt;
@@ -779,6 +806,11 @@ void CFLOBDDQuantumCircuit::setRealQubits(unsigned int q)
 {
     realQubits = q;
     return;
+}
+
+int CFLOBDDQuantumCircuit::getRealQubits()
+{
+    return realQubits;
 }
 
 void CFLOBDDQuantumCircuit::setInitGate()
@@ -958,62 +990,6 @@ void CFLOBDDQuantumCircuit::printProjector()
     for(int i = 0; i < stateProjector.size(); i++) {
         VectorComplexFloatBoost::VectorPrintColumnHead(stateProjector[i], std::cout);
     }
-    return;
-}
-
-void CFLOBDDQuantumCircuit::test()
-{
-    stateVector = VectorComplexFloatBoost::MkBasisVector(2, 5);
-    std::cout << stateVector << std::endl;
-    CFLOBDD_COMPLEX_BIG tmpVector = VectorComplexFloatBoost::MkBasisVector(2, 1);
-    stateVector = stateVector + tmpVector;
-    std::cout << stateVector << std::endl;
-    stateVector = stateVector + tmpVector;
-    std::cout << stateVector << std::endl;
-    // std::vector<double> vec;
-    // vec.push_back(0);
-    // vec.push_back(0);
-    // vec.push_back(0.25);
-    // auto U = Matrix1234ComplexFloatBoost::MkU3GateInterleaved(1, vec);
-    // std::cout << U << std::endl;
-
-    // double cos_theta = boost::math::cos_pi(0/2);
-    // double sin_theta = boost::math::sin_pi(0/2);
-    // double cos_lambda = boost::math::cos_pi(0.25);
-    // double sin_lambda = boost::math::sin_pi(0.25);
-    // double cos_phi = boost::math::cos_pi(0);
-    // double sin_phi = boost::math::sin_pi(0);
-    // BIG_COMPLEX_FLOAT exp_lambda(cos_lambda, sin_lambda);
-    // BIG_COMPLEX_FLOAT exp_phi(cos_phi, sin_phi);
-    // auto a = -exp_lambda*sin_theta;
-    // auto b = exp_phi*sin_theta;
-    // std::cout << a << " " << b << std::endl;
-    // std::cout << (a==b) << std::endl;
-    // std::cout << typeid(a).name() << " " << typeid(b).name() << std::endl;
-    // int size = stateVector.root->rootConnection.returnMapHandle.Size();
-    // std::cout << size << std::endl;
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << stateVector.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << stateVector.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // auto tmp = VectorComplexFloatBoost::VectorWithAmplitude(stateVector);
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << tmp.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << tmp.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // Matrix1234ComplexFloatBoost::MatrixConjugate(tmp);
-    // for(int i=0; i<size; i++) {
-    //     std::cout << "(" << tmp.root->rootConnection.returnMapHandle[i].real() << ", " 
-    //     << tmp.root->rootConnection.returnMapHandle[i].imag() << ") ";
-    // }
-    // std::cout << std::endl;
-
-    // BIG_COMPLEX_FLOAT c{0.2,1.3};
-    // std::cout << c << std::endl;
     return;
 }
 

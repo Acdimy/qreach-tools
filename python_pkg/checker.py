@@ -1,20 +1,25 @@
 import sys
-import quasimodo
+import qreach
 import time
-from utils import *
 from qiskit import QuantumCircuit
+from QMarkov import *
 from math import pi, log2, ceil
 
-class QuantumError:
+# Different non-unitary operators: Noise, Measurement. Can be extended more
+class ChannelMode:
     def __init__(self, err_type='', err_pos=[-1,-1], err_channel=-1, err_params=[]) -> None:
+        # legal types: ad, Bflip, Pflip, measure
+        # err_pos: [position in the gate sequence, position of the qubit]
         self.err_type = err_type
         self.err_pos = err_pos
         self.err_channel = err_channel
         self.err_params = err_params
 
+# remove the pi coefficient of a number
 def clean_pi(x):
     return round(x/pi, 6)
 
+# padding the string to length 2 to the k, adjust the CFLOBDD feature
 def str_padding(s):
     l = 2**ceil(log2(len(s)))
     return s+("0"*(l-len(s)))
@@ -69,7 +74,7 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
             print("Not Supported gate")
     return qc
 
-def loadQiskitGates(cir, qc, e_list:[]):
+def loadQiskitGates(cir, qc, e_list:list):
     """
     err_pos: [position in gate series, qubit index]
     """
@@ -78,60 +83,61 @@ def loadQiskitGates(cir, qc, e_list:[]):
     for e in e_list:
         gates.insert(e.err_pos[0], e)
     for i,gate in enumerate(gates):
-        if isinstance(gate, QuantumError):
+        if isinstance(gate, ChannelMode):
             err_idx = [gate.err_pos[1], gate.err_channel]
-            qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, i==0)
+            qc.appendGateSeries(gate.err_type, err_idx, gate.err_params, (i==0))
         else:
             idx = [cir.find_bit(bit).index for bit in gate.qubits]
             name = gate[0].name
             params = gate[0].params
             params = [clean_pi(x) for x in params]
-            qc.appendGateSeries(name, idx, params, i==0)
+            qc.appendGateSeries(name, idx, params, (i==0))
     return qc
 
-# def loadQiskitGates(cir, qc, e:QuantumError):
-#     """
-#     err_pos: [position in gate series, qubit index]
-#     """
-#     gates = cir.data
-#     for i,gate in enumerate(gates):
-#         if i == e.err_pos[0] and i != 0:
-#             err_idx = [e.err_pos[1], e.err_channel]
-#             qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
-#         idx = [cir.find_bit(bit).index for bit in gate.qubits]
-#         name = gate[0].name
-#         params = gate[0].params
-#         params = [clean_pi(x) for x in params]
-#         # print(name)
-#         if i == 0:
-#             if i == e.err_pos[0]:
-#                 err_idx = [e.err_pos[1], e.err_channel]
-#                 qc.appendGateSeries(e.err_type, err_idx, e.err_params, True)
-#             qc.appendGateSeries(name, idx, params, True)
-#         else:
-#             qc.appendGateSeries(name, idx, params, False)
-#     if e.err_pos[0] == len(gates):
-#         err_idx = [e.err_pos[1], e.err_channel]
-#         qc.appendGateSeries(e.err_type, err_idx, e.err_params, False)
-#     return qc
 
 def generateCir(qnum):
-    qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
+    qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(qnum)))
     return qc
 
 def readFile(path:str, filename:str, init_state:str):
     cir=QuantumCircuit.from_qasm_file(path+filename)
-    # print(get_real_qubit_num(cir))
-    # qc = quasimodo.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
+    # qc = qreach.QuantumCircuit("CFLOBDD", 2**ceil(log2(cir.num_qubits)))
     qc = generateCir(cir.num_qubits)
     qc.setState(init_state)
     qc = applyQiskitGates(cir, qc)
     return cir, qc
 
-def fromMatrix(mat):
-    pass
+# Construct a QuantumCircuit from a QuantumMarkovChain
+def fromMarkovModel(qmc:QuantumMarkovChain):
+    qchecker = generateCir(qmc.cir.num_qubits)
+    qchecker.setRealQubits(qmc.cir.num_qubits)
+    e_list = [ChannelMode(e.name, e.pos, 1, e.params) for e in qmc.err_model]
+    if len(e_list) >= 6:
+        raise RuntimeError("Too many channels to handle")
+    for mask in range(2**len(e_list)):
+        reset_idx = []
+        for i in range(len(e_list)):
+            flag = (mask >> i) & 1
+            e_list[i].err_channel = flag + 1
+            if flag + 1 == 2 and e_list[i].err_type == "measure" and e_list[i].err_params[0] == True:
+                # print("measure 1: ", e_list[i].err_pos)
+                # e_list.append(ChannelMode("Bflip", [e_list[i].err_pos[0]+1, e_list[i].err_pos[1]], 1, []))
+                reset_idx.append(e_list[i].err_pos[1])
+        qchecker = loadQiskitGates(qmc.cir, qchecker, e_list)
+        for idx in reset_idx:
+            qchecker.appendGateSeries("x", [idx], [], False)
+    return qchecker
 
-# Number 0, make sure everything is right!!
+# Initialize the quantum state
+def initWithStr(qchecker, str_list=[]):
+    qnum = qchecker.getRealQubits()
+    for s in str_list:
+        if len(s) > qnum:
+            raise RuntimeError("Too long to initialize")
+        qchecker.setState(str_padding(s+"0"*(qnum-len(s))))
+        qchecker.setProjectorFS()
+    return qchecker
+
 # First, store the circuit in python, and make cpp just a calculation tool
 # Then try to partite circuit in CFLOBDD in cpp, try to store different operators in cpp quantum circuit.
 def imageComputation(path:str, filename:str, init_state:str):
@@ -144,13 +150,3 @@ def applyMatRep(cir_list, qc):
         applyQiskitGates(cir, qc)
         applyQiskitGates(cir, qc, True)
         # qc.popCache2State()
-
-def spaceUnion() -> None:
-    pass
-
-def getReachableSp() -> None:
-    pass
-
-def checkReachablility() -> None:
-    pass
-

@@ -1,5 +1,5 @@
 # Project Name (executable)
-PROJECT = libquasimodo.so
+PROJECT = libqreach.so
 # Compiler
 CC = g++
 
@@ -12,8 +12,6 @@ COMPILE_OPTIONS = -g -O3 -std=c++2a -w -shared -Wall -Wextra -DHAVE_CONFIG_H -We
 
 #Header include directories
 HEADERS = -I. -I $(BOOST_PATH) -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/
-#Libraries for linking
-LIBS = cflobdd/cudd-complex-big/cplusplus/.libs/libobj.a cflobdd/cudd-complex-big/cudd/.libs/libcudd.a -lgmp -lmpfr -lgmpxx 
 
 # Dependency options
 DEPENDENCY_OPTIONS = -MM
@@ -33,8 +31,6 @@ OBJECTS = $(patsubst %.cpp, %.o, $(SOURCE_FILES))
 # Dependencies
 DEPENDENCIES = $(patsubst %.cpp, %.d, $(SOURCE_FILES))
 
-dep:
-	cd cflobdd/cudd-complex-big && make all && cd ../../
 
 # Make $(PROJECT) the default target
 all: $(PROJECT)

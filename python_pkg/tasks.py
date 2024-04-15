@@ -11,11 +11,11 @@ def print_banner(msg):
     print("= {} ".format(msg))
 
 @invoke.task()
-def build_quasimodo(c):
+def build_qreach(c):
     """Build the shared library for the sample C++ code"""
     print_banner("Building C++ Library")
     invoke.run(
-        "cd .. && make all && cd python_pkg/ && cp ../libquasimodo.so ."
+        "cd .. && make all && cd python_pkg/ && cp ../libqreach.so ."
     )
     print("* Complete")
 
@@ -27,12 +27,12 @@ def compile_python_module(cpp_name, extension_name):
         "-I {2} -I../ "
         "{0} "
         "-o {1}`python3.9-config --extension-suffix` "
-        "-L. -lquasimodo -Wl,-rpath,.".format(cpp_name, extension_name, os.environ["PYTHON_INCLUDE"], os.environ["BOOST_PATH"])
+        "-L. -lqreach -Wl,-rpath,.".format(cpp_name, extension_name, os.environ["PYTHON_INCLUDE"], os.environ["BOOST_PATH"])
     )
 
 @invoke.task()
-def clean_quasimodo(c):
-    print_banner("Clean Quasimodo")
+def clean_qreach(c):
+    print_banner("Clean qreach")
     invoke.run(
         "cd .. && make clean && cd python_pkg/"
     )
@@ -42,7 +42,7 @@ def clean_quasimodo(c):
 def build_pybind11(c):
     """Build the pybind11 wrapper library"""
     print_banner("Building PyBind11 Module")
-    compile_python_module("quasimodo_python_wrapper.cpp", "pyquasimodo")
+    compile_python_module("qreach_python_wrapper.cpp", "pyqreach")
     print("* Complete")
 
 @invoke.task()
