@@ -32,10 +32,6 @@ cd boost_1_81_0/
 export BOOST_PATH=$(pwd)
 cd ..
 
-# Install MPFR
-# sudo apt-get update
-# sudo apt-get install libmpfr-dev
-
 # Install pip
 check_and_install_pkg "python3-pip"
 
@@ -49,10 +45,6 @@ pip install pybind11
 sudo apt-get update
 check_and_install_pkg "build-essential"
 
-# # Install autoconf
-# sudo apt-get update
-# check_and_install_pkg "autoconf"
-
 # Install git
 check_and_install_pkg "git"
 
@@ -63,20 +55,6 @@ check_and_install_pkg "texlive-latex-base"
 # Clone repository
 git clone git@github.com:Acdimy/qreach-tools.git
 cd qreach-tools/
-
-# # Build CUDD Library used for BDDs
-# cd cflobdd/cudd-complex-big/
-# autoupdate
-# autoreconf
-
-# Change a few settings
-# sed -i 's/: ${CFLAGS="-Wall -Wextra -g -O3"}/: ${CFLAGS="-Wall -Wextra -g -O3 -fPIC"}/g' configure
-# sed -i 's/: ${CXXFLAGS="-Wall -Wextra -std=c++0x -g -O3"}/: ${CXXFLAGS="-Wall -Wextra -std=c++0x -g -O3 -fPIC"}/g' configure
-
-# # Run and make CUDD library
-# ./configure
-# make 
-# cd ../..
 
 # Building QReach
 cd python_pkg/

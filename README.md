@@ -13,3 +13,7 @@ Some previous works are referred in this project: [Quasimodo simulator](https://
 
 ### Demo
 
+下一阶段工作内容：
+标准化的输入，包括接受更多量子转移系统作为输入，以及搭建一个顶层的框架，希望能够进行partition与circuit knitting等预处理
+抽象化的中间表示，包括尽量使用形式化、符号化的逻辑语言
+拓展更多数据结构接口
