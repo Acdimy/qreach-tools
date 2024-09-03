@@ -18,10 +18,10 @@
                 "_UNICODE"
             ],
             "windowsSdkVersion": "10.0.22000.0",
-            "compilerPath": "cl.exe",
+            "compilerPath": "/usr/bin/clang",
             "cStandard": "c17",
             "cppStandard": "c++20",
-            "intelliSenseMode": "windows-msvc-x86",
+            "intelliSenseMode": "macos-clang-x86",
             "configurationProvider": "ms-vscode.makefile-tools"
         }
     ],
