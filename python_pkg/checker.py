@@ -2,7 +2,7 @@ import sys
 import qreach
 import time
 from qiskit import QuantumCircuit
-from QMarkov import *
+from QTSModel import *
 from math import pi, log2, ceil
 
 # Different non-unitary operators: Noise, Measurement. Can be extended more
