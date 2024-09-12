@@ -20,3 +20,8 @@ class QuantumMarkovChain:
                 # Maybe several position -1!
                 err.pos[0] = len(cir)
         self.bound = bound
+
+
+class QuantumTransitionSystem:
+    def __init__(self) -> None:
+        pass
