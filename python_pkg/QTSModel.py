@@ -1,6 +1,7 @@
 import sys
 import qreach
 from qchannel import *
+import json
 
 from qiskit import QuantumCircuit
 
@@ -21,7 +22,13 @@ class QuantumMarkovChain:
                 err.pos[0] = len(cir)
         self.bound = bound
 
+def fromCircuitToKripke(circuit: QuantumCircuit, err_model):
+    pass
 
 class QuantumTransitionSystem:
-    def __init__(self) -> None:
+    def __init__(self, kripke: str) -> None:
+        pass
+    def __init__(self, cir: QuantumCircuit, err_model):
+        pass
+    def __init__(self, kripke_json: dict):
         pass
