@@ -23,3 +23,7 @@ class Measurement(Qchannel):
     def __init__(self, name="", pos=[-1, -1], params=[], reset=True) -> None:
         super().__init__(name, pos, params)
         self.params = [reset]
+
+class SequentialCircuit:
+    def __init__(self) -> None:
+        pass
