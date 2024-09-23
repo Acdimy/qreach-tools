@@ -22,7 +22,6 @@ class QuantumMarkovChain:
                 err.pos[0] = len(cir)
         self.bound = bound
 
-<<<<<<< HEAD
 class AtomicProposition:
     """A tuple <M,I>, M is Projector, and I is the interval of the probability under measurement M"""
     def __init__(self, subspace, iterval) -> None:
@@ -53,15 +52,3 @@ class QuantumTransitionSystem:
               "  \"relations\": [ [ \"s0\", \"s1\" ], [ \"s1\", \"s2\" ], [ \"s1\", \"s0\" ], [ \"s2\", \"s3\" ], [ \"s2\", \"s0\" ], [ \"s3\", \"s3\" ] ]\n"
               "}";
 """
-=======
-def fromCircuitToKripke(circuit: QuantumCircuit, err_model):
-    pass
-
-class QuantumTransitionSystem:
-    def __init__(self, kripke: str) -> None:
-        pass
-    def __init__(self, cir: QuantumCircuit, err_model):
-        pass
-    def __init__(self, kripke_json: dict):
-        pass
->>>>>>> fd2dd5fb9709bceba99252f0df58f575ca90dcad
