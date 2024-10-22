@@ -39,6 +39,8 @@ class QuantumTransitionSystem:
         pass
     def fromKripkeFile(self, filename):
         pass
+    def toQuantumKripke(self):
+        pass
 
 """
     char *content = "{\n"

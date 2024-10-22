@@ -25,5 +25,9 @@ class Measurement(Qchannel):
         self.params = [reset]
 
 class SequentialCircuit:
+    # Unitary, Noise, Measurement, Classical-controlled gate, reset, loop
+    # Put a Qiskit circuit in is enough
     def __init__(self) -> None:
-        pass
+        self.ope_list = []
+    def setOperatorList(self, ope_list):
+        self.ope_list = ope_list
