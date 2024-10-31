@@ -1,13 +1,16 @@
 #ifndef _QREACH_CIRCUIT
 #define _QREACH_CIRCUIT
 
-#include "cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
+#include "../cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
 #include <random>
 #include <queue>
 #include <vector>
 
 namespace QREACH
 {
+    using namespace CFL_OBDD;
+    
+
     class quantumOpe {
         /* data */
         public:
@@ -26,8 +29,105 @@ namespace QREACH
             this->vars.clear();
         }
     };
-    class quantumCircuit
-    {
+
+    class pureState {
+        public:
+        // root->level
+        unsigned int numQubits = 0;
+        CFLOBDD_COMPLEX_BIG state;
+        pureState(){}
+        pureState(CFLOBDD_COMPLEX_BIG s, int n) {
+            state = s;
+            numQubits = n;
+        }
+        // Is it necessary?
+        pureState(pureState ps) {
+            state = ps.state;
+            numQubits = ps.numQubits;
+        }
+        void applyQuantumOpe(quantumOpe e) {}
+        void applyGate(std::string name) {}
+
+        BIG_COMPLEX_FLOAT applyProjector(std::vector<pureState> eigens) {
+            assert(eigens.empty() == false);
+            unsigned int level = ceil(log2(numQubits));
+            CFLOBDD_COMPLEX_BIG res = VectorComplexFloatBoost::NoDistinctionNode(level+1, 0);
+            auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(state);
+            tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
+            BIG_COMPLEX_FLOAT total = 0;
+            for(int i = 0; i < eigens.size(); i++) {
+                auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, eigens[i].state);
+                // Same as norm
+                assert(tmp.root->rootConnection.returnMapHandle.Size() <= 2);
+                auto resMap = tmp.root->rootConnection.returnMapHandle;
+                BIG_COMPLEX_FLOAT amp;
+                if(resMap.Size() == 2)
+                    amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
+                else
+                    amp = resMap[0];
+                total += (amp * conj(amp));
+                amp = conj(amp);
+                // std::cout << "ApplyProjectorToState: " << amp << std::endl;
+                res = res + (amp * eigens[i].state);
+            }
+            state = res;
+            return total;
+        }
+
+        void applyInnerProduct(pureState s) {
+            auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(s.state);
+            tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
+            state = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, state);
+        }
+        BIG_COMPLEX_FLOAT norm() {
+            auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(state);
+            tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
+            auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, state);
+            // Same as applyProjector
+            auto resMap = tmp.root->rootConnection.returnMapHandle;
+            BIG_COMPLEX_FLOAT amp;
+            if(resMap.Size() == 2)
+                amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
+            else
+                amp = resMap[0];
+            // amp should be real
+            // amp = conj(amp);
+            return amp;
+        }
+        void applyDistance(pureState s) {}
+
+    };
+
+    class atomicProp {
+        public:
+        std::vector<pureState> space;
+        int l;
+        int r;
+        atomicProp() {}
+        bool equal(atomicProp p) {return false;}
+        bool satisfy(pureState s) {
+            return false;
+        }
+        bool satisfy(std::vector<pureState> rho) {return false;}
+    };
+
+    class CTransitionSys {
+
+    };
+
+    class QTransitionSys {
+        public:
+        std::vector<atomicProp> ap;
+        std::vector<pureState> initState;
+        void setAP();
+        void setInitialState();
+        void setTransition();
+        void prepareCTL();
+        void preparePCTL();
+
+    };
+
+    class quantumCircuit {
     public:
         quantumCircuit(unsigned int numQubits, int seed);
         quantumCircuit();
