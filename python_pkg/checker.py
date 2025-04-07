@@ -53,6 +53,8 @@ def applyQiskitGates(cir, qc, isConj=False, l=0, r=100000):
                 qc.u3(idx[0], 0, 0, -0.5)
         elif name == 'cx':
             qc.cx(idx[0], idx[1])
+        elif name == 'cz':
+            qc.cz(idx[0], idx[1])
         elif name == 'ccx':
             qc.ccx(idx[0], idx[1], idx[2])
         elif name == 'u1':

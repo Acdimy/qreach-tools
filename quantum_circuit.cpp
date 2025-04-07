@@ -596,6 +596,7 @@ CFLOBDD_COMPLEX_BIG normalize(CFLOBDD_COMPLEX_BIG c) {
         double factor = double(sqrt(amp.real()));
         c1 = (1/factor) * c1;
     } else {
+        amp = resMap[0];
         assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
         c1 = VectorComplexFloatBoost::NoDistinctionNode(c.root->level, 0);
     }
