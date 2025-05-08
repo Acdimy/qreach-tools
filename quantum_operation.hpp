@@ -3,6 +3,7 @@
 
 #include "cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
 #include "cflobdd/CFLOBDD/vector_complex_float_boost.h"
+#include "AST.hpp"
 #include <random>
 #include <queue>
 #include <vector>
@@ -108,7 +109,10 @@ class QuantumGateTerm : public QuantumTerm {
     std::vector<double> vars;
     unsigned int level;
     bool isConcret = false;
+    bool zeroOperator = false;
+    bool ideOperator = false;
     // construct as a gate
+    QuantumGateTerm() {}
     QuantumGateTerm(std::string nam, std::vector<unsigned int> idx, std::vector<double> pars, unsigned int qNum)  {
         assert((qNum & (qNum - 1)) == 0 && qNum != 0);
         // type = true;
@@ -119,6 +123,13 @@ class QuantumGateTerm : public QuantumTerm {
         this->level = ceil(log2(qNum)) + 1;
         this->qNum = std::pow(2, this->level-1);
         content = VectorComplexFloatBoost::NoDistinctionNode(1, 0);
+    }
+    QuantumGateTerm(bool setconstant) {
+        if (setconstant) {
+            this->ideOperator = 1;
+        } else {
+            this->zeroOperator = 1;
+        }
     }
     bool getType() const override {return true;}
     CFLOBDD_COMPLEX_BIG concretize() const {
@@ -214,8 +225,18 @@ class QuantumGateTerm : public QuantumTerm {
             this->content = this->concretize();
         }
     }
-    QuantumGateTerm cascade(QuantumGateTerm other) const {
-        return;
+    QuantumGateTerm cascade(const QuantumGateTerm& other) const {
+        QuantumGateTerm res;
+        if (this->zeroOperator || other.zeroOperator) {
+            return QuantumGateTerm(0);
+        } else if (this->ideOperator) {
+            res = other;
+        } else if (other.ideOperator) {
+            res = *this;
+        } else {
+            throw std::runtime_error("Not supported gate cascade.");
+        }
+        return res;
     }
 };
 
@@ -283,95 +304,24 @@ class SingleVecTerm : public QuantumTerm {
     bool isZero() const {
         return sqrt(this->dot(*this).real()) < 1e-8;
     }
-    CFLOBDD_COMPLEX_BIG applyGate(const QuantumGateTerm& other) const {
+    CFLOBDD_COMPLEX_BIG applyGate(const QuantumGateTerm& other, bool direction) const {
+        /* If direction is false, apply an inverse gate. */
         /* This function is INPLACE! */
         CFLOBDD_COMPLEX_BIG operand = other.concretize();
-        std::string name = other.name;
-        unsigned index = other.index[0];
-        CFLOBDD_COMPLEX_BIG res;
-        if (name == "x" || name == "y" || name == "z" || name == "h" || name == "s" || name == "t" || name == "p") {
-            auto X = ApplyGateF(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkNegationMatrixInterleaved);
+        CFLOBDD_COMPLEX_BIG res ;
+        if (direction) {
+            // Forward induction
             res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
-        } else if (name == "y") {
-            auto Y = ApplyGateF(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkPauliYMatrixInterleaved);
-            int size = Y.root->rootConnection.returnMapHandle.Size();
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(Y, this->content);
-        } else if (name == "z") {
-            auto Z = ApplyGateF(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkPauliZMatrixInterleaved);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(Z, this->content);
-        } else if (name == "h") {
-            auto H = ApplyGateF(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, this->content);
-        } else if (name == "s") {
-            auto S = ApplyGateF(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, this->content);
-        } else if (name == "t") {
-            auto S = ApplyGateFWithParam(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, 0.25);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, this->content); 
-        } else if (name == "p") {
-            double theta = other.vars[0];
-            auto S = ApplyGateFWithParam(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, theta);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, this->content);
-        } else if (name == "cx") {
-            unsigned int controller = other.index[0];
-            unsigned int controlled = other.index[1];
-            assert(controller != controlled);
-    
-            if (controller < controlled)
-            {
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controller, controlled);
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, this->content);
-            }
-            else
-            {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controlled, controller);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, this->content);
-            }
-        } else if (name == "u3") {
-            assert(other.vars.size() == 3);
-            std::vector<double> v;
-            double theta = other.vars[0];
-            double phi = other.vars[1];
-            double lambda = other.vars[2];
-            v.push_back(theta); v.push_back(phi); v.push_back(lambda);
-            auto U = ApplyGateFWithParamVec(std::pow(2, this->content.root->level-1), index, Matrix1234ComplexFloatBoost::MkU3GateInterleaved, v);
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(U, this->content);
-        } else if (name == "arbitrary") {
-            
-        } else if (name == "swap") {
-            
-        } else if (name == "iswap") {
-            
-        } else if (name == "cz") {
-            unsigned int controller = other.index[0];
-            unsigned int controlled = other.index[1];
-            assert(controller != controlled);
-    
-            if (controller < controlled)
-            {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controller, controlled, 1.0);
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, this->content);
-            }
-            else
-            {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controlled, controller, 1.0);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, this->content);
-            }
-        } else if (name == "cp") {
-
-        } else if (name == "cs") {
-            
-        } /* CCNOT, CSWAP, GlobalPhase */
+        } else {
+            // Backward induction
+            operand = Matrix1234ComplexFloatBoost::MatrixConjugate(operand);
+            operand = Matrix1234ComplexFloatBoost::MatrixTranspose(operand);
+            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+        }
         return res;
     }
-    void applyGateInline(const QuantumGateTerm& other) {
-        this->content = this->applyGate(other);
+    void applyGateInline(const QuantumGateTerm& other, bool direction) {
+        this->content = this->applyGate(other, direction);
     }
 };
 
@@ -390,20 +340,47 @@ Quantum Opertion: The integration of two types of quantum items:
 */
 class QOperation {
     public:
+    /* type == true means the QOperation is a gate-type operation, the QuantumTerm in oplist are quantum gates
+    * type == false means the QOperation is a projective operation, the QuantumTerm in oplist are CFLOBDD items (SingleVecTerm)
+    */
     bool type;
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
+    std::unique_ptr<Node> ast = nullptr;
     public:
     /* The type must be specified */
-    // QOperation() {}
     QOperation() : type(0) {}
-    QOperation(bool t) : type(t) {}
-    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c) : type(t), oplist(c) {
-        this->qNum = c[0]->qNum;
+    QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum) {
+        // 深拷贝 oplist
+        oplist.reserve(other.oplist.size()); // 预分配空间以提高效率
+        for (const auto& term : other.oplist) {
+            if (term) { // 检查指针是否为空
+                oplist.push_back(std::make_unique<QuantumTerm>(*term));
+            } else {
+                oplist.push_back(nullptr);
+            }
+        }
+        this->ast = std::make_unique<Node>(*other.ast);
     }
-    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c, bool n) : type(t), oplist(c), normalized(n) {
-        this->qNum = c[0]->qNum;
+    QOperation(QOperation&& other) : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum) {
+        // this->ast = std::make_unique<Node>(*other.ast);
+        this->ast = std::move(other.ast);
+    }
+    QOperation(bool t) : type(t) {}
+    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c) : type(t), oplist(std::move(c)), normalized(false), ast(nullptr) {
+        if (!c.empty() && c[0]) {
+            qNum = c[0]->qNum;
+        } else {
+            qNum = 0;
+        }
+    }
+    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c, bool n) : type(t), oplist(std::move(c)), normalized(n), ast(nullptr) {
+        if (!c.empty() && c[0]) {
+            qNum = c[0]->qNum;
+        } else {
+            qNum = 0;
+        }
     }
     void append(std::unique_ptr<QuantumTerm> qt) {
         if (qt->getType() != this->type) {
@@ -437,8 +414,8 @@ class QOperation {
     }
     QOperation negation(unsigned int begin, unsigned int end) {
         // compute the negation of some of operators (as a disjunction)
-        
-        return;
+        assert(!this->type);
+        return *this;
     }
     QOperation conjunction(unsigned int begin, unsigned int end) {
         /*** To do the conjunction:
@@ -446,12 +423,77 @@ class QOperation {
          * 2. widening function;
          * 3. hard calculate \neg(\neg A \lor \neg B).
          ***/ 
+        assert(!this->type);
+        return *this;
+    }
+    QOperation disjunction(unsigned int begin, unsigned int end) {
+        /*** To do the disjunction:
+         * 1. preserve the abstract semantic tree;
+         * 2. widening function;
+         * 3. hard calculate \neg(\neg A \land \neg B).
+         ***/
+        assert(!this->type);
+        return *this;
+    }
+
+    QOperation preImage(const QOperation& other) const {
+        /* The pre-image of a quantum operator */
+        assert(this->type == false && other.type == true);
+        QOperation res;
+        for (size_t i = 0; i < this->oplist.size(); i++) {
+            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+            if (!ivec) continue;
+            /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
+               In the later case, we should use jvec->projectOnto() */
+            if (other.oplist.size() == 0) continue;
+            // Case 1: other.oplist[0] is a SingleVecTerm
+            if (other.oplist[0]->getType() == false) {
+                for (size_t j = 0; j < other.oplist.size(); j++) {
+                    auto* jvec = dynamic_cast<SingleVecTerm*>(other.oplist[0].get());
+                    if (!jvec) continue;
+                    auto tmp = jvec->projectOnto(*ivec);
+                    res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                }
+            } else {
+                // Case 2: other.oplist[0] is a QuantumGateTerm
+                for (size_t j = 0; j < other.oplist.size(); j++) {
+                    auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
+                    if (!jgate) continue;
+                    assert(jgate->getType() == true);
+                    // Backward induction
+                    auto tmp = ivec->applyGate(*jgate, false);
+                    res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                }
+            }
+        }
+        return res;
+    }
+    
+    QOperation postImage(const QOperation& other) const {
+        /* The post-image of a quantum operator */
+        assert(this->type == false && other.type == true);
+        QOperation res;
+        for (size_t i = 0; i < this->oplist.size(); i++) {
+            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+            if (!ivec) continue;
+            for (size_t j = 0; j < other.oplist.size(); j++) {
+                auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
+                if (!jgate) continue;
+                auto tmp = ivec->applyGate(*jgate, true);
+                res.append(std::make_unique<SingleVecTerm>(tmp));
+            }
+        }
+        return res;
     }
     QOperation operator+(const QOperation& other) const {
+        // Still unclear: when is the plus used?
         if (type == true) {
             if (other.type == true) {
                 /* gate plus gate */
                 /* append gates to the end */
+                if (this->oplist.size() > 0 && other.oplist.size() > 0) {
+                    assert(this->oplist[0]->getType() == other.oplist[0]->getType());
+                }
                 std::vector<std::unique_ptr<QuantumTerm>> newlist = this->oplist;
                 newlist.insert(newlist.end(), other.oplist.begin(), other.oplist.end());
                 QOperation res(true, newlist);
@@ -481,8 +523,22 @@ class QOperation {
                 /* cascade */
                 // throw std::runtime_error("Logically, it should be supported");
                 for (size_t i = 0; i < this->oplist.size(); i++) {
+                    auto* gate1 = dynamic_cast<QuantumGateTerm*>(this->oplist[i].get());
                     for (size_t j = 0; i < other.oplist.size(); j++) {
-                        /* code */
+                        CFLOBDD_COMPLEX_BIG newItem;
+                        auto* gate2 = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
+                        if (this->oplist[0]->getType() == true) {
+                            // Assert all type in a operation are consistant
+                            // all operators are gates
+                            auto res = gate1->cascade(*gate2);
+                            if (res.isConcret) {
+                                newItem = res.concretize();
+                            } else {
+                                newItem = res.content;
+                            }
+                        } else {
+                            throw std::runtime_error("Cannot support the cascade of two operators");
+                        }
                     }
                     
                 }
@@ -491,12 +547,14 @@ class QOperation {
                 /* gate times cflobdd */
                 QOperation res;
                 for (size_t i = 0; i < other.oplist.size(); i++) {
+                    CFLOBDD_COMPLEX_BIG newItem;
                     for (size_t j = 0; j < this->oplist.size(); j++) {
-                        CFLOBDD_COMPLEX_BIG newItem;
                         if (this->oplist[0]->getType() == true) {
                             // Assert all type in a operation are consistant
+                            // all operators are gates
+                            auto* gate1 = dynamic_cast<QuantumGateTerm*>(this->oplist[j].get());
                         } else {
-                            
+                            // all operators are supporting vector of a space
                         }
                         
                     }

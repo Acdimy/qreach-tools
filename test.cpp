@@ -51,23 +51,25 @@ std::unique_ptr<Node> combineTrees(std::unique_ptr<Node> tree1, std::unique_ptr<
     return std::make_unique<OpNode>(op, std::move(tree1), std::move(tree2));
 }
 
-// // 测试代码
-// int main() {
-//     // 创建第一个 AST: 表示区间 [0, 2]
-//     auto tree1 = std::make_unique<LeafNode>(0, 2);
+// 测试代码
+int main() {
+    // 创建第一个 AST: 表示区间 [0, 2]
+    auto tree1 = std::make_unique<LeafNode>(0, 2);
 
-//     // 创建第二个 AST: 表示区间 [3, 5] + [6, 7]
-//     auto leaf1 = std::make_unique<LeafNode>(3, 5);
-//     auto leaf2 = std::make_unique<LeafNode>(6, 7);
-//     auto tree2 = std::make_unique<OpNode>(OpNode::ADD, std::move(leaf1), std::move(leaf2));
+    // 创建第二个 AST: 表示区间 [3, 5] + [6, 7]
+    auto leaf1 = std::make_unique<LeafNode>(3, 5);
+    auto leaf2 = std::make_unique<LeafNode>(6, 7);
+    auto tree2 = std::make_unique<OpNode>(OpNode::ADD, std::move(leaf1), std::move(leaf2));
 
-//     // 将 tree1 和 tree2 用乘法连接成新树
-//     auto newTree = combineTrees(std::move(tree1), std::move(tree2), OpNode::MUL);
+    // 将 tree1 和 tree2 用乘法连接成新树
+    auto newTree = combineTrees(std::move(tree1), std::move(tree2), OpNode::MUL);
 
-//     // 输出新树的结构
-//     std::cout << "New AST: ";
-//     newTree->print();
-//     std::cout << std::endl; // 预期输出: ([0, 2] * ([3, 5] + [6, 7]))
+    // 输出新树的结构
+    std::cout << "New AST: ";
+    newTree->print();
+    std::cout << std::endl; // 预期输出: ([0, 2] * ([3, 5] + [6, 7]))
+    auto tree3 = std::move(newTree);
+    tree3->print();
 
-//     return 0;
-// }
+    return 0;
+}
