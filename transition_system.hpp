@@ -27,7 +27,7 @@ Location::~Location()
 
 void Location::setAnnotation(QOperation annotation)
 {
-    this->annotation = annotation;
+    // this->annotation = annotation;
 }
 void Location::appendPreLocation(Location* loc)
 {
@@ -47,6 +47,8 @@ class TransitionSystem
 private:
     std::vector<int> currPreLocs;
     std::vector<int> currPostLocs;
+    std::vector<bool> visitedPre;
+    std::vector<bool> visitedPost;
 public:
     std::vector<Location> Locations;
     unsigned int initLocation;
@@ -58,7 +60,11 @@ public:
     void addLocation(Location loc);
     void addRelation(unsigned int from, unsigned int to, std::string name);
     void setAnnotation(std::vector<std::tuple<unsigned int, QOperation>> annotations);
+    void preConditionInit();
+    void preConditionOneStep(int loc);
     void preConditions();
+    void postConditionInit();
+    void postConditionOneStep(int loc);
     void postConditions();
     void createAdd();
     bool satisfy();
@@ -97,5 +103,14 @@ void TransitionSystem::preConditions() {
     For different locations having the same predecessor, the result of pre-image should be conjuncted.
     */
 
+}
+
+void fromProgramToTransitionSystem(std::string filename, TransitionSystem& ts) {
+    /*
+    Read the program from the file and convert it to a transition system.
+    The program is in the form of a list of locations and transitions.
+    Each location has an annotation and a set of pre- and post-conditions.
+    */
+   // Need to write a parser!
 }
 

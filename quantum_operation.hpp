@@ -340,14 +340,14 @@ Quantum Opertion: The integration of two types of quantum items:
 */
 class QOperation {
     public:
-    /* type == true means the QOperation is a gate-type operation, the QuantumTerm in oplist are quantum gates
+    /* type == true means the QOperation is a gate-type operation, the QuantumTerm in oplist are quantum gates or SignleVecTerm
     * type == false means the QOperation is a projective operation, the QuantumTerm in oplist are CFLOBDD items (SingleVecTerm)
     */
     bool type;
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
-    std::unique_ptr<Node> ast = nullptr;
+    // std::unique_ptr<Node> ast = nullptr;
     public:
     /* The type must be specified */
     QOperation() : type(0) {}
@@ -361,36 +361,96 @@ class QOperation {
                 oplist.push_back(nullptr);
             }
         }
-        this->ast = std::make_unique<Node>(*other.ast);
+        // this->ast = std::make_unique<Node>(*other.ast);
+    }
+    QOperation(const QOperation& other1, const QOperation& other2) {
+        assert(other1.type == other2.type);
+        assert(other1.qNum == other2.qNum);
+        this->qNum = other1.qNum;
+        this->type = other1.type;
+        this->normalized = false;
+        oplist.reserve(other1.oplist.size() + other2.oplist.size());
+        for (const auto& term : other1.oplist) {
+            if (term) { // 检查指针是否为空
+                oplist.push_back(std::make_unique<QuantumTerm>(*term));
+            } else {
+                oplist.push_back(nullptr);
+            }
+        }
+        for (const auto& term : other2.oplist) {
+            if (term) { // 检查指针是否为空
+                oplist.push_back(std::make_unique<QuantumTerm>(*term));
+            } else {
+                oplist.push_back(nullptr);
+            }
+        }
     }
     QOperation(QOperation&& other) : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum) {
         // this->ast = std::make_unique<Node>(*other.ast);
-        this->ast = std::move(other.ast);
+        // this->ast = std::move(other.ast);
     }
     QOperation(bool t) : type(t) {}
-    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c) : type(t), oplist(std::move(c)), normalized(false), ast(nullptr) {
+    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c) : type(t), oplist(std::move(c)), normalized(false) {
         if (!c.empty() && c[0]) {
             qNum = c[0]->qNum;
         } else {
             qNum = 0;
         }
     }
-    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c, bool n) : type(t), oplist(std::move(c)), normalized(n), ast(nullptr) {
+    QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>> c, bool n) : type(t), oplist(std::move(c)), normalized(n) {
         if (!c.empty() && c[0]) {
             qNum = c[0]->qNum;
         } else {
             qNum = 0;
         }
     }
+
+    QOperation& operator=(const QOperation& other) {
+        if (this != &other) {
+            type = other.type;
+            normalized = other.normalized;
+            qNum = other.qNum;
+            oplist.clear();
+            oplist.reserve(other.oplist.size());
+            for (const auto& term : other.oplist) {
+                if (term) {
+                    oplist.push_back(std::make_unique<QuantumTerm>(*term));
+                } else {
+                    oplist.push_back(nullptr);
+                }
+            }
+        }
+        return *this;
+    }
+    // void setASTdefaultADD() {
+    //     // set the default AST as a ADD operation
+    //     if (this->ast == nullptr) {
+    //         this->ast = std::make_unique<LeafNode>(0, this->oplist.size()-1);
+    //     }
+    // }
     void append(std::unique_ptr<QuantumTerm> qt) {
         if (qt->getType() != this->type) {
             std::cout << "Append a wrong type of quantum term.";
             return;
         }
-        oplist.push_back(qt);
+        oplist.push_back(std::move(qt));
+    }
+    std::vector<std::unique_ptr<QuantumTerm>> fetch(unsigned int begin,unsigned int end) {
+        // fetch the oplist from begin to end
+        assert(end < this->oplist.size());
+        std::vector<std::unique_ptr<QuantumTerm>> res;
+        res.reserve(end - begin + 1);
+        for (size_t i = begin; i <= end; i++) {
+            if (this->oplist[i] == nullptr) {
+                res.push_back(nullptr);
+            } else {
+                res.push_back(std::make_unique<QuantumTerm>(*this->oplist[i]));
+            }
+        }
+        return res;
     }
     void GramSchmidt(unsigned int begin, unsigned int end) {
-        // A better sulotion is to record every index of operands. Because it may not be continuous.
+        // Here need to optimize the orthogonalBasis
         assert(this->type == false);
         assert(end < this->oplist.size());
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
@@ -411,51 +471,86 @@ class QOperation {
             this->oplist[begin+i] = std::move(orthogonalBasis[i]);
         }
         // this->oplist = std::move(orthogonalBasis);
+        this->normalized = true;
     }
-    QOperation negation(unsigned int begin, unsigned int end) {
+    QOperation negation() {
         // compute the negation of some of operators (as a disjunction)
         assert(!this->type);
         return *this;
     }
-    QOperation conjunction(unsigned int begin, unsigned int end) {
+    QOperation conjunction(QOperation& other) {
         /*** To do the conjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
          * 3. hard calculate \neg(\neg A \lor \neg B).
          ***/ 
         assert(!this->type);
-        return *this;
+        if (other.oplist.size() == 0) {
+            return QOperation();
+        }
+        assert(!other.oplist[0]->getType());
+        if (!this->normalized) {
+            this->GramSchmidt(0, this->oplist.size()-1);
+            this->normalized = true;
+        }
+        if (!other.normalized) {
+            other.GramSchmidt(0, other.oplist.size()-1);
+            other.normalized = true;
+        }
+        QOperation op1(*this, other);
+        // Modify: optimize the GramSchmidt length incremental
+        op1.GramSchmidt(0, op1.oplist.size()-1);
+        std::vector<std::unique_ptr<QuantumTerm>> negthis = op1.fetch(this->oplist.size(), op1.oplist.size()-1);
+        QOperation op2(other, *this);
+        op2.GramSchmidt(0, op2.oplist.size()-1);
+        std::vector<std::unique_ptr<QuantumTerm>> negother = op2.fetch(other.oplist.size(), op2.oplist.size()-1);
+        std::vector<std::unique_ptr<QuantumTerm>> remaining = op1.fetch(0, this->oplist.size()-1);
+        // create a new QOperation with oplist negthis and negother
+        QOperation op3(false, negthis);
+        op3.oplist.insert(op3.oplist.end(), std::make_move_iterator(negother.begin()), std::make_move_iterator(negother.end()));
+        op3.GramSchmidt(0, op3.oplist.size()-1);
+        int dimNeg1AndNeg2 = op3.oplist.size();
+        op3.oplist.insert(op3.oplist.end(), std::make_move_iterator(remaining.begin()), std::make_move_iterator(remaining.end()));
+        op3.GramSchmidt(0, op3.oplist.size()-1);
+        std::vector<std::unique_ptr<QuantumTerm>> resvec = op3.fetch(dimNeg1AndNeg2, op3.oplist.size()-1);
+        QOperation res(false, resvec);
+        res.normalized = true;
+        res.qNum = this->qNum;
+        return res;
     }
-    QOperation disjunction(unsigned int begin, unsigned int end) {
+
+    QOperation disjunction(const QOperation& other) {
         /*** To do the disjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
          * 3. hard calculate \neg(\neg A \land \neg B).
          ***/
         assert(!this->type);
-        return *this;
+        if (other.oplist.size() == 0) {
+            return *this;
+        }
+        assert(!other.oplist[0]->getType());
+        QOperation res(*this, other);
+        res.GramSchmidt(0, res.oplist.size()-1);
+        return res;
     }
 
-    QOperation preImage(const QOperation& other) const {
+    QOperation preImage(QOperation& other) {
         /* The pre-image of a quantum operator */
         assert(this->type == false && other.type == true);
         QOperation res;
-        for (size_t i = 0; i < this->oplist.size(); i++) {
-            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-            if (!ivec) continue;
-            /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
-               In the later case, we should use jvec->projectOnto() */
-            if (other.oplist.size() == 0) continue;
+        /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
+                In the later case, we should use jvec->projectOnto() */
+        if (other.oplist[0]->getType() == false) {
             // Case 1: other.oplist[0] is a SingleVecTerm
-            if (other.oplist[0]->getType() == false) {
-                for (size_t j = 0; j < other.oplist.size(); j++) {
-                    auto* jvec = dynamic_cast<SingleVecTerm*>(other.oplist[0].get());
-                    if (!jvec) continue;
-                    auto tmp = jvec->projectOnto(*ivec);
-                    res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
-                }
-            } else {
-                // Case 2: other.oplist[0] is a QuantumGateTerm
+            res = this->conjunction(other); // This is not a const operator!
+        } else {
+            // Case 2: other.oplist[0] is a QuantumGateTerm
+            for (size_t i = 0; i < this->oplist.size(); i++) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+                if (!ivec) continue;
+                
+                // if (other.oplist.size() == 0) continue;
                 for (size_t j = 0; j < other.oplist.size(); j++) {
                     auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                     if (!jgate) continue;
