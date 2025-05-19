@@ -347,6 +347,7 @@ class QOperation {
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
+    bool isIdentity = 0;
     // std::unique_ptr<Node> ast = nullptr;
     public:
     /* The type must be specified */
@@ -478,20 +479,28 @@ class QOperation {
         assert(!this->type);
         return *this;
     }
-    QOperation conjunction(QOperation& other) {
+    QOperation conjunction(QOperation& other) const {
         /*** To do the conjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
          * 3. hard calculate \neg(\neg A \lor \neg B).
          ***/ 
         assert(!this->type);
+        if (other.isIdentity) {
+            return *this;
+        }
+        if (this->isIdentity) {
+            return other;
+        }
+        // TODO: What if this->oplist.size() == 0?
         if (other.oplist.size() == 0) {
             return QOperation();
         }
         assert(!other.oplist[0]->getType());
         if (!this->normalized) {
-            this->GramSchmidt(0, this->oplist.size()-1);
-            this->normalized = true;
+            throw std::runtime_error("The QOperation is not normalized.");
+            // this->GramSchmidt(0, this->oplist.size()-1);
+            // this->normalized = true;
         }
         if (!other.normalized) {
             other.GramSchmidt(0, other.oplist.size()-1);
@@ -519,7 +528,7 @@ class QOperation {
         return res;
     }
 
-    QOperation disjunction(const QOperation& other) {
+    QOperation disjunction(const QOperation& other) const {
         /*** To do the disjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
@@ -670,5 +679,24 @@ class QOperation {
         return false;
     }
 };
+
+/* Const QOperation:
+I: the identity operator as the top of the QOperation lattice
+  --> properties: for all QOperation A, conjunction(A, I) = A
+  --> properties: for all QOperation A, disjunction(A, I) = I
+*/
+
+QOperation CreateIdentityQO(unsigned int qNum) {
+    QOperation res(true);
+    res.qNum = qNum;
+    res.isIdentity = true;
+    return res;
+}
+
+QOperation CreateZeroQO(unsigned int qNum) {
+    QOperation res(true);
+    res.qNum = qNum;
+    return res;
+}
 
 #endif
