@@ -243,6 +243,7 @@ class QuantumGateTerm : public QuantumTerm {
 class SingleVecTerm : public QuantumTerm {
     public:
     // construct as a projector or state
+    SingleVecTerm() {}
     SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
         // Need copy?
         // type = false;
@@ -450,6 +451,21 @@ class QOperation {
         }
         return res;
     }
+    SingleVecTerm projectIn(const SingleVecTerm& vec) const {
+        // project the vector onto the QOperation
+        assert(this->oplist[0]->getType() == false);
+        assert(vec.getType() == false);
+        assert(this->oplist[0]->qNum == vec.qNum);
+        CFLOBDD_COMPLEX_BIG content; // Check: Initialization
+        for (size_t i = 0; i < this->oplist.size(); i++) {
+            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+            if (!ivec) continue;
+            content = content + vec.projectOnto(*ivec);
+        }
+        SingleVecTerm res(content);
+        res.qNum = this->qNum;
+        return res;
+    }
     void GramSchmidt(unsigned int begin, unsigned int end) {
         // Here need to optimize the orthogonalBasis
         assert(this->type == false);
@@ -584,7 +600,7 @@ class QOperation {
                 auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                 if (!jgate) continue;
                 auto tmp = ivec->applyGate(*jgate, true);
-                res.append(std::make_unique<SingleVecTerm>(tmp));
+                res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
             }
         }
         return res;
@@ -674,10 +690,76 @@ class QOperation {
             }
         }
     }
-    bool satisfy(const QOperation& other) const {
+    
+    
+    int compare(const QOperation& other) const {
+        /* Compare the relation of this and other */
+        /* 0: this is included in other; 1: other is included in this; 2: exclude; 3: intersect but not include; 4: equality*/
+        assert(this->normalized && other.normalized);
+        if (this->oplist.size() > 0) {
+            assert(this->oplist[0]->getType() == false);
+        }
+        if (other.oplist.size() > 0) {
+            assert(other.oplist[0]->getType() == false);
+        }
+        if (this->oplist.size() == 0 && other.oplist.size() == 0) {
+            return -1;
+        }
+        int inside_cnt = 0;
+        for (size_t i = 0; i < this->oplist.size(); i++) {
+            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+            if (!ivec) continue;
+            // Check if every single vector in this can be totally projected onto other
+            SingleVecTerm tmp = other.projectIn(*ivec);
+            auto tmpdot = tmp.dot(tmp); // TODO: A more efficient way to justify the difference?
+            if (abs(tmpdot.real()-1) < 1e-8 && abs(tmpdot.imag()) < 1e-8) {
+                // this is a subspace of other
+                if (i == this->oplist.size()-1) {
+                    inside_cnt++;
+                }
+            }
+        }
+        if (inside_cnt == this->oplist.size()) {
+            if (this->oplist.size() == other.oplist.size()) {
+                return 4;
+            } else {
+                return 0;
+            }
+        }
+        if (inside_cnt == 0) {
+            return 2;
+        }
+        if (inside_cnt == other.oplist.size()) {
+            return 1;
+        }
+        return 3;
+    }
+    bool operator==(const QOperation& other) const {
         /* If the support space of this is the subspace of other */
+        assert(this->normalized && other.normalized);
+        if (this->oplist.size() > 0) {
+            assert(this->oplist[0]->getType() == false);
+        }
+        if (other.oplist.size() > 0) {
+            assert(other.oplist[0]->getType() == false);
+        }
+        if (this->oplist.size() != other.oplist.size()) {
+            return false;
+        }
+        if (this->compare(other) == 4) {
+            return true;
+        }
         return false;
     }
+    bool operator<=(const QOperation& other) const {
+        /* If the support space of this is the subspace of other */
+        return this->compare(other) == 0;
+    }
+    
+    // bool satisfy(const QOperation& other) const {
+    //     /* If the support space of this is the subspace of other */
+    //     return false;
+    // }
 };
 
 /* Const QOperation:
