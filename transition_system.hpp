@@ -1,10 +1,9 @@
 #include "quantum_operation.hpp"
+#ifndef TRANSITION
+#define TRANSITION
 
-
-/***
- * Location: The location of a transition system.
- * It contains the state and the annotation of the location.
- ***/
+namespace TRANSITION_SYSTEM
+{
 class Location
 {
 public:
@@ -60,6 +59,7 @@ public:
     std::vector<Location> Locations;
     unsigned int initLocation;
     std::vector<std::tuple<unsigned int, unsigned int, std::string>> relations;
+    // I need to build a map from relation names to the quantum operations.
 public:
     TransitionSystem() {};
     ~TransitionSystem();
@@ -128,7 +128,7 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     */
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
         Location* preLoc = this->Locations[loc].preLocations[i];
-        QOperation preImage = this->Locations[loc].upperBound.preImage(this->Locations[loc].upperBound);
+        QOperation preImage = this->Locations[loc].upperBound.preImage();
         preLoc->upperBound = preLoc->upperBound.conjunction(preImage); // TODO: Conjunction inline
     }
 }
@@ -166,7 +166,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     */
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
-        QOperation postImage = this->Locations[loc].lowerBound.postImage(this->Locations[loc].lowerBound);
+        QOperation postImage = this->Locations[loc].lowerBound.postImage();
         postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Conjunction inline
     }
 }
@@ -198,4 +198,10 @@ void fromProgramToTransitionSystem(std::string filename, TransitionSystem& ts) {
     */
    // Need to write a parser!
 }
+};
+/***
+ * Location: The location of a transition system.
+ * It contains the state and the annotation of the location.
+ ***/
 
+#endif

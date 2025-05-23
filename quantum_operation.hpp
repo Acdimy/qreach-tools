@@ -495,7 +495,7 @@ class QOperation {
         assert(!this->type);
         return *this;
     }
-    QOperation conjunction(QOperation& other) const {
+    QOperation conjunction(const QOperation& other) const {
         /*** To do the conjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
@@ -518,10 +518,11 @@ class QOperation {
             // this->GramSchmidt(0, this->oplist.size()-1);
             // this->normalized = true;
         }
-        if (!other.normalized) {
-            other.GramSchmidt(0, other.oplist.size()-1);
-            other.normalized = true;
-        }
+        assert(other.normalized);
+        // if (!other.normalized) {
+        //     other.GramSchmidt(0, other.oplist.size()-1);
+        //     other.normalized = true;
+        // }
         QOperation op1(*this, other);
         // Modify: optimize the GramSchmidt length incremental
         op1.GramSchmidt(0, op1.oplist.size()-1);
@@ -560,7 +561,7 @@ class QOperation {
         return res;
     }
 
-    QOperation preImage(QOperation& other) {
+    QOperation preImage(const QOperation& other) {
         /* The pre-image of a quantum operator */
         assert(this->type == false && other.type == true);
         QOperation res;

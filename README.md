@@ -13,10 +13,6 @@ Some previous works are referred in this project: [Quasimodo simulator](https://
 
 ### Demo
 
-下一阶段工作内容：
-标准化的输入，包括接受更多量子转移系统作为输入，以及搭建一个顶层的框架，希望能够进行partition与circuit knitting等预处理
-抽象化的中间表示，包括尽量使用形式化、符号化的逻辑语言
-拓展更多数据结构接口
+This project is under development.
 
-最近看protocal的一个启发：分支不仅仅可以是measurement或者non-unitary，而可能是协议，一些non deterministic的操作。我的模型似乎处理不了这种情况，而SVMC可以。
-写一个Algorithm出来！
+A useable QReach artifact in on https://doi.org/10.5281/zenodo.10931240
