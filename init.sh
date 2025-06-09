@@ -4,3 +4,7 @@ export PYTHON_INCLUDE=`python -c "from sysconfig import get_paths as gp; print(g
 export BOOST_PATH="~/stab_dd/boost_1_81_0"
 
 invoke build-qreach && invoke build-pybind11
+
+
+g++ -g -std=c++2a -w -I. -I$BOOST_PATH -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/ -lm\
+ *.cpp cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp cflobdd/CFLOBDD/*.cpp -o test

@@ -2,11 +2,14 @@
 #ifndef TRANSITION
 #define TRANSITION
 
-namespace TRANSITION_SYSTEM
-{
+//TODO: check the unique table and the computing table
+
+using namespace CFL_OBDD;
+
 class Location
 {
 public:
+    unsigned int idx;
     QOperation upperBound;
     QOperation lowerBound;
     // QOperation annotation;
@@ -58,14 +61,14 @@ private:
 public:
     std::vector<Location> Locations;
     unsigned int initLocation;
-    std::vector<std::tuple<unsigned int, unsigned int, std::string>> relations;
+    std::map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
     // I need to build a map from relation names to the quantum operations.
 public:
     TransitionSystem() {};
     ~TransitionSystem();
     // void initialization();
     void addLocation(Location loc);
-    void addRelation(unsigned int from, unsigned int to, std::string name);
+    void addRelation(unsigned int from, unsigned int to, QOperation op);
     void setAnnotation(std::vector<std::tuple<unsigned int, QOperation>> annotations);
     void preConditionInit();
     void preConditionOneStep(unsigned int loc);
@@ -81,11 +84,15 @@ public:
 void TransitionSystem::addLocation(Location loc)
 {
     this->Locations.push_back(loc);
+    loc.idx = this->Locations.size() - 1;
 }
 
-void TransitionSystem::addRelation(unsigned int from, unsigned int to, std::string name)
+void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperation op)
 {
-    this->relations.push_back(std::make_tuple(from, to, name));
+    // The problem is how to represent a projective operation' support vectors.
+    this->relations[std::make_tuple(from, to)] = op;
+    this->Locations[from].appendPostLocation(&this->Locations[to]);
+    this->Locations[to].appendPreLocation(&this->Locations[from]);
 }
 
 void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOperation>> annotations)
@@ -128,8 +135,8 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     */
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
         Location* preLoc = this->Locations[loc].preLocations[i];
-        QOperation preImage = this->Locations[loc].upperBound.preImage();
-        preLoc->upperBound = preLoc->upperBound.conjunction(preImage); // TODO: Conjunction inline
+        QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(loc, preLoc->idx)]);
+        preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
     }
 }
 
@@ -166,7 +173,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     */
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
-        QOperation postImage = this->Locations[loc].lowerBound.postImage();
+        QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
         postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Conjunction inline
     }
 }
@@ -198,7 +205,7 @@ void fromProgramToTransitionSystem(std::string filename, TransitionSystem& ts) {
     */
    // Need to write a parser!
 }
-};
+
 /***
  * Location: The location of a transition system.
  * It contains the state and the annotation of the location.
