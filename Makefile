@@ -1,5 +1,7 @@
 # Project Name (executable)
 PROJECT = libqreach.so
+# Test Project Name (executable)
+TEST = test_qreach
 # Compiler
 CC = g++
 
@@ -7,7 +9,7 @@ CC = g++
 COMMANDLINE_OPTIONS = #/dev/ttyS0
 
 # Compiler options during compilation
-COMPILE_OPTIONS = -g -O3 -std=c++2a -w -shared -Wall -Wextra -DHAVE_CONFIG_H -Werror -Wunused-but-set-variable -fPIC
+COMPILE_OPTIONS = -g -O3 -std=c++2a -w -Wall -Wextra -DHAVE_CONFIG_H -Werror -Wunused-but-set-variable -fPIC
 # -ansi -pedantic -Wall 
 
 #Header include directories
@@ -22,6 +24,7 @@ SOURCE_FILES := $(shell ls *.cpp)
 SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp)
 SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp)
 SOURCE_FILES += $(shell find cflobdd/CFLOBDD -maxdepth 1 -mindepth 1 -name \*.cpp -a -not -name main.cpp)
+SOURCE_FILES := $(filter-out quantum_circuit.cpp, $(SOURCE_FILES))
 # [SOURCE_FILES] -= $(shell ls cflobdd/CFLOBDD/main.cpp)
 # $(info $(SOURCE_FILES))
 
@@ -42,6 +45,12 @@ $(PROJECT): $(OBJECTS)
 # ifneq "$(strip $(DEPENDENCIES))" ""
 #   include $(DEPENDENCIES)
 # endif
+
+$(TEST): $(OBJECTS)
+	$(CC) -o $(TEST) $(OBJECTS)
+
+test: $(TEST)
+	@echo "Target $(TEST) is built."
 
 # Compile every cpp file to an object
 # %.cpp 
@@ -65,3 +74,5 @@ depclean:
 	rm -f $(DEPENDENCIES)
 
 clean-all: clean depclean
+
+# -include $(DEPENDENCIES)

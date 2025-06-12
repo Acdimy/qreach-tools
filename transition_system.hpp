@@ -1,10 +1,27 @@
 #include "quantum_operation.hpp"
+#include <functional>
 #ifndef TRANSITION
 #define TRANSITION
 
 //TODO: check the unique table and the computing table
+// It seems that CFLOBDD does not provide the two tables.
 
 using namespace CFL_OBDD;
+
+// Provide a hash specialization for std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>
+namespace std {
+    template <>
+    struct hash<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>> {
+        std::size_t operator()(const std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>& t) const {
+            std::size_t h1 = std::hash<unsigned int>()(std::get<0>(t));
+            std::size_t h2 = std::hash<unsigned int>()(std::get<1>(t));
+            std::size_t h3 = std::hash<unsigned int>()(std::get<2>(t));
+            std::size_t h4 = std::hash<unsigned int>()(std::get<3>(t));
+            // Combine the hashes
+            return (((h1 ^ (h2 << 1)) >> 1) ^ (h3 << 1)) ^ (h4 << 1);
+        }
+    };
+}
 
 class Location
 {
@@ -18,6 +35,7 @@ public:
 public:
     Location(/* args */) {};
     Location(const int qNum);
+    Location(const int qNum, const unsigned int idx);
     ~Location();
     // void setAnnotation(QOperation annotation);
     void appendPreLocation(Location* loc);
@@ -26,6 +44,13 @@ public:
 
 Location::Location(const int qNum)
 {
+    this->upperBound = CreateIdentityQO(qNum);
+    this->lowerBound = CreateZeroQO(qNum);
+}
+
+Location::Location(const int qNum, const unsigned int idx)
+{
+    this->idx = idx;
     this->upperBound = CreateIdentityQO(qNum);
     this->lowerBound = CreateZeroQO(qNum);
 }
@@ -53,7 +78,7 @@ void Location::appendPostLocation(Location* loc)
 
 class TransitionSystem
 {
-private:
+public:
     std::vector<int> currPreLocs;
     std::vector<int> currPostLocs;
     std::vector<bool> visitedPre;
@@ -61,10 +86,24 @@ private:
 public:
     std::vector<Location> Locations;
     unsigned int initLocation;
-    std::map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
     // I need to build a map from relation names to the quantum operations.
+    std::map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
+
+    
+    // A computed table: tuple(from_loc, from_dim, to_loc, to_dim), indicating the relation(from_loc, to_loc) with the dimensions is computed.
+    std::unordered_set<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>> computedTablePre;
+    std::unordered_set<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>> computedTablePost;
+    
 public:
-    TransitionSystem() {};
+    TransitionSystem() {
+        CFLOBDDNodeHandle::InitNoDistinctionTable();
+        CFLOBDDNodeHandle::InitAdditionInterleavedTable();
+        CFLOBDDNodeHandle::InitReduceCache();
+        InitPairProductCache();
+        InitTripleProductCache();
+        Matrix1234ComplexFloatBoost::Matrix1234Initializer();
+        VectorComplexFloatBoost::VectorInitializer();
+    };
     ~TransitionSystem();
     // void initialization();
     void addLocation(Location loc);
@@ -107,6 +146,18 @@ void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOpera
         this->Locations[loc].upperBound = op; // Must be copy assignment!
         this->Locations[loc].lowerBound = op;
     }
+    // For any location that is not in annotations, set the upperBound to zero and lowerBound to identity. (Already implemented in the constructor of Location)
+    // for (unsigned int i = 0; i < this->Locations.size(); i++) {
+    //     if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) == this->currPreLocs.end()) {
+    //         this->Locations[i].upperBound = CreateZeroQO(this->Locations[i].upperBound.qNum);
+    //         this->Locations[i].lowerBound = CreateIdentityQO(this->Locations[i].lowerBound.qNum);
+    //     }
+    // }
+}
+
+void TransitionSystem::setInitLocation(unsigned int loc)
+{
+    this->initLocation = loc;
 }
 
 TransitionSystem::~TransitionSystem()
@@ -118,9 +169,14 @@ void TransitionSystem::preConditionInit() {
     Initialize the pre-condition of the transition system.
     Select all locations whose postLocations are only themselves. Append them to currPreLocs.
     */
+   // Initialize the visitedPre vectors
+    this->visitedPre.resize(this->Locations.size(), false);
+    this->currPreLocs.clear();
+    this->computedTablePre.clear(); // Clear the computed table for pre-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if (this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == &this->Locations[i]) {
             this->currPreLocs.push_back(i);
+            this->visitedPre[i] = true; // Mark this location as visited
         }
     }
     
@@ -135,8 +191,19 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     */
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
         Location* preLoc = this->Locations[loc].preLocations[i];
-        QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(loc, preLoc->idx)]);
-        preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
+        if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) != this->computedTablePre.end()) {
+            QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(loc, preLoc->idx)]);
+            computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
+            int dimBefore = preLoc->upperBound.oplist.size();
+            preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
+            if (visitedPre[preLoc->idx] == false) {
+                this->currPreLocs.push_back(preLoc->idx);
+                visitedPre[preLoc->idx] = true;
+            } else if (preLoc->upperBound.oplist.size() < dimBefore) {
+                // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
+                this->currPreLocs.push_back(preLoc->idx);
+            }
+        }        
     }
 }
 
@@ -157,9 +224,14 @@ void TransitionSystem::postConditionInit() {
     Initialize the post-condition of the transition system.
     Select all locations whose preLocations are only themselves. Append them to currPostLocs.
     */
+    // Initialize the visitedPost vectors
+    this->visitedPost.resize(this->Locations.size(), false);
+    this->currPostLocs.clear();
+    this->computedTablePost.clear(); // Clear the computed table for post-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if (this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == &this->Locations[i]) {
             this->currPostLocs.push_back(i);
+            this->visitedPost[i] = true; // Mark this location as visited
         }
     }
 }
@@ -169,13 +241,28 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     For the location loc, compute the post-condition of the lowerBound in loc.
     Tranverse all the postLocations of loc, and compute the post-image of the lowerBound in loc.
     Use the method QOperation::postImage
-    Do the conjunction with the existed lowerBound of postLocations (Use QOperation.conjunction).
+    Do the disjunction with the existed lowerBound of postLocations (Use QOperation.disjunction).
     */
+    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
-        QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
-        postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Conjunction inline
+        // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
+        if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
+            std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
+            QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
+            computedTablePost.insert(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size()));
+            int dimBefore = postLoc->lowerBound.oplist.size();
+            postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Disjunction inline
+            if (visitedPost[postLoc->idx] == false) {
+                this->currPostLocs.push_back(postLoc->idx);
+                visitedPost[postLoc->idx] = true;
+            } else if (postLoc->lowerBound.oplist.size() < dimBefore) {
+                // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
+                this->currPostLocs.push_back(postLoc->idx);
+            }
+        }
     }
+    std::cout << "Post condition for location " << loc << " computed." << std::endl;
 }
 
 void TransitionSystem::postConditions() {
@@ -190,11 +277,35 @@ void TransitionSystem::postConditions() {
     }
 }
 
+void ComputingFixedPointPre(TransitionSystem& ts) {
+    /*
+    Compute the fixed point of the pre-conditions.
+    The fixed point is the status when preConditions converge.
+    */
+    ts.preConditionInit();
+    while(!ts.currPreLocs.empty()) {
+        ts.preConditions();
+    }
+}
+
+void ComputingFixedPointPost(TransitionSystem& ts) {
+    /*
+    Compute the fixed point of the post-conditions.
+    The fixed point is the status when postConditions converge.
+    */
+    ts.postConditionInit();
+    while(!ts.currPostLocs.empty()) {
+        ts.postConditions();
+    }
+}
+
 void ComputingFixedPoint(TransitionSystem& ts) {
     /*
     Compute the fixed point of the transition system.
     The fixed point is the status when preConditions and postConditions converge.
     */
+   ComputingFixedPointPre(ts);
+   ComputingFixedPointPost(ts);
 }
 
 void fromProgramToTransitionSystem(std::string filename, TransitionSystem& ts) {

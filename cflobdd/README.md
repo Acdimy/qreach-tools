@@ -8,7 +8,7 @@ CFLOBDDs are data structures that provide double-exponential compression of Bool
 2. Install Boost C++ from https://www.boost.org/users/download/ (any version should work). The version used in the paper is 1.80.0.
 3. Change the directory to the CFLOBDD subfolder (cd CFLOBDD/). The other folders contain code for testing the baselines mentioned in the paper.
 4. Compile using the command (creates a.out executable): 
-    g++ -g -std=c++17 -w -I. -I.<path_to_boost> -I.Solver/uwr/bit_vector/ -I.Solver/uwr/assert/ -I.Solver/uwr/matrix/ -I.Solver/uwr/parsing/ -lm *.cpp Solver/uwr/bit_vector/*.cpp Solver/uwr/parsing/*.cpp
+    g++ -g -std=c++20 -w -I. -I$BOOST_PATH -I.Solver/uwr/bit_vector/ -I.Solver/uwr/assert/ -I.Solver/uwr/matrix/ -I.Solver/uwr/parsing/ -lm *.cpp Solver/uwr/bit_vector/*.cpp Solver/uwr/parsing/*.cpp
 
 ### Code Structure:
 

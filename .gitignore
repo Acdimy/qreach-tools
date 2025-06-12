@@ -2,6 +2,12 @@
 
 *.so
 
+*.d
+
+*.out
+
+test_qreach
+
 /cflobdd/CFLOBDD/*.o
 
 /python_pkg/*.so

@@ -57,7 +57,7 @@ namespace CFL_OBDD {
             return std::make_tuple(rw, 0.0, (rw == 0.0) ? 0.0 : 1.0);
         if (rw == 0.0)
             return std::make_tuple(lw, 1.0, 0.0);
-        return std::make_tuple(lw, 1.0, rw/lw);
+        return std::make_tuple(lw, 1.0, BIG_FLOAT(rw/lw));
     }
 
     template <>

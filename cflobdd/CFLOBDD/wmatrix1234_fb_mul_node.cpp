@@ -760,13 +760,13 @@ namespace CFL_OBDD {
             if (c1.handleContents->level == 1)
             {
                 auto tmp = gHandle.Reduce(reductionMapHandle, g_return_map.Size(), valList, false);
-                ret = std::make_tuple(tmp.first, g_return_map, tmp.second * top_factor);
+                ret = std::make_tuple(tmp.first, g_return_map, BIG_FLOAT(tmp.second * top_factor));
                 // ret = std::make_tuple(gHandle, g_return_map, top_factor);
             }
             else
             {
                 auto tmp = gHandle.Reduce(reductionMapHandle, g_return_map.Size(), valList, true);
-                ret = std::make_tuple(tmp.first, g_return_map, tmp.second * top_factor);
+                ret = std::make_tuple(tmp.first, g_return_map, BIG_FLOAT(tmp.second * top_factor));
                 // ret = std::make_tuple(gHandle, g_return_map, top_factor);
             }
             matmult_hash.insert(std::make_pair(mmp, ret));

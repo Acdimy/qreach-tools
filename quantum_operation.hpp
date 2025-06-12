@@ -8,6 +8,8 @@
 #include <vector>
 #include <stdexcept>
 #include <memory>
+#include <algorithm>
+#include <cctype>
 
 using namespace CFL_OBDD;
 
@@ -79,9 +81,17 @@ CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOB
     }
 }
 
+std::string toLower(const std::string& input) {
+    std::string result = input;
+    std::transform(result.begin(), result.end(), result.begin(),
+                   [](unsigned char c){ return std::tolower(c); });
+    return result;
+}
+
 class PauliString {
     unsigned int length;
-    
+    bool sign;
+    std::vector<unsigned int> pauliList; // 0: I, 1: X, 2: Y, 3: Z
 };
 
 /*
@@ -113,6 +123,7 @@ class QuantumGateTerm : public QuantumTerm {
     bool ideOperator = false;
     // construct as a gate
     QuantumGateTerm() {}
+    // QuantumGateTerm(unsigned int qubit) {this->qNum = qubit;}
     QuantumGateTerm(std::string nam, std::vector<unsigned int> idx, std::vector<double> pars, unsigned int qNum)  {
         assert((qNum & (qNum - 1)) == 0 && qNum != 0);
         // type = true;
@@ -137,10 +148,10 @@ class QuantumGateTerm : public QuantumTerm {
     }
 
     CFLOBDD_COMPLEX_BIG concretize() const {
-        std::string name = this->name;
+        std::string name = toLower(this->name);
         unsigned index = this->index[0];
         CFLOBDD_COMPLEX_BIG res;
-        std::pow(2, this->content.root->level-1);
+        // std::pow(2, this->content.root->level-1);
         // unsigned int level = ceil(log2(numQubits)) + 1;
         if (name == "x") {
             auto X = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkNegationMatrixInterleaved);
@@ -226,6 +237,10 @@ class QuantumGateTerm : public QuantumTerm {
         } else if (name == "cs") {
             
         } /* CCNOT, CSWAP, GlobalPhase */
+        else {
+            std::cout << "Unknown quantum gate: " << name << std::endl;
+            throw std::runtime_error("Unknown quantum gate.");
+        }
         return res;
     }
 
@@ -238,7 +253,7 @@ class QuantumGateTerm : public QuantumTerm {
     QuantumGateTerm cascade(const QuantumGateTerm& other) const {
         QuantumGateTerm res;
         if (this->zeroOperator || other.zeroOperator) {
-            return QuantumGateTerm(0);
+            return QuantumGateTerm(false);
         } else if (this->ideOperator) {
             res = other;
         } else if (other.ideOperator) {
@@ -254,6 +269,16 @@ class SingleVecTerm : public QuantumTerm {
     public:
     // construct as a projector or state
     SingleVecTerm() {}
+    SingleVecTerm(unsigned int qubits) {this->qNum = qubits;}
+    SingleVecTerm(std::string s, unsigned int qubits) {
+        // auto tmp = CFLOBDDNodeHandle::CFLOBDDForkNodeHandle;
+        // s.size() is the realQubits, qNum is the total physical qubits.
+        unsigned int level = ceil(log2(qubits));
+        this->qNum = std::pow(2, level);
+        CFLOBDD_COMPLEX_BIG stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
+        stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
+        this->content = stateVector;
+    }
     SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
         // Need copy?
         // type = false;
@@ -326,6 +351,8 @@ class SingleVecTerm : public QuantumTerm {
         CFLOBDD_COMPLEX_BIG res ;
         if (direction) {
             // Forward induction
+            // Temporarily use the content as the operand.
+
             res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
         } else {
             // Backward induction
@@ -341,10 +368,12 @@ class SingleVecTerm : public QuantumTerm {
 };
 
 class CliffordTerm : public QuantumTerm {
+    // Represent a Clifford gate, which is a special type of quantum gate.
     bool getType() const override {return true;}
 };
 
 class TableauTerm : public QuantumTerm {
+    // Represent a stabilizer subspace, in the special a stabilizer state.
     bool getType() const override {return false;}
 };
 
@@ -362,13 +391,33 @@ class QOperation {
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
-    bool isIdentity = 0;
+    bool isIdentity = false;
     int isProj = -1;
     // std::unique_ptr<Node> ast = nullptr;
     public:
     /* The type must be specified */
     QOperation() : type(0) {}
-    QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum) {
+    QOperation(std::vector<std::string> strings) {
+        // Construct a QOperation of basic vectors.
+        type = false;
+        for (const auto& str : strings) {
+            SingleVecTerm term(str, std::pow(2, ceil(log2(str.size()))));
+            oplist.push_back(std::make_unique<SingleVecTerm>(term));
+        }
+        if (!strings.empty()) {
+            qNum = std::pow(2, ceil(log2(strings[0].size())));
+        } else {
+            qNum = 0;
+        }
+    }
+    QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
+        // Construct a QOperation of quantum gate.
+        type = true;
+        oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
+        this->qNum = qNum;
+        isIdentity = false;
+    }
+    QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
         // 深拷贝 oplist
         oplist.reserve(other.oplist.size()); // 预分配空间以提高效率
         for (const auto& term : other.oplist) {
@@ -402,7 +451,8 @@ class QOperation {
             }
         }
     }
-    QOperation(QOperation&& other) noexcept : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum) {
+    QOperation(QOperation&& other) noexcept : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
+        // Move constructor
         // this->ast = std::make_unique<Node>(*other.ast);
         // this->ast = std::move(other.ast);
     }
@@ -428,6 +478,7 @@ class QOperation {
         if (this != &other) {
             type = other.type;
             normalized = other.normalized;
+            isIdentity = other.isIdentity;
             qNum = other.qNum;
             oplist.clear();
             oplist.reserve(other.oplist.size());
@@ -485,6 +536,7 @@ class QOperation {
     }
     void GramSchmidt(unsigned int begin, unsigned int end, std::tuple<unsigned int, unsigned int> existedOrthogonal = std::make_tuple(0, 0)) {
         // Here need to optimize the orthogonalBasis
+        // If the size is 1
         assert(this->type == false);
         assert(end < this->oplist.size());
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
@@ -604,6 +656,7 @@ class QOperation {
 
     QOperation conjunction_simp(const QOperation& other) const {
         // We must make sure at least one operand is not a projective operator!
+        // Already Schmidted.
         assert(this->isProj < 0);
         assert(!this->type && this->normalized);
         if (other.isIdentity) {
@@ -649,13 +702,18 @@ class QOperation {
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
          * 3. hard calculate \neg(\neg A \land \neg B).
+         * Already Schmidted.
          ***/
-        assert(!this->type);
+        assert(!this->type && !other.type);
         if (other.oplist.size() == 0) {
             return *this;
         }
+        if (this->oplist.size() == 0) {
+            return other;
+        }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
+        std::cout << "Disjunction: " << res.oplist.size() << std::endl;
         res.GramSchmidt(0, res.oplist.size()-1);
         return res;
     }
@@ -703,6 +761,8 @@ class QOperation {
                 res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
             }
         }
+        res.normalized = false;
+        res.qNum = this->qNum;
         return res;
     }
     // QOperation operator+(const QOperation& other) const {
@@ -869,14 +929,14 @@ I: the identity operator as the top of the QOperation lattice
 */
 
 QOperation CreateIdentityQO(unsigned int qNum) {
-    QOperation res(true);
+    QOperation res(false);
     res.qNum = qNum;
     res.isIdentity = true;
     return res;
 }
 
 QOperation CreateZeroQO(unsigned int qNum) {
-    QOperation res(true);
+    QOperation res(false);
     res.qNum = qNum;
     return res;
 }
