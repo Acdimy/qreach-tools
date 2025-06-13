@@ -65,11 +65,20 @@ Location::~Location()
 // }
 void Location::appendPreLocation(Location* loc)
 {
+    // Make sure loc is not in this->preLocations
+    if (std::find(this->preLocations.begin(), this->preLocations.end(), loc) != this->preLocations.end()) {
+        return; // Already exists
+    }
     this->preLocations.push_back(loc);
 }
 void Location::appendPostLocation(Location* loc)
 {
+    // Make sure loc is not in this->postLocations
+    if (std::find(this->postLocations.begin(), this->postLocations.end(), loc) != this->postLocations.end()) {
+        return; // Already exists
+    }
     this->postLocations.push_back(loc);
+    loc->appendPreLocation(this); // Ensure the reverse relation is also established
 }
 
 /***
@@ -171,10 +180,13 @@ void TransitionSystem::preConditionInit() {
     */
    // Initialize the visitedPre vectors
     this->visitedPre.resize(this->Locations.size(), false);
-    this->currPreLocs.clear();
     this->computedTablePre.clear(); // Clear the computed table for pre-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
-        if (this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == &this->Locations[i]) {
+        if ((this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == &this->Locations[i]) || this->Locations[i].postLocations.size() == 0) {
+            // If i not in currPreLocs, add it. (TODO: Use a set to avoid duplicates)
+            if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) != this->currPreLocs.end()) {
+                continue; // Already exists
+            }
             this->currPreLocs.push_back(i);
             this->visitedPre[i] = true; // Mark this location as visited
         }
@@ -194,7 +206,7 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
         if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) != this->computedTablePre.end()) {
             QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(loc, preLoc->idx)]);
             computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
-            int dimBefore = preLoc->upperBound.oplist.size();
+            int dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
             preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             if (visitedPre[preLoc->idx] == false) {
                 this->currPreLocs.push_back(preLoc->idx);
@@ -226,10 +238,13 @@ void TransitionSystem::postConditionInit() {
     */
     // Initialize the visitedPost vectors
     this->visitedPost.resize(this->Locations.size(), false);
-    this->currPostLocs.clear();
     this->computedTablePost.clear(); // Clear the computed table for post-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
-        if (this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == &this->Locations[i]) {
+        if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == &this->Locations[i]) || this->Locations[i].preLocations.size() == 0) {
+            // If i not in currPostLocs, add it.
+            if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), i) != this->currPostLocs.end()) {
+                continue; // Already exists
+            }
             this->currPostLocs.push_back(i);
             this->visitedPost[i] = true; // Mark this location as visited
         }
@@ -246,19 +261,28 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
+        // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
+        // if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {
+        //     std::cout << "Skip self-loop for location " << loc << std::endl;
+        //     continue;
+        // }
         // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
         if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
             std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
             QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
             computedTablePost.insert(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size()));
-            int dimBefore = postLoc->lowerBound.oplist.size();
+            int dimBefore = postLoc->lowerBound.oplist.size(); // Lower bound: dimension 0 as default
             postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Disjunction inline
             if (visitedPost[postLoc->idx] == false) {
+                std::cout << "Visit a new post location " << postLoc->idx << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
                 visitedPost[postLoc->idx] = true;
-            } else if (postLoc->lowerBound.oplist.size() < dimBefore) {
+            } else if (postLoc->lowerBound.oplist.size() > dimBefore) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
+                std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
+            } else {
+                std::cout << "Post condition for location " << postLoc->idx << " is not updated." << std::endl;
             }
         }
     }

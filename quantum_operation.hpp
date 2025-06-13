@@ -81,6 +81,25 @@ CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOB
     }
 }
 
+// 1-norm
+bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
+    double threshold = 1e-8;
+    auto resMap = c.root->rootConnection.returnMapHandle;
+    if(resMap.Size() == 0) {
+        return true;
+    }
+    auto sum = abs(resMap[0].real()) + abs(resMap[0].imag());
+    for(int i = 1; i < resMap.Size(); i++) {
+        // Hide an inequality!
+        sum += (abs(resMap[i].real()) + abs(resMap[i].imag()));
+        // std::cout << "checkifzero: " << sum << std::endl;
+        if(sum > threshold) {
+            return false;
+        }
+    }
+    return true;
+}
+
 std::string toLower(const std::string& input) {
     std::string result = input;
     std::transform(result.begin(), result.end(), result.begin(),
@@ -164,6 +183,9 @@ class QuantumGateTerm : public QuantumTerm {
             res = Z;
         } else if (name == "h") {
             auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            res = H;
+        } else if (name == "i") {
+            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
             res = H;
         } else if (name == "s") {
             auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
@@ -295,6 +317,7 @@ class SingleVecTerm : public QuantumTerm {
         // assert(this->type == false && other.type == false);
         unsigned int level = ceil(log2(this->qNum));
         auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other.content);
+        tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
         auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, this->content);
         assert(tmp.root->rootConnection.returnMapHandle.Size() <= 2);
         auto resMap = tmp.root->rootConnection.returnMapHandle;
@@ -322,10 +345,13 @@ class SingleVecTerm : public QuantumTerm {
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2) {
             amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
+            // std::cout << "SingleVecTerm::normalize() amp = " << amp << std::endl;
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
+            // std::cout << "SingleVecTerm::normalize() factor = " << factor << std::endl;
             c1 = (1/factor) * c1;
         } else {
+            std::cout << "Warning: SingleVecTerm::normalize() has only one factor!" << std::endl;
             // Here, assump the only factor is zero!
             amp = resMap[0];
             assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
@@ -337,7 +363,10 @@ class SingleVecTerm : public QuantumTerm {
         this->content = this->normalize();
     }
     CFLOBDD_COMPLEX_BIG projectOnto(const SingleVecTerm& other) const {
+        /* project this onto other, \ket(other)\bra(other)\ket(this) == \bra(other)\ket(this)\ket(other) */
+        // The result is not a normalized vector.
         // assert(this->type == false);
+        // No need for other.dot(other)!!
         BIG_COMPLEX_FLOAT norm = this->dot(other) / other.dot(other);
         return norm * other.content;
     }
@@ -415,7 +444,12 @@ class QOperation {
         type = true;
         oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
         this->qNum = qNum;
-        isIdentity = false;
+        // Here, isIdentity is used in type == true case.
+        if (toLower(nam) == "i") {
+            isIdentity = true;
+        } else {
+            isIdentity = false;
+        }
     }
     QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
         // 深拷贝 oplist
@@ -542,20 +576,23 @@ class QOperation {
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
         for (size_t i = begin; i <= end; i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-            if (!ivec) continue;
+            if (!ivec) {std::cout << "strange nullptr";continue;}
             for (const auto& basis : orthogonalBasis) {
                 auto* jvec = dynamic_cast<SingleVecTerm*>(basis.get());
-                if (!jvec) continue;
-                ivec->content = ivec->content + (-1) * jvec->projectOnto(*ivec);
+                if (!jvec) {std::cout << "strange nullptr";continue;}
+                ivec->content = ivec->content + (-1) * ivec->projectOnto(*jvec);
             }
-            ivec->normalizeInline();
-            if (!ivec->isZero()) {
+            // if (!ivec->isZero()) {
+            if (!checkifzero(ivec->content)) {
+                ivec->normalizeInline();
+                // the orthogonal basis must be normalized! make sure the other.dot(other) == 1 in the project onto function.
                 orthogonalBasis.push_back(std::move(this->oplist[i]));
             }
         }
-        for (size_t i = 0; i <= orthogonalBasis.size(); i++) {
+        for (size_t i = 0; i <= orthogonalBasis.size()-1; i++) {
             this->oplist[begin+i] = std::move(orthogonalBasis[i]);
         }
+        this->oplist.erase(this->oplist.begin() + begin + orthogonalBasis.size(), this->oplist.begin() + end + 1);
         // this->oplist = std::move(orthogonalBasis);
         this->normalized = true;
     }
@@ -578,8 +615,9 @@ class QOperation {
                 ivec->content = ivec->content + (-1) * jvec->projectOnto(*ivec);
             }
             ivec->content = ivec->content + (-1) * other.projectIn(*ivec).content;
-            ivec->normalizeInline();
-            if (!ivec->isZero()) {
+            // if (!ivec->isZero()) {
+            if (!checkifzero(ivec->content)) {
+                ivec->normalizeInline();
                 orthogonalBasis.push_back(std::move(temp.oplist[i]));
             }
         }
@@ -590,7 +628,8 @@ class QOperation {
         QOperation res;
         for (size_t i = temp.oplist.size(); i < temp.oplist.size(); i++) {
             SingleVecTerm projVec = this->projectIn(*dynamic_cast<SingleVecTerm*>(temp.oplist[i].get()));
-            if (!projVec.isZero()) {
+            // if (!projVec.isZero()) {
+            if (!checkifzero(projVec.content)) {
                 res.append(projVec.clone()); // Use clone to ensure deep copy
             }
         }
@@ -657,6 +696,7 @@ class QOperation {
     QOperation conjunction_simp(const QOperation& other) const {
         // We must make sure at least one operand is not a projective operator!
         // Already Schmidted.
+        // this: a subspace, other: a subspace (type == false) or a projective measurement (type == true).
         assert(this->isProj < 0);
         assert(!this->type && this->normalized);
         if (other.isIdentity) {
@@ -713,8 +753,9 @@ class QOperation {
         }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
-        std::cout << "Disjunction: " << res.oplist.size() << std::endl;
+        // std::cout << "Disjunction: " << res.oplist.size() << std::endl;
         res.GramSchmidt(0, res.oplist.size()-1);
+        // std::cout << "Disjunction after GramSchmidt: " << res.oplist.size() << std::endl;
         return res;
     }
 
@@ -920,6 +961,13 @@ class QOperation {
     //     /* If the support space of this is the subspace of other */
     //     return false;
     // }
+    void print() const {
+        std::cout << "Support vectors:" << std::endl;
+        for (size_t i = 0; i <= this->oplist.size()-1; i++) {
+            VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, std::cout);
+            std::cout << std::endl;
+        }
+    }
 };
 
 /* Const QOperation:
