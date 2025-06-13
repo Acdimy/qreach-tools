@@ -1,5 +1,6 @@
 #include "quantum_operation.hpp"
 #include <functional>
+#include <deque>
 #ifndef TRANSITION
 #define TRANSITION
 
@@ -88,8 +89,8 @@ void Location::appendPostLocation(Location* loc)
 class TransitionSystem
 {
 public:
-    std::vector<int> currPreLocs;
-    std::vector<int> currPostLocs;
+    std::deque<int> currPreLocs;
+    std::deque<int> currPostLocs;
     std::vector<bool> visitedPre;
     std::vector<bool> visitedPost;
 public:
@@ -213,9 +214,13 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 visitedPre[preLoc->idx] = true;
             } else if (preLoc->upperBound.oplist.size() < dimBefore) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
-                this->currPreLocs.push_back(preLoc->idx);
+                if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), preLoc->idx) == this->currPreLocs.end()) {
+                    this->currPreLocs.push_back(preLoc->idx);
+                }
+            } else {
+                ;
             }
-        }        
+        } else {}
     }
 }
 
@@ -225,8 +230,9 @@ void TransitionSystem::preConditions() {
     Use the method QOperation::preImage
     For different locations having the same predecessor, the result of pre-image should be conjuncted.
     */
-   for (unsigned int i = 0; i < this->currPreLocs.size(); i++) {
-        unsigned int loc = this->currPreLocs[i];
+    while (!this->currPreLocs.empty()) {
+        unsigned int loc = this->currPreLocs.front();
+        this->currPreLocs.pop_front();
         this->preConditionOneStep(loc);
     }
 }
@@ -279,12 +285,15 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
                 visitedPost[postLoc->idx] = true;
             } else if (postLoc->lowerBound.oplist.size() > dimBefore) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
-                std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
-                this->currPostLocs.push_back(postLoc->idx);
+                // If postLoc->idx is not in currPostLocs, append it.
+                if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), postLoc->idx) == this->currPostLocs.end()) {
+                    std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
+                    this->currPostLocs.push_back(postLoc->idx);
+                }
             } else {
                 std::cout << "Post condition for location " << postLoc->idx << " is not updated." << std::endl;
             }
-        }
+        } else {}
     }
     std::cout << "Post condition for location " << loc << " computed." << std::endl;
 }
@@ -295,8 +304,9 @@ void TransitionSystem::postConditions() {
     Use the method QOperation::postImage
     For different locations having the same successor, the result of post-image should be conjuncted.
     */
-   for (unsigned int i = 0; i < this->currPostLocs.size(); i++) {
-        unsigned int loc = this->currPostLocs[i];
+    while (!this->currPostLocs.empty()) {
+        unsigned int loc = this->currPostLocs.front();
+        this->currPostLocs.pop_front();
         this->postConditionOneStep(loc);
     }
 }
@@ -307,9 +317,7 @@ void ComputingFixedPointPre(TransitionSystem& ts) {
     The fixed point is the status when preConditions converge.
     */
     ts.preConditionInit();
-    while(!ts.currPreLocs.empty()) {
-        ts.preConditions();
-    }
+    ts.preConditions();
 }
 
 void ComputingFixedPointPost(TransitionSystem& ts) {
@@ -318,9 +326,7 @@ void ComputingFixedPointPost(TransitionSystem& ts) {
     The fixed point is the status when postConditions converge.
     */
     ts.postConditionInit();
-    while(!ts.currPostLocs.empty()) {
-        ts.postConditions();
-    }
+    ts.postConditions();
 }
 
 void ComputingFixedPoint(TransitionSystem& ts) {

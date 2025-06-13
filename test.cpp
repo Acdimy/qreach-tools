@@ -29,8 +29,7 @@ int main() {
     ts.addRelation(2, 3, op3);
     ts.addRelation(3, 3, op3); // Add a self-loop relation for location 3
     ts.setAnnotation({{0, op}}); // Set the annotation for the location
-    ts.postConditionInit(); // Initialize the post-condition
-    ts.postConditions(); // Compute the post-condition for location 0
+    ComputingFixedPointPost(ts); // Compute the fixed point of the post-conditions
 
     // QOperation test = CreateIdentityQO(8);
     // QOperation test2 = CreateZeroQO(8);
