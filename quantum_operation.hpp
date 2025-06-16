@@ -10,6 +10,7 @@
 #include <memory>
 #include <algorithm>
 #include <cctype>
+#include <optional>
 
 using namespace CFL_OBDD;
 
@@ -438,17 +439,36 @@ class QOperation {
         } else {
             qNum = 0;
         }
+        this->normalized = true;
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
         // Construct a QOperation of quantum gate.
+        // Could merge
         type = true;
-        oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
-        this->qNum = qNum;
-        // Here, isIdentity is used in type == true case.
-        if (toLower(nam) == "i") {
-            isIdentity = true;
+        // Just a copy of CreateProjectiveMeasQO
+        if (nam == "meas0") {
+            this->qNum = qNum;
+            this->isProj = idx[0];
+            QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            tmp.concretizeInline();
+            // Attention!
+            this->oplist.push_back(tmp.clone());
+        } else if (nam == "meas1") {
+            this->qNum = qNum;
+            this->isProj = idx[0];
+            QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            tmp.concretizeInline();
+            // Attention!
+            this->oplist.push_back(tmp.clone());
         } else {
-            isIdentity = false;
+            oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
+            this->qNum = qNum;
+            // Here, isIdentity is used in type == true case.
+            if (toLower(nam) == "i") {
+                isIdentity = true;
+            } else {
+                isIdentity = false;
+            }
         }
     }
     QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
@@ -541,7 +561,7 @@ class QOperation {
     }
     std::vector<std::unique_ptr<QuantumTerm>> fetch(unsigned int begin,unsigned int end) {
         // fetch the oplist from begin to end, using move semantics
-        assert(end < this->oplist.size());
+        assert(end < static_cast<int>(this->oplist.size()));
         std::vector<std::unique_ptr<QuantumTerm>> res;
         res.reserve(end - begin + 1);
         for (size_t i = begin; i <= end; i++) {
@@ -553,33 +573,81 @@ class QOperation {
         }
         return res;
     }
+
+    void genProjMeasSpace() {
+        assert(this->isProj >= 0);
+        if (this->oplist.size() > 1) {
+            std::cout << "Already generated measure support vectors." << std::endl;
+            return;
+        }
+        assert(this->oplist.size() == 1);
+        // Check the equivalence of std::string
+        bool measureType = (dynamic_cast<QuantumGateTerm*>(this->oplist[0].get())->name == "meas1");
+        int dim_num = std::pow(2, this->qNum-1);
+        // This is a very time-consuming operation!!!
+        for (int i = 0; i <= dim_num - 1; i++) {
+            // Generate the ith bit string of the basis. The value of index of isProj is measureType, iterator all other indexes except isProj.
+            std::string basis_str;
+            for (int j = 0; j < this->qNum; j++) {
+                if (j == this->isProj) {
+                    basis_str += measureType ? "1" : "0"; // Measure type is 1, otherwise is 0.
+                } else if (j < this->isProj) {
+                    basis_str += (i & (1 << j)) ? "1" : "0"; // The jth bit of i.
+                } else if (j > this->isProj) {
+                    basis_str += (i & (1 << (j - 1))) ? "1" : "0"; // The j-1th bit of i.
+                }
+            }
+            // Create a SingleVecTerm with the basis string and qNum
+            SingleVecTerm basis(basis_str, std::pow(2, ceil(log2(this->qNum))));
+            // Append the basis to the oplist
+            this->oplist.push_back(std::make_unique<SingleVecTerm>(basis));
+        }
+    }
+
     SingleVecTerm projectIn(const SingleVecTerm& vec) const {
         // project the vector onto the QOperation
-        assert(this->oplist[0]->getType() == false);
-        assert(vec.getType() == false);
-        assert(this->oplist[0]->qNum == vec.qNum);
-        CFLOBDD_COMPLEX_BIG content; // Check: Initialization
-        for (size_t i = 0; i < this->oplist.size(); i++) {
-            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-            if (!ivec) continue;
-            content = content + vec.projectOnto(*ivec);
+        if (this->oplist[0]->getType() == false) {
+            assert(vec.getType() == false);
+            assert(this->oplist[0]->qNum == vec.qNum);
+            unsigned int level = ceil(log2(vec.qNum));
+            CFLOBDD_COMPLEX_BIG content = VectorComplexFloatBoost::NoDistinctionNode(level+1, 0); // Check: Initialization
+            for (size_t i = 0; i < this->oplist.size(); i++) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+                if (!ivec) continue;
+                content = content + vec.projectOnto(*ivec);
+            }
+            SingleVecTerm res(content);
+            res.qNum = this->qNum;
+            return res;
+        } else {
+            // this is a projective operation, this->oplist[0] is a projective operator.
+            assert(vec.getType() == false);
+            assert(this->oplist[0]->qNum == vec.qNum);
+            // TODO: Do the projection.
+            CFLOBDD_COMPLEX_BIG content; // Check: Initialization
+            // Direction: true.
+            content = vec.applyGate(*dynamic_cast<QuantumGateTerm*>(this->oplist[0].get()), true);
+            SingleVecTerm res(content);
+            res.qNum = this->qNum;
+            return res;
         }
-        SingleVecTerm res(content);
-        res.qNum = this->qNum;
-        return res;
     }
-    void GramSchmidt(unsigned int begin, unsigned int end, std::tuple<unsigned int, unsigned int> existedOrthogonal = std::make_tuple(0, 0)) {
+
+    void GramSchmidt(int begin, int end, std::tuple<unsigned int, unsigned int> existedOrthogonal = std::make_tuple(0, 0)) {
         // Here need to optimize the orthogonalBasis
-        // If the size is 1
+        // TODO: If the size is 1
         assert(this->type == false);
-        assert(end < this->oplist.size());
+        assert(end < static_cast<int>(this->oplist.size()));
+        if (this->oplist.size() == 0) {
+            return;
+        }
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
         for (size_t i = begin; i <= end; i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-            if (!ivec) {std::cout << "strange nullptr";continue;}
+            if (!ivec) {std::cout << "strange i nullptr";continue;}
             for (const auto& basis : orthogonalBasis) {
                 auto* jvec = dynamic_cast<SingleVecTerm*>(basis.get());
-                if (!jvec) {std::cout << "strange nullptr";continue;}
+                if (!jvec) {std::cout << "strange j nullptr";continue;}
                 ivec->content = ivec->content + (-1) * ivec->projectOnto(*jvec);
             }
             // if (!ivec->isZero()) {
@@ -589,7 +657,7 @@ class QOperation {
                 orthogonalBasis.push_back(std::move(this->oplist[i]));
             }
         }
-        for (size_t i = 0; i <= orthogonalBasis.size()-1; i++) {
+        for (size_t i = 0; i < orthogonalBasis.size(); i++) {
             this->oplist[begin+i] = std::move(orthogonalBasis[i]);
         }
         this->oplist.erase(this->oplist.begin() + begin + orthogonalBasis.size(), this->oplist.begin() + end + 1);
@@ -599,6 +667,34 @@ class QOperation {
 
     QOperation minus(const QOperation& other) const {
         // Return a set of basis vectors that are in this but not in other.
+        if (other.isProj < 0) {
+            int dimOther = -1;
+            std::optional<QOperation> totalDisj;
+            if (other.normalized) {
+                dimOther = other.oplist.size();
+                totalDisj.emplace(other,*this);
+            } else {
+                std::cout << "Warning: An operator is not normalized, will normalize it." << std::endl;
+                QOperation otherCopy(other);
+                otherCopy.GramSchmidt(0, static_cast<int>(otherCopy.oplist.size())-1);
+                dimOther = other.oplist.size();
+                totalDisj.emplace(otherCopy,*this);
+            }
+            // Optimize: add some already-orthogonal basis.
+            totalDisj->GramSchmidt(0, static_cast<int>(totalDisj->oplist.size())-1);
+            std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis = totalDisj->fetch(dimOther, static_cast<int>(totalDisj->oplist.size())-1);
+            QOperation res(false);
+            for (int i = 0; i < orthogonalBasis.size(); i++) {
+                SingleVecTerm projVec = this->projectIn(*dynamic_cast<SingleVecTerm*>(orthogonalBasis[i].get()));
+                // if (!projVec.isZero()) {
+                if (!checkifzero(projVec.content)) {
+                    res.append(projVec.clone()); // Use clone to ensure deep copy
+                }
+            }
+            res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+            res.qNum = this->qNum;
+            return res;
+        }
         assert(other.isProj >= 0);
         assert(this->isProj < 0);
         assert(this->type == false);
@@ -606,14 +702,16 @@ class QOperation {
         // not (not A or not B) == A - (A - B) == B - (B - A)? Yes, but A - B cannot be computed by GramSchmidt directly.
         QOperation temp = *this; // Make a copy of this QOperation
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
+        // for loop: find a set of orthogonal basis that is orthogonal to other (A binary projection)
         for (size_t i = 0; i < temp.oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(temp.oplist[i].get());
             if (!ivec) continue;
             for (const auto& basis : orthogonalBasis) {
                 auto* jvec = dynamic_cast<SingleVecTerm*>(basis.get());
                 if (!jvec) continue;
-                ivec->content = ivec->content + (-1) * jvec->projectOnto(*ivec);
+                ivec->content = ivec->content + (-1) * ivec->projectOnto(*jvec);
             }
+            // TODO: Check the projectIn function
             ivec->content = ivec->content + (-1) * other.projectIn(*ivec).content;
             // if (!ivec->isZero()) {
             if (!checkifzero(ivec->content)) {
@@ -621,9 +719,11 @@ class QOperation {
                 orthogonalBasis.push_back(std::move(temp.oplist[i]));
             }
         }
-        for (size_t i = 0; i <= orthogonalBasis.size(); i++) {
+        // Here, it seems no need to copy the orthogonalBasis to temp, just use the orthogonalBasis directly.
+        for (size_t i = 0; i < orthogonalBasis.size(); i++) {
             temp.oplist[i] = std::move(orthogonalBasis[i]);
         }
+        temp.oplist.erase(temp.oplist.begin() + orthogonalBasis.size(), temp.oplist.end());
         // this->oplist = std::move(orthogonalBasis);
         QOperation res;
         for (size_t i = temp.oplist.size(); i < temp.oplist.size(); i++) {
@@ -633,12 +733,27 @@ class QOperation {
                 res.append(projVec.clone()); // Use clone to ensure deep copy
             }
         }
-        res.GramSchmidt(0, res.oplist.size()-1);
+        res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
         return res;
     }
-    QOperation negation() {
-        // compute the negation of some of operators (as a disjunction)
-        assert(!this->type);
+
+    QOperation negation() const {
+        // compute the negation of some of operators. For example, a projective operator, the negation is the set of all other orthogonal vectors.
+        assert(this->type == true);
+        assert(this->isProj >= 0);
+        
+        std::string name = dynamic_cast<QuantumGateTerm*>(this->oplist[0].get())->name;
+        unsigned int idx = dynamic_cast<QuantumGateTerm*>(this->oplist[0].get())->index[0];
+        assert(idx == this->isProj);
+        if (name == "meas0") {
+            QOperation res(std::string("meas1"), this->qNum, std::vector<unsigned int>{idx});
+            return res;
+        } else if (name == "meas1") {
+            QOperation res(std::string("meas0"), this->qNum, std::vector<unsigned int>{idx});
+            return res;
+        } else {
+            throw std::runtime_error("Unknown negation operation.");
+        }
         return *this;
     }
     QOperation conjunction(const QOperation& other) const {
@@ -673,20 +788,20 @@ class QOperation {
         // }
         QOperation op1(*this, other);
         // Modify: optimize the GramSchmidt length incremental
-        op1.GramSchmidt(0, op1.oplist.size()-1);
-        std::vector<std::unique_ptr<QuantumTerm>> negthis = op1.fetch(this->oplist.size(), op1.oplist.size()-1);
+        op1.GramSchmidt(0, static_cast<int>(op1.oplist.size())-1);
+        std::vector<std::unique_ptr<QuantumTerm>> negthis = op1.fetch(this->oplist.size(), static_cast<int>(op1.oplist.size())-1);
         QOperation op2(other, *this);
-        op2.GramSchmidt(0, op2.oplist.size()-1);
-        std::vector<std::unique_ptr<QuantumTerm>> negother = op2.fetch(other.oplist.size(), op2.oplist.size()-1);
-        std::vector<std::unique_ptr<QuantumTerm>> remaining = op1.fetch(0, this->oplist.size()-1);
+        op2.GramSchmidt(0, static_cast<int>(op2.oplist.size())-1);
+        std::vector<std::unique_ptr<QuantumTerm>> negother = op2.fetch(other.oplist.size(), static_cast<int>(op2.oplist.size())-1);
+        std::vector<std::unique_ptr<QuantumTerm>> remaining = op1.fetch(0, static_cast<int>(this->oplist.size())-1);
         // create a new QOperation with oplist negthis and negother
         QOperation op3(false, std::move(negthis));
         op3.oplist.insert(op3.oplist.end(), std::make_move_iterator(negother.begin()), std::make_move_iterator(negother.end()));
-        op3.GramSchmidt(0, op3.oplist.size()-1);
+        op3.GramSchmidt(0, static_cast<int>(op3.oplist.size())-1);
         int dimNeg1OrNeg2 = op3.oplist.size();
         op3.oplist.insert(op3.oplist.end(), std::make_move_iterator(remaining.begin()), std::make_move_iterator(remaining.end()));
-        op3.GramSchmidt(0, op3.oplist.size()-1);
-        std::vector<std::unique_ptr<QuantumTerm>> resvec = op3.fetch(dimNeg1OrNeg2, op3.oplist.size()-1);
+        op3.GramSchmidt(0, static_cast<int>(op3.oplist.size())-1);
+        std::vector<std::unique_ptr<QuantumTerm>> resvec = op3.fetch(dimNeg1OrNeg2, static_cast<int>(op3.oplist.size())-1);
         QOperation res(false, std::move(resvec));
         res.normalized = true;
         res.qNum = this->qNum;
@@ -694,10 +809,18 @@ class QOperation {
     }
 
     QOperation conjunction_simp(const QOperation& other) const {
+        /*
+        * In two cases this function is invoked:
+        * 1. when computing the preImage of a projective operator, using to compute the Sasaki-hook;
+        * 2. when merging different pre-conditions.
+        */
         // We must make sure at least one operand is not a projective operator!
         // Already Schmidted.
         // this: a subspace, other: a subspace (type == false) or a projective measurement (type == true).
         assert(this->isProj < 0);
+        if (this->type || !this->normalized) {
+            std::cout << this->type << " " << this->normalized << std::endl;
+        }
         assert(!this->type && this->normalized);
         if (other.isIdentity) {
             return *this;
@@ -712,29 +835,38 @@ class QOperation {
         }
         if (other.oplist[0]->getType() == true) {
             // Case 1: other.oplist[0] is a quantumGate type: a projective measurement
+            std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
             assert(other.isProj >= 0);
-            auto *jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
+            assert(other.oplist.size() == 1);
+            // auto *jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
+            // TODO: Specialize for the case when dimension 1
+            if (this->oplist.size() == 1) {}
             QOperation minusQO = this->minus(other);
             int dimThisMinusOther = minusQO.oplist.size();
             minusQO = QOperation(minusQO, *this);
-            minusQO.GramSchmidt(0, minusQO.oplist.size()-1);
-            std::vector<std::unique_ptr<QuantumTerm>> negthis = minusQO.fetch(dimThisMinusOther, minusQO.oplist.size()-1);
+            minusQO.GramSchmidt(0, static_cast<int>(minusQO.oplist.size())-1);
+            std::vector<std::unique_ptr<QuantumTerm>> negthis = minusQO.fetch(dimThisMinusOther, static_cast<int>(minusQO.oplist.size())-1);
             QOperation res(false, std::move(negthis));
             res.normalized = true;
             res.qNum = this->qNum;
             return res;
+        } else {
+            // TODO
+            if (this->oplist.size() == 1) {}
+            if (other.oplist.size() == 1) {}
+            // A normal conjunction between two sets of subspaces.
+            assert(other.normalized);
+            QOperation thisMinusOther = this->minus(other);
+            int dimThisMinusOther = thisMinusOther.oplist.size();
+            QOperation op1(thisMinusOther, *this);
+            // Modify: optimize the GramSchmidt length incremental
+            op1.GramSchmidt(0, static_cast<int>(op1.oplist.size())-1);
+            std::vector<std::unique_ptr<QuantumTerm>> resvec = op1.fetch(dimThisMinusOther, static_cast<int>(op1.oplist.size())-1);
+            QOperation res(false, std::move(resvec));
+            res.normalized = true;
+            res.qNum = this->qNum;
+            return res;
         }
-        assert(other.normalized);
-        QOperation thisMinusOther = this->minus(other);
-        int dimThisMinusOther = thisMinusOther.oplist.size();
-        QOperation op1(thisMinusOther, *this);
-        // Modify: optimize the GramSchmidt length incremental
-        op1.GramSchmidt(0, op1.oplist.size()-1);
-        std::vector<std::unique_ptr<QuantumTerm>> resvec = op1.fetch(dimThisMinusOther, op1.oplist.size()-1);
-        QOperation res(false, std::move(resvec));
-        res.normalized = true;
-        res.qNum = this->qNum;
-        return res;
     }
 
     QOperation disjunction(const QOperation& other) const {
@@ -754,7 +886,7 @@ class QOperation {
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
         // std::cout << "Disjunction: " << res.oplist.size() << std::endl;
-        res.GramSchmidt(0, res.oplist.size()-1);
+        res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
         // std::cout << "Disjunction after GramSchmidt: " << res.oplist.size() << std::endl;
         return res;
     }
@@ -762,17 +894,28 @@ class QOperation {
     QOperation preImage(const QOperation& other) {
         /* The pre-image of a quantum operator */
         assert(this->type == false && other.type == true);
-        QOperation res;
+        QOperation res(false);
         /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
                 In the later case, we should use jvec->projectOnto() */
         if (other.oplist[0]->getType() == false) {
-            // Case 1: other.oplist[0] is a SingleVecTerm
+            // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
+            std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
             res = this->conjunction_simp(other); // This is not a const operator!
+        } else if (other.oplist[0]->getType() == true && other.isProj >= 0) {
+            // Case 1: other is a binary projection operator
+            // Here is the TODO:BUG!! Need to consider \neg P part of the Sasaki hook.
+            // other.genProjMeasSpace();
+            std::cout << "Case 1: other is a binary projection operator." << std::endl;
+            res = this->conjunction_simp(other);
+            // TODO: Should negOther be saved? Save: reduce the time complexity; Don't save: reduce the space complexity.
+            QOperation negOther = other.negation();
+            negOther.genProjMeasSpace();
+            res = res.disjunction(negOther);
         } else {
             // Case 2: other.oplist[0] is a QuantumGateTerm
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-                if (!ivec) continue;
+                if (!ivec) {std::cout << "Strange nullptr" << std::endl; continue;}
                 
                 // if (other.oplist.size() == 0) continue;
                 for (size_t j = 0; j < other.oplist.size(); j++) {
@@ -785,6 +928,17 @@ class QOperation {
                 }
             }
         }
+        // TODO: Here need a judgement: if all operators are unitary, and the space before preimage is orthogonal, then no need to GramSchmidt.
+        // if ((other.oplist[0]->getType() == true && other.isProj < 0 && this->normalized)) {
+        //     // If the res.oplist.size() <= 1, no need to GramSchmidt.
+        //     // If other is a projective operator, no need to GramSchmidt.
+        //     // Normalize the results.
+        //     res.normalized = true;
+        //     res.qNum = this->qNum;
+        //     return res;
+        // }
+        res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+        res.qNum = this->qNum;
         return res;
     }
     
@@ -806,6 +960,7 @@ class QOperation {
         res.qNum = this->qNum;
         return res;
     }
+
     // QOperation operator+(const QOperation& other) const {
     //     // Still unclear: when is the plus used?
     //     if (type == true) {
@@ -915,7 +1070,7 @@ class QOperation {
             auto tmpdot = tmp.dot(tmp); // TODO: A more efficient way to justify the difference?
             if (abs(tmpdot.real()-1) < 1e-8 && abs(tmpdot.imag()) < 1e-8) {
                 // this is a subspace of other
-                if (i == this->oplist.size()-1) {
+                if (i == static_cast<int>(this->oplist.size())-1) {
                     inside_cnt++;
                 }
             }
@@ -963,7 +1118,7 @@ class QOperation {
     // }
     void print() const {
         std::cout << "Support vectors:" << std::endl;
-        for (size_t i = 0; i <= this->oplist.size()-1; i++) {
+        for (size_t i = 0; i < this->oplist.size(); i++) {
             VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, std::cout);
             std::cout << std::endl;
         }
@@ -980,15 +1135,18 @@ QOperation CreateIdentityQO(unsigned int qNum) {
     QOperation res(false);
     res.qNum = qNum;
     res.isIdentity = true;
+    res.normalized = true;
     return res;
 }
 
 QOperation CreateZeroQO(unsigned int qNum) {
     QOperation res(false);
     res.qNum = qNum;
+    res.normalized = true;
     return res;
 }
 
+// Should be mearged into the constructor of QOperation
 QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
     QOperation res(true);
     res.qNum = qNum;

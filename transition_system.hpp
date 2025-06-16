@@ -128,12 +128,13 @@ public:
     void createAdd();
     bool satisfy();
     void setInitLocation(unsigned int loc);
+    void printDims(unsigned int loc);
 };
 
 void TransitionSystem::addLocation(Location loc)
 {
     this->Locations.push_back(loc);
-    loc.idx = this->Locations.size() - 1;
+    loc.idx = static_cast<int>(this->Locations.size()) - 1;
 }
 
 void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperation op)
@@ -185,11 +186,10 @@ void TransitionSystem::preConditionInit() {
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if ((this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == &this->Locations[i]) || this->Locations[i].postLocations.size() == 0) {
             // If i not in currPreLocs, add it. (TODO: Use a set to avoid duplicates)
-            if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) != this->currPreLocs.end()) {
-                continue; // Already exists
+            if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) == this->currPreLocs.end()) {
+                this->currPreLocs.push_back(i);
+                this->visitedPre[i] = true; // Mark this location as visited
             }
-            this->currPreLocs.push_back(i);
-            this->visitedPre[i] = true; // Mark this location as visited
         }
     }
     
@@ -202,26 +202,37 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     Use the method QOperation::preImage
     Do the conjunction with the existed upperBound of preLocations (Use QOperation.conjunction).
     */
+    std::cout << this->Locations[loc].preLocations.size() << " pre locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
         Location* preLoc = this->Locations[loc].preLocations[i];
-        if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) != this->computedTablePre.end()) {
-            QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(loc, preLoc->idx)]);
+        // If it is a self-loop and the relation is identity, skip it without appending currPreLoc.
+        if (preLoc->idx == loc && this->relations[std::make_tuple(preLoc->idx, loc)].isIdentity) {
+            std::cout << "Skip self-loop for location " << loc << std::endl;
+            continue;
+        }
+        if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) == this->computedTablePre.end()) {
+            std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].oplist.size() << " operations in relation from " << loc << " to " << preLoc->idx << std::endl;
+            // std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].type << std::endl;
+            QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(preLoc->idx, loc)]);
             computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
             int dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
             preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             if (visitedPre[preLoc->idx] == false) {
+                std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
                 this->currPreLocs.push_back(preLoc->idx);
                 visitedPre[preLoc->idx] = true;
             } else if (preLoc->upperBound.oplist.size() < dimBefore) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
                 if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), preLoc->idx) == this->currPreLocs.end()) {
+                    std::cout << "Pre condition for location " << preLoc->idx << " is updated from " << dimBefore << " to " << preLoc->lowerBound.oplist.size() << std::endl;
                     this->currPreLocs.push_back(preLoc->idx);
                 }
             } else {
-                ;
+                std::cout << "Pre condition for location " << preLoc->idx << " is not updated." << std::endl;
             }
         } else {}
     }
+    std::cout << "Pre condition for location " << loc << " computed." << std::endl;
 }
 
 void TransitionSystem::preConditions() {
@@ -248,11 +259,10 @@ void TransitionSystem::postConditionInit() {
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == &this->Locations[i]) || this->Locations[i].preLocations.size() == 0) {
             // If i not in currPostLocs, add it.
-            if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), i) != this->currPostLocs.end()) {
-                continue; // Already exists
+            if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), i) == this->currPostLocs.end()) {
+                this->currPostLocs.push_back(i);
+                this->visitedPost[i] = true; // Mark this location as visited
             }
-            this->currPostLocs.push_back(i);
-            this->visitedPost[i] = true; // Mark this location as visited
         }
     }
 }
@@ -268,10 +278,10 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
-        // if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {
-        //     std::cout << "Skip self-loop for location " << loc << std::endl;
-        //     continue;
-        // }
+        if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {
+            std::cout << "Skip self-loop for location " << loc << std::endl;
+            continue;
+        }
         // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
         if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
             std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
@@ -309,6 +319,14 @@ void TransitionSystem::postConditions() {
         this->currPostLocs.pop_front();
         this->postConditionOneStep(loc);
     }
+}
+
+void TransitionSystem::printDims(unsigned int loc) {
+    /*
+    Print the dimensions of the upperBound and lowerBound of the location.
+    */
+    std::cout << "Location " << loc << ": upperBound dimension = " << this->Locations[loc].upperBound.oplist.size() 
+              << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
 }
 
 void ComputingFixedPointPre(TransitionSystem& ts) {

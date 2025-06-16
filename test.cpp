@@ -8,8 +8,9 @@ int main() {
     ts.initLocation = 0; // Initialize the first location
     std::vector<std::string> strings =  {std::string("00000000")};
     QOperation op(strings);
-    QOperation op2(std::string("H"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation op3(std::string("I"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
+    QOperation oph(std::string("H"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
+    QOperation opi(std::string("I"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
+    QOperation opx(std::string("X"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
     Location loc(8,0); // Create a location with 8 qubits
     Location loc2(8,1);
     Location loc3(8,2);
@@ -23,13 +24,18 @@ int main() {
     loc2.appendPostLocation(&loc4);
     loc3.appendPostLocation(&loc4);
     ts.setInitLocation(0); // Set the initial location to 0
-    ts.addRelation(0, 1, op2); // Add a self-loop relation with the operation
-    ts.addRelation(0, 2, op3);
-    ts.addRelation(1, 3, op3);
-    ts.addRelation(2, 3, op3);
-    ts.addRelation(3, 3, op3); // Add a self-loop relation for location 3
-    ts.setAnnotation({{0, op}}); // Set the annotation for the location
-    ComputingFixedPointPost(ts); // Compute the fixed point of the post-conditions
+    ts.addRelation(0, 1, oph); // Add a self-loop relation with the operation
+    ts.addRelation(0, 2, opi);
+    ts.addRelation(1, 3, opi);
+    ts.addRelation(2, 3, opi);
+    ts.addRelation(3, 3, opi); // Add a self-loop relation for location 3
+    ts.setAnnotation({{3, op}}); // Set the annotation for the location
+    ComputingFixedPointPre(ts); // Compute the fixed point of the post-conditions
+    // The result should be zero space!
+    ts.printDims(0);
+    ts.printDims(1);
+    ts.printDims(2);
+    ts.printDims(3);
 
     // QOperation test = CreateIdentityQO(8);
     // QOperation test2 = CreateZeroQO(8);
