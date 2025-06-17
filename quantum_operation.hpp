@@ -11,6 +11,9 @@
 #include <algorithm>
 #include <cctype>
 #include <optional>
+#include <cmath>
+#include <iomanip>
+#include <sstream>
 
 using namespace CFL_OBDD;
 
@@ -1118,10 +1121,61 @@ class QOperation {
     // }
     void print() const {
         std::cout << "Support vectors:" << std::endl;
+        if (this->isIdentity) {
+            std::cout << "Identity operator." << std::endl;
+            return;
+        }
         for (size_t i = 0; i < this->oplist.size(); i++) {
             VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, std::cout);
             std::cout << std::endl;
         }
+    }
+
+    void printFormal() const {
+        std::cout << "Support vectors:" << std::endl;
+        if (this->isIdentity) {
+            std::cout << "Identity operator." << std::endl;
+            return;
+        }
+        for (size_t i = 0; i < this->oplist.size(); i++) {
+            std::ostringstream oss;
+            VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, oss);
+            std::string vecStr = oss.str();
+            // Get a list of complex numbers from the string, the numbers are separated by spaces.
+            std::istringstream iss(vecStr);
+            std::vector<std::complex<double>> vec;
+            std::string token;
+            std::complex<double> cplxNum;
+            while (iss >> token) {
+                if (token.front() == '(' && token.back() == ')') {
+                    double real, imag;
+                    sscanf(token.c_str(), "(%lf,%lf)", &real, &imag);
+                    cplxNum = std::complex<double>(real, imag);
+                } else {
+                    cplxNum = std::complex<double>(std::stod(token), 0.0);
+                }
+                vec.push_back(cplxNum);
+            }
+            std::ostringstream result;
+            bool first = true;
+            for (int k = 0; k < vec.size(); k++) {
+                if (std::abs(vec[k]) > 1e-8) {
+                    if (!first) {
+                        result << " + ";
+                    }
+                    first = false;
+                    const auto& amp = vec[k];
+                    std::string idxStr;
+                    for (int j = this->qNum - 1; j >= 0; --j) {
+                        idxStr += ((k >> j) & 1) ? '1' : '0';
+                    }
+                    result << "(" << amp.real() << "," << amp.imag() << ")";
+                    result << "|" << idxStr << ">";
+                }
+            }
+            std::cout << result.str() << std::endl;
+        }
+        
     }
 };
 

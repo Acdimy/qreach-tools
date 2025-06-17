@@ -129,6 +129,7 @@ public:
     bool satisfy();
     void setInitLocation(unsigned int loc);
     void printDims(unsigned int loc);
+    void printSupp(unsigned int loc);
 };
 
 void TransitionSystem::addLocation(Location loc)
@@ -327,6 +328,13 @@ void TransitionSystem::printDims(unsigned int loc) {
     */
     std::cout << "Location " << loc << ": upperBound dimension = " << this->Locations[loc].upperBound.oplist.size() 
               << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
+}
+
+void TransitionSystem::printSupp(unsigned int loc) {
+    std::cout << "Location " << loc << ": upperBound support = \n";
+    this->Locations[loc].upperBound.printFormal();
+    std::cout << "Location " << loc << ": lowerBound support = \n";
+    this->Locations[loc].lowerBound.printFormal();
 }
 
 void ComputingFixedPointPre(TransitionSystem& ts) {
