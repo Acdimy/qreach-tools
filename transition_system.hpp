@@ -222,7 +222,7 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
                 this->currPreLocs.push_back(preLoc->idx);
                 visitedPre[preLoc->idx] = true;
-            } else if (preLoc->upperBound.oplist.size() < dimBefore) {
+            } else if (preLoc->upperBound.oplist.size() < dimBefore && preLoc->upperBound.oplist.size() > 0) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
                 if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), preLoc->idx) == this->currPreLocs.end()) {
                     std::cout << "Pre condition for location " << preLoc->idx << " is updated from " << dimBefore << " to " << preLoc->lowerBound.oplist.size() << std::endl;
@@ -294,7 +294,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
                 std::cout << "Visit a new post location " << postLoc->idx << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
                 visitedPost[postLoc->idx] = true;
-            } else if (postLoc->lowerBound.oplist.size() > dimBefore) {
+            } else if (postLoc->lowerBound.oplist.size() > dimBefore && postLoc->lowerBound.oplist.size() < std::pow(2, postLoc->lowerBound.qNum)) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
                 // If postLoc->idx is not in currPostLocs, append it.
                 if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), postLoc->idx) == this->currPostLocs.end()) {

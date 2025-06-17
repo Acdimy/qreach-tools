@@ -37,21 +37,25 @@ int main() {
     ts.addRelation(2, 4, opi);
     ts.addRelation(3, 4, opi); // Add a self-loop relation for location 3
     ts.addRelation(4, 4, opi);
-    // ts.addRelation(4, 0, opi);
-    ts.setAnnotation({{0, op}}); // Set the annotation for the location
-    ComputingFixedPointPost(ts); // Compute the fixed point of the post-conditions
+    ts.addRelation(4, 0, opi);
+    ts.setAnnotation({{4, op}}); // Set the annotation for the location
+    ComputingFixedPointPre(ts); // Compute the fixed point of the post-conditions
     // The result should be zero space!
     ts.printDims(0);
     ts.printDims(1);
     ts.printDims(2);
     ts.printDims(3);
     ts.printDims(4);
+    ts.printSupp(0);
     ts.printSupp(4);
 
     // QOperation test = CreateIdentityQO(8);
     // QOperation test2 = CreateZeroQO(8);
     // std::cout << "Test QOperation: " << test.isIdentity << " " << test.qNum << std::endl;
     // std::cout << "Test2 QOperation: " << test2.isIdentity << " " << test2.qNum << std::endl;
+
+    // Stage 1: Combinational quantum circuits and protocols. QASM parser
+    // Stage 2: Append while feature.
 
     return 0;
 }

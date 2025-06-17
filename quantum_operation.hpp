@@ -488,6 +488,9 @@ class QOperation {
     }
     QOperation(const QOperation& other1, const QOperation& other2) {
         assert(other1.type == other2.type);
+        if (other1.qNum != other2.qNum) {
+            std::cout << other1.qNum << " != " << other2.qNum << std::endl;
+        }
         assert(other1.qNum == other2.qNum);
         this->qNum = other1.qNum;
         this->type = other1.type;
@@ -536,6 +539,7 @@ class QOperation {
             type = other.type;
             normalized = other.normalized;
             isIdentity = other.isIdentity;
+            isProj = other.isProj;
             qNum = other.qNum;
             oplist.clear();
             oplist.reserve(other.oplist.size());
@@ -549,12 +553,7 @@ class QOperation {
         }
         return *this;
     }
-    // void setASTdefaultADD() {
-    //     // set the default AST as a ADD operation
-    //     if (this->ast == nullptr) {
-    //         this->ast = std::make_unique<LeafNode>(0, this->oplist.size()-1);
-    //     }
-    // }
+    
     void append(std::unique_ptr<QuantumTerm> qt) {
         if (qt->getType() != this->type) {
             std::cout << "Append a wrong type of quantum term.";
@@ -587,6 +586,9 @@ class QOperation {
         // Check the equivalence of std::string
         bool measureType = (dynamic_cast<QuantumGateTerm*>(this->oplist[0].get())->name == "meas1");
         int dim_num = std::pow(2, this->qNum-1);
+        // Clear the oplist first
+        this->oplist.clear();
+        this->oplist.reserve(dim_num); // Reserve space for the basis vectors
         // This is a very time-consuming operation!!!
         for (int i = 0; i <= dim_num - 1; i++) {
             // Generate the ith bit string of the basis. The value of index of isProj is measureType, iterator all other indexes except isProj.
@@ -605,6 +607,7 @@ class QOperation {
             // Append the basis to the oplist
             this->oplist.push_back(std::make_unique<SingleVecTerm>(basis));
         }
+        this->type = false; // Change the type to support vectors of subspaces.
     }
 
     SingleVecTerm projectIn(const SingleVecTerm& vec) const {
@@ -737,11 +740,13 @@ class QOperation {
             }
         }
         res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+        res.qNum = this->qNum;
         return res;
     }
 
     QOperation negation() const {
         // compute the negation of some of operators. For example, a projective operator, the negation is the set of all other orthogonal vectors.
+        // For now only projective operators are supported.
         assert(this->type == true);
         assert(this->isProj >= 0);
         
@@ -916,6 +921,7 @@ class QOperation {
             res = res.disjunction(negOther);
         } else {
             // Case 2: other.oplist[0] is a QuantumGateTerm
+            std::cout << "Case 2: other.oplist[0] is a QuantumGateTerm. " << other.oplist[0]->getType() << " " << other.isProj << std::endl;
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) {std::cout << "Strange nullptr" << std::endl; continue;}
