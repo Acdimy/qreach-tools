@@ -236,6 +236,11 @@ class QuantumGateTerm : public QuantumTerm {
             std::vector<double> v{0,0,0,0,0,0,1,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
+        } else if (name == "reset") {
+            // Reset all the qubits to |0>
+            std::vector<double> v{1,0,0,0,0,0,0,0};
+            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
+            res = U;
         } else if (name == "swap") {
             
         } else if (name == "iswap") {

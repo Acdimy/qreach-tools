@@ -1,4 +1,5 @@
 #include "quantum_operation.hpp"
+#include "QASM_parser.hpp"
 #include <functional>
 #include <deque>
 #ifndef TRANSITION
@@ -28,6 +29,14 @@ class Location
 {
 public:
     unsigned int idx;
+    /* Flag for some delicate settings
+     * flag == -1: a normal location
+     * flag in {0,1,2}: a branching location whose semantic is a binary projective measurement
+     * flag == 0: a measurement location when non of the post-locations reached here
+     * flag == 1: a measurement location when one of the post-locations reached here
+     * flag == 2: a measurement location when all of the post-locations reached here
+     */
+    int flag = -1;
     QOperation upperBound;
     QOperation lowerBound;
     // QOperation annotation;
@@ -364,13 +373,17 @@ void ComputingFixedPoint(TransitionSystem& ts) {
    ComputingFixedPointPost(ts);
 }
 
-void fromProgramToTransitionSystem(std::string filename, TransitionSystem& ts) {
+TransitionSystem fromProgramToTransitionSystem(const std::string& filename, TransitionSystem& ts) {
     /*
     Read the program from the file and convert it to a transition system.
     The program is in the form of a list of locations and transitions.
     Each location has an annotation and a set of pre- and post-conditions.
     */
    // Need to write a parser!
+    QASMProgram program = parse_qasm_file(filename);
+    // Confirm the number of locations
+    int numLocs = program.operations.size();
+   // Confirm the number and type of relations
 }
 
 /***

@@ -1,0 +1,14 @@
+{"Locations":5,
+ "Transitions":[
+    {"from":0,"to":1,"name":"H"},
+    {"from":1,"to":2,"name":"meas0"},
+    {"from":1,"to":3,"name":"meas1"},
+    {"from":2,"to":4,"name":"I"},
+    {"from":3,"to":4,"name":"I"},
+    {"from":4,"to":0,"name":"reset"}
+ ],
+ "Annotations":[
+    {"location":4,"Supports":["00000000","10000000"]},
+    {"location":0,"Supports":["00000000"]}
+ ]
+}

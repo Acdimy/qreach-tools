@@ -25,6 +25,7 @@ SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp)
 SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp)
 SOURCE_FILES += $(shell find cflobdd/CFLOBDD -maxdepth 1 -mindepth 1 -name \*.cpp -a -not -name main.cpp)
 SOURCE_FILES := $(filter-out quantum_circuit.cpp, $(SOURCE_FILES))
+SOURCE_FILES := $(filter-out qts.cpp, $(SOURCE_FILES))
 # [SOURCE_FILES] -= $(shell ls cflobdd/CFLOBDD/main.cpp)
 # $(info $(SOURCE_FILES))
 
