@@ -12,7 +12,12 @@ PYBIND11_MODULE(pyqreach, m) {
     py::class_<QOperation>(m, "QOperation")
         .def(py::init<>())
         .def(py::init<std::vector<std::string>>())
-        .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>());
+        .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>())
+        .def_readonly("type", &QOperation::type)
+        .def_readonly("normalized", &QOperation::normalized)
+        .def_readonly("qNum", &QOperation::qNum)
+        .def_readonly("isIdentity", &QOperation::isIdentity)
+        .def_readonly("isProj", &QOperation::isProj);
 
     py::class_<Location>(m, "Location")
         .def(py::init<>())

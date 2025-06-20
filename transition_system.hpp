@@ -157,8 +157,9 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
     this->Locations[from].appendPostLocation(&this->Locations[to]);
     // this->Locations[to].appendPreLocation(&this->Locations[from]);
     // The operation is a projective operation, and from has two post-locations.
+    // Haven't finished yet.
     if (op.isProj >= 0 && this->Locations[from].postLocations.size() == 2) {
-        this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
+        // this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
     }
 }
 
@@ -237,9 +238,9 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
                 preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             } else if (preLoc->flag == 0) {
-                
+                std::cout << "Flag is 0 for location " << preLoc->idx << std::endl;
             } else if (preLoc->flag == 1) {
-                
+                std::cout << "Flag is 1 for location " << preLoc->idx << std::endl;
             }
             if (visitedPre[preLoc->idx] == false) {
                 std::cout << "Visit a new pre location " << preLoc->idx << std::endl;

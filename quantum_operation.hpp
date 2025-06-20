@@ -844,7 +844,10 @@ class QOperation {
         }
         if (other.oplist.size() == 0 || this->oplist.size() == 0) {
             // If one of the operands is empty, return an empty QOperation
-            return QOperation();
+            QOperation res(false);
+            res.qNum = this->qNum;
+            res.normalized = true;
+            return res;
         }
         if (other.oplist[0]->getType() == true) {
             // Case 1: other.oplist[0] is a quantumGate type: a projective measurement
@@ -910,13 +913,17 @@ class QOperation {
         QOperation res(false);
         /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
                 In the later case, we should use jvec->projectOnto() */
+        if (this->oplist.size() == 0) {
+            res.normalized = true;
+            res.qNum = this->qNum;
+            return res; // If this is an empty operator, return an empty operator.
+        }
         if (other.oplist[0]->getType() == false) {
             // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
             std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
             res = this->conjunction_simp(other); // This is not a const operator!
         } else if (other.oplist[0]->getType() == true && other.isProj >= 0) {
             // Case 1: other is a binary projection operator
-            // Here is the TODO:BUG!! Need to consider \neg P part of the Sasaki hook.
             // other.genProjMeasSpace();
             std::cout << "Case 1: other is a binary projection operator." << std::endl;
             res = this->conjunction_simp(other);

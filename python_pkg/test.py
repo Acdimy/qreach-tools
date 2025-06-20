@@ -35,5 +35,5 @@ ts.addRelation(4, 4, opx)
 ts.setAnnotation([[4, op]])
 
 ts.computingFixedPointPre()
-ts.printDims(4)
-ts.printSupp(4)
+ts.printDims(0)
+ts.printSupp(0)
