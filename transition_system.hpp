@@ -30,6 +30,7 @@ class Location
 public:
     unsigned int idx;
     /* Flag for some delicate settings
+     * Only use in pre-condition computation
      * flag == -1: a normal location
      * flag in {0,1,2}: a branching location whose semantic is a binary projective measurement
      * flag == 0: a measurement location when non of the post-locations reached here
@@ -137,6 +138,8 @@ public:
     void createAdd();
     bool satisfy();
     void setInitLocation(unsigned int loc);
+    void computingFixedPointPre();
+    void computingFixedPointPost();
     void printDims(unsigned int loc);
     void printSupp(unsigned int loc);
 };
@@ -149,10 +152,14 @@ void TransitionSystem::addLocation(Location loc)
 
 void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperation op)
 {
-    // The problem is how to represent a projective operation' support vectors.
+    // The problem is how to represent a projective operation's support vectors.
     this->relations[std::make_tuple(from, to)] = op;
     this->Locations[from].appendPostLocation(&this->Locations[to]);
-    this->Locations[to].appendPreLocation(&this->Locations[from]);
+    // this->Locations[to].appendPreLocation(&this->Locations[from]);
+    // The operation is a projective operation, and from has two post-locations.
+    if (op.isProj >= 0 && this->Locations[from].postLocations.size() == 2) {
+        this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
+    }
 }
 
 void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOperation>> annotations)
@@ -223,16 +230,24 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
         if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) == this->computedTablePre.end()) {
             std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].oplist.size() << " operations in relation from " << loc << " to " << preLoc->idx << std::endl;
             // std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].type << std::endl;
-            QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(preLoc->idx, loc)]);
-            computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
-            int dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
-            preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
+            int dimBefore;
+            if (preLoc->flag < 0) {
+                QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
+                dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
+                preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
+            } else if (preLoc->flag == 0) {
+                
+            } else if (preLoc->flag == 1) {
+                
+            }
             if (visitedPre[preLoc->idx] == false) {
                 std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
                 this->currPreLocs.push_back(preLoc->idx);
                 visitedPre[preLoc->idx] = true;
-            } else if (preLoc->upperBound.oplist.size() < dimBefore && preLoc->upperBound.oplist.size() > 0) {
+            } else if (preLoc->upperBound.oplist.size() < dimBefore && dimBefore > 0) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
+                // TODO: Check it carefully!!
                 if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), preLoc->idx) == this->currPreLocs.end()) {
                     std::cout << "Pre condition for location " << preLoc->idx << " is updated from " << dimBefore << " to " << preLoc->lowerBound.oplist.size() << std::endl;
                     this->currPreLocs.push_back(preLoc->idx);
@@ -303,7 +318,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
                 std::cout << "Visit a new post location " << postLoc->idx << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
                 visitedPost[postLoc->idx] = true;
-            } else if (postLoc->lowerBound.oplist.size() > dimBefore && postLoc->lowerBound.oplist.size() < std::pow(2, postLoc->lowerBound.qNum)) {
+            } else if (postLoc->lowerBound.oplist.size() > dimBefore && dimBefore < std::pow(2, postLoc->lowerBound.qNum)) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
                 // If postLoc->idx is not in currPostLocs, append it.
                 if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), postLoc->idx) == this->currPostLocs.end()) {
@@ -331,11 +346,21 @@ void TransitionSystem::postConditions() {
     }
 }
 
+void TransitionSystem::computingFixedPointPre() {
+    this->preConditionInit();
+    this->preConditions();
+}
+
+void TransitionSystem::computingFixedPointPost() {
+    this->postConditionInit();
+    this->postConditions();
+}
+
 void TransitionSystem::printDims(unsigned int loc) {
     /*
     Print the dimensions of the upperBound and lowerBound of the location.
     */
-    std::cout << "Location " << loc << ": upperBound dimension = " << this->Locations[loc].upperBound.oplist.size() 
+    std::cout << "Location " << loc << ": upperBound dimension = " << (this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size()) 
               << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
 }
 

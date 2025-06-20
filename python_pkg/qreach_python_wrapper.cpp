@@ -9,6 +9,11 @@ namespace py = pybind11;
 PYBIND11_MODULE(pyqreach, m) {
     m.doc() = "python wrapper for Quantum Simulation"; // Optional module docstring
 
+    py::class_<QOperation>(m, "QOperation")
+        .def(py::init<>())
+        .def(py::init<std::vector<std::string>>())
+        .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>());
+
     py::class_<Location>(m, "Location")
         .def(py::init<>())
         .def(py::init<int>())
@@ -22,16 +27,21 @@ PYBIND11_MODULE(pyqreach, m) {
 
     py::class_<TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
-        .def(py::init<unsigned int>())
         .def("addLocation", &TransitionSystem::addLocation, "addLocation")
         .def("addRelation", &TransitionSystem::addRelation, "addRelation")
+        .def("setInitLocation", &TransitionSystem::setInitLocation, "setInitLocation")
         .def("setAnnotation", &TransitionSystem::setAnnotation, "setAnnotation")
         .def("preConditionInit", &TransitionSystem::preConditionInit, "preConditionInit")
         .def("preConditionOneStep", &TransitionSystem::preConditionOneStep, "preConditionOneStep")
         .def("preConditions", &TransitionSystem::preConditions, "preConditions")
         .def("postConditionInit", &TransitionSystem::postConditionInit, "postConditionInit")
         .def("postConditionOneStep", &TransitionSystem::postConditionOneStep, "postConditionOneStep")
-        .def("postConditions", &TransitionSystem::postConditions, "postConditions");
+        .def("postConditions", &TransitionSystem::postConditions, "postConditions")
+        .def("computingFixedPointPre", &TransitionSystem::computingFixedPointPre, "computingFixedPointPre")
+        .def("computingFixedPointPost", &TransitionSystem::computingFixedPointPost, "computingFixedPointPost")
+        .def("printDims", &TransitionSystem::printDims, "printDims")
+        .def("printSupp", &TransitionSystem::printSupp, "printSupp");
+    
 
     // py::class_<QuantumCircuit>(m, "QuantumCircuit");
     //     // .def(py::init<>())

@@ -5,7 +5,6 @@
 // Test the basic functionality of transition_system
 int main() {
     TransitionSystem ts;
-    ts.initLocation = 0; // Initialize the first location
     std::vector<std::string> strings =  {std::string("00000000")};
     QOperation op(strings);
     QOperation oph(std::string("H"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
@@ -25,11 +24,6 @@ int main() {
     ts.addLocation(loc2);
     ts.addLocation(loc3);
     ts.addLocation(loc4);
-    loc.appendPostLocation(&loc1); // Add a post-location relation
-    loc1.appendPostLocation(&loc2);
-    loc1.appendPostLocation(&loc3);
-    loc2.appendPostLocation(&loc4);
-    loc3.appendPostLocation(&loc4);
     ts.setInitLocation(0); // Set the initial location to 0
     ts.addRelation(0, 1, oph); // Add a self-loop relation with the operation
     ts.addRelation(1, 2, opm0);
