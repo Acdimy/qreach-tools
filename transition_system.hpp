@@ -2,6 +2,7 @@
 #include "QASM_parser.hpp"
 #include <functional>
 #include <deque>
+#include <unordered_map>
 #ifndef TRANSITION
 #define TRANSITION
 
@@ -27,8 +28,6 @@ namespace std {
 
 class Location
 {
-private:
-    std::vector<QOperation> tempOperations;
 public:
     unsigned int idx;
     /* Flag for some delicate settings
@@ -45,6 +44,7 @@ public:
     // QOperation annotation;
     std::vector<Location*> preLocations;
     std::vector<Location*> postLocations;
+    std::vector<QOperation> tempOperations;
 public:
     Location(/* args */) {};
     Location(const int qNum);
@@ -101,7 +101,7 @@ void Location::appendPostLocation(Location* loc)
 class TransitionSystem
 {
 private:
-    std::vector<int> locationBuf;
+    std::unordered_map<int, int> locationBuf;
 public:
     std::deque<int> currPreLocs;
     std::deque<int> currPostLocs;
@@ -168,7 +168,7 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
         assert(op.oplist[0]->getType() == true);
         auto name = dynamic_cast<QuantumGateTerm*>(op.oplist[0].get())->name;
         assert(name == "meas0" || name == "meas1");
-        // this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
+        this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
     }
 }
 
@@ -248,8 +248,24 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             } else if (preLoc->flag == 0) {
                 std::cout << "Flag is 0 for location " << preLoc->idx << std::endl;
+                QOperation tempConjunction = this->Locations[loc].upperBound.conjunction_simp(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                preLoc->tempOperations.push_back(tempConjunction);
+                preLoc->flag = 1;
+                this->locationBuf[preLoc->idx] = loc;
+                continue; // Skip the conjunction for flag == 0, don't put a new location into list, until the other branch reaches here.
             } else if (preLoc->flag == 1) {
+                // The other branch has reached here, we can do the conjunction.
                 std::cout << "Flag is 1 for location " << preLoc->idx << std::endl;
+                QOperation tempConjunction2 = this->Locations[loc].upperBound.conjunction_simp(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                QOperation tempDisjunction = preLoc->tempOperations.back().disjunction(tempConjunction2);
+                preLoc->tempOperations.pop_back(); // Remove the last operation
+                preLoc->upperBound = preLoc->upperBound.conjunction_simp(tempDisjunction);
+                preLoc->flag = 0; // Set the flag to 0, indicating all branches have reached here.
+                if (this->locationBuf.count(preLoc->idx)) {
+                    this->locationBuf.erase(preLoc->idx);
+                }
+            } else if (preLoc->flag == -2) {
+                
             }
             if (visitedPre[preLoc->idx] == false) {
                 std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
@@ -276,10 +292,34 @@ void TransitionSystem::preConditions() {
     Use the method QOperation::preImage
     For different locations having the same predecessor, the result of pre-image should be conjuncted.
     */
-    while (!this->currPreLocs.empty()) {
-        unsigned int loc = this->currPreLocs.front();
-        this->currPreLocs.pop_front();
-        this->preConditionOneStep(loc);
+    while (true) {
+        if (!this->currPreLocs.empty()) {
+            unsigned int loc = this->currPreLocs.front();
+            this->currPreLocs.pop_front();
+            this->preConditionOneStep(loc);
+        } else if (!this->locationBuf.empty()) {
+            // If there are locations in locationBuf, we need to process them.
+            // Arbitrarily select a location from locationBuf.
+            std::cout << "Processing location from locationBuf." << std::endl;
+            auto it = this->locationBuf.begin();
+            int loc = it->first;
+            int postLoc = it->second;
+            this->locationBuf.erase(it);
+            this->Locations[loc].flag = -1; // TODO: Here is a tricky part, we view this location as a normal one and never try a special treatment.
+            assert(this->relations[std::make_tuple(loc, postLoc)].isProj >= 0);
+            QOperation negOther = this->relations[std::make_tuple(loc, postLoc)].negation();
+            negOther.genProjMeasSpace();
+            QOperation preImage = this->Locations[loc].tempOperations.back().disjunction(negOther);
+            this->Locations[loc].tempOperations.pop_back();
+            computedTablePre.insert(std::make_tuple(postLoc, this->Locations[postLoc].upperBound.oplist.size(), loc, this->Locations[loc].upperBound.oplist.size()));
+            this->Locations[loc].upperBound = this->Locations[loc].upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
+            // We are sure the dimension has changed here, so don't need to check it.
+            this->visitedPre[loc] = true;
+            this->preConditionOneStep(loc);
+        } else {
+            // No more locations to process
+            break;
+        }
     }
 }
 

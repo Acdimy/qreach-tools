@@ -939,6 +939,7 @@ class QOperation {
             std::cout << "Case 1: other is a binary projection operator." << std::endl;
             res = this->conjunction_simp(other);
             // TODO: Should negOther be saved? Save: reduce the time complexity; Don't save: reduce the space complexity.
+            // I need to fix the following codes to reduce the time complexity!!!
             QOperation negOther = other.negation();
             negOther.genProjMeasSpace();
             res = res.disjunction(negOther);
