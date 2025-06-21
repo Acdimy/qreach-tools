@@ -613,6 +613,8 @@ class QOperation {
             this->oplist.push_back(std::make_unique<SingleVecTerm>(basis));
         }
         this->type = false; // Change the type to support vectors of subspaces.
+        this->isProj = -1; // Reset isProj to indicate this is a projective operation.
+        this->normalized = true; // Mark as normalized since we have generated the basis vectors.
     }
 
     SingleVecTerm projectIn(const SingleVecTerm& vec) const {
@@ -627,6 +629,7 @@ class QOperation {
                 if (!ivec) continue;
                 content = content + vec.projectOnto(*ivec);
             }
+            // std::cout << "SingleVecTerm projectIn: content is zero? " << checkifzero(content) << std::endl;
             SingleVecTerm res(content);
             res.qNum = this->qNum;
             return res;
@@ -737,7 +740,7 @@ class QOperation {
         temp.oplist.erase(temp.oplist.begin() + orthogonalBasis.size(), temp.oplist.end());
         // this->oplist = std::move(orthogonalBasis);
         QOperation res;
-        for (size_t i = temp.oplist.size(); i < temp.oplist.size(); i++) {
+        for (size_t i = 0; i < temp.oplist.size(); i++) {
             SingleVecTerm projVec = this->projectIn(*dynamic_cast<SingleVecTerm*>(temp.oplist[i].get()));
             // if (!projVec.isZero()) {
             if (!checkifzero(projVec.content)) {
@@ -852,6 +855,7 @@ class QOperation {
         if (other.oplist[0]->getType() == true) {
             // Case 1: other.oplist[0] is a quantumGate type: a projective measurement
             std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
+            // TODO: This is the most time-consuming part!
             assert(other.isProj >= 0);
             assert(other.oplist.size() == 1);
             // auto *jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
