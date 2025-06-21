@@ -899,6 +899,13 @@ class QOperation {
         if (this->oplist.size() == 0) {
             return other;
         }
+        if (this->isIdentity || other.isIdentity || this->oplist.size() == std::pow(2, this->qNum) || other.oplist.size() == std::pow(2, other.qNum)) {
+            QOperation res(false);
+            res.normalized = true;
+            res.qNum = this->qNum;
+            res.isIdentity = true;
+            return res;
+        }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
         // std::cout << "Disjunction: " << res.oplist.size() << std::endl;

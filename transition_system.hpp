@@ -27,6 +27,8 @@ namespace std {
 
 class Location
 {
+private:
+    std::vector<QOperation> tempOperations;
 public:
     unsigned int idx;
     /* Flag for some delicate settings
@@ -98,6 +100,8 @@ void Location::appendPostLocation(Location* loc)
 
 class TransitionSystem
 {
+private:
+    std::vector<int> locationBuf;
 public:
     std::deque<int> currPreLocs;
     std::deque<int> currPostLocs;
@@ -158,7 +162,12 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
     // this->Locations[to].appendPreLocation(&this->Locations[from]);
     // The operation is a projective operation, and from has two post-locations.
     // Haven't finished yet.
-    if (op.isProj >= 0 && this->Locations[from].postLocations.size() == 2) {
+    if (op.isProj >= 0) {
+        // Assert that the operation is a binary projective operation.
+        assert(op.oplist.size() == 1);
+        assert(op.oplist[0]->getType() == true);
+        auto name = dynamic_cast<QuantumGateTerm*>(op.oplist[0].get())->name;
+        assert(name == "meas0" || name == "meas1");
         // this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
     }
 }
