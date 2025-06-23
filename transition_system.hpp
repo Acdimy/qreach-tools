@@ -53,6 +53,7 @@ public:
     // void setAnnotation(QOperation annotation);
     void appendPreLocation(Location* loc);
     void appendPostLocation(Location* loc);
+    bool satisfy(QOperation spec);
 };
 
 Location::Location(const int qNum)
@@ -92,6 +93,12 @@ void Location::appendPostLocation(Location* loc)
     }
     this->postLocations.push_back(loc);
     loc->appendPreLocation(this); // Ensure the reverse relation is also established
+}
+
+bool Location::satisfy(QOperation spec)
+{
+    assert(spec.isProj < 0); // Only projective operations are supported for now
+    return (this->lowerBound.compare(spec) == 0 && spec.compare(this->upperBound) == 0);
 }
 
 /***
@@ -140,7 +147,7 @@ public:
     void postConditionOneStep(unsigned int loc);
     void postConditions();
     void createAdd();
-    bool satisfy();
+    bool satisfy(unsigned int loc, QOperation spec);
     void setInitLocation(unsigned int loc);
     void computingFixedPointPre();
     void computingFixedPointPost();
@@ -404,6 +411,15 @@ void TransitionSystem::computingFixedPointPre() {
 void TransitionSystem::computingFixedPointPost() {
     this->postConditionInit();
     this->postConditions();
+}
+
+bool TransitionSystem::satisfy(unsigned int loc, QOperation spec) {
+    /*
+    Check if the location loc satisfies the specification spec.
+    The specification is a projective operation.
+    */
+    assert(spec.isProj < 0); // Only projective operations are supported for now
+    return this->Locations[loc].satisfy(spec);
 }
 
 void TransitionSystem::printDims(unsigned int loc) {

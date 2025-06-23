@@ -42,3 +42,6 @@ ts.printDims(0)
 ts.printSupp(0)
 ts.printDims(2)
 ts.printDims(3)
+
+print("Transition system location 0 satisfies operation op0:", 
+      ts.satisfy(0, op0))

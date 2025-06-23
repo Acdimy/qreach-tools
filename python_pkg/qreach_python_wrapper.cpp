@@ -44,6 +44,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("postConditions", &TransitionSystem::postConditions, "postConditions")
         .def("computingFixedPointPre", &TransitionSystem::computingFixedPointPre, "computingFixedPointPre")
         .def("computingFixedPointPost", &TransitionSystem::computingFixedPointPost, "computingFixedPointPost")
+        .def("satisfy", &TransitionSystem::satisfy, "satisfy")
         .def("printDims", &TransitionSystem::printDims, "printDims")
         .def("printSupp", &TransitionSystem::printSupp, "printSupp");
     
