@@ -32,12 +32,11 @@ def prepare_5perfect(circ, idx):
 
 circ = QuantumCircuit(6, 6)
 idx = [1,2,3,4,5]
-for i in idx:
-    circ.h(i)
+circ.h(1)
+
 prepare_5perfect(circ, idx)
 circ.x(0)
 
-# print([circ.data[i][0].name for i in range(len(circ.data))])
 
 ts = parse_qiskit(circ)
 
@@ -48,3 +47,7 @@ op00 = pyqreach.QOperation(["000000"])
 ts.setAnnotation([[0, op00]])
 ts.computingFixedPointPost()
 ts.printDims(0)
+ts.printDims(ts.getLocationNum()-1)
+# for i in range(ts.getLocationNum()):
+#     ts.printSupp(i)
+ts.printSupp(ts.getLocationNum()-1)

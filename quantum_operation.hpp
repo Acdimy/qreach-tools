@@ -179,6 +179,7 @@ class QuantumGateTerm : public QuantumTerm {
 
     CFLOBDD_COMPLEX_BIG concretize() const {
         std::string name = toLower(this->name);
+        std::cout << "Concretizing quantum gate: " << name << std::endl;
         unsigned index = this->index[0];
         CFLOBDD_COMPLEX_BIG res;
         // std::pow(2, this->content.root->level-1);
@@ -209,19 +210,21 @@ class QuantumGateTerm : public QuantumTerm {
             auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, theta);
             res = S;
         } else if (name == "cx") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
             assert(controller != controlled);
     
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controller, controlled);
+                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controller, controlled);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controlled, controller);
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
                 res = C;
@@ -253,19 +256,22 @@ class QuantumGateTerm : public QuantumTerm {
         } else if (name == "iswap") {
             
         } else if (name == "cz") {
+            // Assert qNum is a power of 2
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
             assert(controller != controlled);
     
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controller, controlled, 1.0);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1.0);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controlled, controller, 1.0);
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1.0);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
                 res = C;

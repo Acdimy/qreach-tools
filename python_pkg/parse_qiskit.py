@@ -29,7 +29,6 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
         op_name = gate[0].name
         qubits = [q._index for q in gate[1]]
         cbits = [c._index for c in gate[2]] if gate[2] else []
-        print("New location index: ", loc_idx+1)
         loc = pyqreach.Location(qnum, loc_idx+1)
         ts.addLocation(loc)
         loc_idx += 1
@@ -64,6 +63,5 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
         else:
             print(f"Unsupported gate: {op_name}")
         # Add the operation to the transition system
-        print(f"Adding relation from location {loc_idx-1} to {loc_idx} with operation {op.type}")
         ts.addRelation(loc_idx-1, loc_idx, op)  # Simplified relation for demonstration
     return ts

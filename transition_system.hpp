@@ -42,8 +42,8 @@ public:
     QOperation upperBound;
     QOperation lowerBound;
     // QOperation annotation;
-    std::vector<Location*> preLocations;
-    std::vector<Location*> postLocations;
+    std::vector<unsigned int> preLocations;
+    std::vector<unsigned int> postLocations;
     std::vector<QOperation> tempOperations;
 public:
     Location(/* args */) {};
@@ -51,8 +51,8 @@ public:
     Location(const int qNum, const unsigned int idx);
     ~Location();
     // void setAnnotation(QOperation annotation);
-    void appendPreLocation(Location* loc);
-    void appendPostLocation(Location* loc);
+    void appendPreLocation(unsigned int loc);
+    void appendPostLocation(unsigned int loc);
     bool satisfy(QOperation spec);
 };
 
@@ -64,7 +64,7 @@ Location::Location(const int qNum)
 
 Location::Location(const int qNum, const unsigned int idx)
 {
-    std::cout << "Create a location with address = " << this << " and idx = " << idx << std::endl;
+    // std::cout << "Create a location with address = " << this << " and idx = " << idx << std::endl;
     this->idx = idx;
     this->upperBound = CreateIdentityQO(qNum);
     this->lowerBound = CreateZeroQO(qNum);
@@ -78,7 +78,7 @@ Location::~Location()
 // {
 //     // this->annotation = annotation;
 // }
-void Location::appendPreLocation(Location* loc)
+void Location::appendPreLocation(unsigned int loc)
 {
     // Make sure loc is not in this->preLocations
     if (std::find(this->preLocations.begin(), this->preLocations.end(), loc) != this->preLocations.end()) {
@@ -86,14 +86,14 @@ void Location::appendPreLocation(Location* loc)
     }
     this->preLocations.push_back(loc);
 }
-void Location::appendPostLocation(Location* loc)
+void Location::appendPostLocation(unsigned int loc)
 {
     // Make sure loc is not in this->postLocations
     if (std::find(this->postLocations.begin(), this->postLocations.end(), loc) != this->postLocations.end()) {
         return; // Already exists
     }
     this->postLocations.push_back(loc);
-    loc->appendPreLocation(this); // Ensure the reverse relation is also established
+    // loc->appendPreLocation(this->idx); // Ensure the reverse relation is also established
 }
 
 bool Location::satisfy(QOperation spec)
@@ -162,15 +162,17 @@ public:
 void TransitionSystem::addLocation(Location loc)
 {
     this->Locations.push_back(loc);
-    loc.idx = static_cast<int>(this->Locations.size()) - 1;
+    // loc.idx = static_cast<unsigned int>(this->Locations.size()) - 1;
 }
 
 void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperation op)
 {
     // The problem is how to represent a projective operation's support vectors.
     this->relations[std::make_tuple(from, to)] = op;
-    this->Locations[from].appendPostLocation(&this->Locations[to]);
-    std::cout << "Add relation from " << &this->Locations[from] << " " << from << " to " << &this->Locations[to] << " " << to << " with operation\n";
+    // The bi-directional relation is established here.
+    this->Locations[from].appendPostLocation(to);
+    this->Locations[to].appendPreLocation(from);
+    // std::cout << "Add relation from " << &this->Locations[from] << " " << this->Locations[from].idx << " to " << &this->Locations[to] << " " << this->Locations[to].idx << " with operation\n";
     // this->Locations[to].appendPreLocation(&this->Locations[from]);
     // The operation is a projective operation, and from has two post-locations.
     // Haven't finished yet.
@@ -223,7 +225,7 @@ void TransitionSystem::preConditionInit() {
     this->visitedPre.resize(this->Locations.size(), false);
     this->computedTablePre.clear(); // Clear the computed table for pre-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
-        if ((this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == &this->Locations[i]) || this->Locations[i].postLocations.size() == 0) {
+        if ((this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == i) || this->Locations[i].postLocations.size() == 0) {
             // If i not in currPreLocs, add it. (TODO: Use a set to avoid duplicates)
             if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) == this->currPreLocs.end()) {
                 this->currPreLocs.push_back(i);
@@ -243,7 +245,9 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     */
     std::cout << this->Locations[loc].preLocations.size() << " pre locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
-        Location* preLoc = this->Locations[loc].preLocations[i];
+        unsigned int preLocIdx = this->Locations[loc].preLocations[i];
+        Location* preLoc = this->Locations.data() + preLocIdx; // Get the pointer to the preLocation
+        assert(preLoc->idx == preLocIdx); // Ensure the index is correct
         // If it is a self-loop and the relation is identity, skip it without appending currPreLoc.
         if (preLoc->idx == loc && this->relations[std::make_tuple(preLoc->idx, loc)].isIdentity) {
             std::cout << "Skip self-loop for location " << loc << std::endl;
@@ -344,18 +348,13 @@ void TransitionSystem::postConditionInit() {
     this->visitedPost.resize(this->Locations.size(), false);
     this->computedTablePost.clear(); // Clear the computed table for post-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
-        if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == &this->Locations[i]) || this->Locations[i].preLocations.size() == 0) {
+        if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == i) || this->Locations[i].preLocations.size() == 0) {
             // If i not in currPostLocs, add it.
             if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), i) == this->currPostLocs.end()) {
                 this->currPostLocs.push_back(i);
                 this->visitedPost[i] = true; // Mark this location as visited
             }
         }
-    }
-    std::cout << "Location address and idx: \n";
-    for (unsigned int i = 0; i < this->Locations.size(); i++)
-    {
-        std::cout << "Location " << i << ": address = " << &this->Locations[i] << ", idx = " << this->Locations[i].idx << std::endl;
     }
 }
 
@@ -366,10 +365,11 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     Use the method QOperation::postImage
     Do the disjunction with the existed lowerBound of postLocations (Use QOperation.disjunction).
     */
-    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << " to " << this->Locations[loc].postLocations[0] << " of idx "
-    << this->Locations[loc].postLocations[0]->idx << std::endl;
+    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
-        Location* postLoc = this->Locations[loc].postLocations[i];
+        unsigned int postLocIdx = this->Locations[loc].postLocations[i];
+        Location* postLoc = this->Locations.data() + postLocIdx; // Get the pointer to the postLocation
+        assert(postLoc->idx == postLocIdx); // Ensure the index is correct
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
         if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {
             std::cout << "Skip self-loop for location " << loc << std::endl;
