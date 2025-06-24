@@ -64,6 +64,7 @@ Location::Location(const int qNum)
 
 Location::Location(const int qNum, const unsigned int idx)
 {
+    std::cout << "Create a location with address = " << this << " and idx = " << idx << std::endl;
     this->idx = idx;
     this->upperBound = CreateIdentityQO(qNum);
     this->lowerBound = CreateZeroQO(qNum);
@@ -153,6 +154,9 @@ public:
     void computingFixedPointPost();
     void printDims(unsigned int loc);
     void printSupp(unsigned int loc);
+    unsigned int getLocationNum() const {
+        return static_cast<unsigned int>(this->Locations.size());
+    }
 };
 
 void TransitionSystem::addLocation(Location loc)
@@ -166,6 +170,7 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
     // The problem is how to represent a projective operation's support vectors.
     this->relations[std::make_tuple(from, to)] = op;
     this->Locations[from].appendPostLocation(&this->Locations[to]);
+    std::cout << "Add relation from " << &this->Locations[from] << " " << from << " to " << &this->Locations[to] << " " << to << " with operation\n";
     // this->Locations[to].appendPreLocation(&this->Locations[from]);
     // The operation is a projective operation, and from has two post-locations.
     // Haven't finished yet.
@@ -347,6 +352,11 @@ void TransitionSystem::postConditionInit() {
             }
         }
     }
+    std::cout << "Location address and idx: \n";
+    for (unsigned int i = 0; i < this->Locations.size(); i++)
+    {
+        std::cout << "Location " << i << ": address = " << &this->Locations[i] << ", idx = " << this->Locations[i].idx << std::endl;
+    }
 }
 
 void TransitionSystem::postConditionOneStep(unsigned int loc) {
@@ -356,7 +366,8 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     Use the method QOperation::postImage
     Do the disjunction with the existed lowerBound of postLocations (Use QOperation.disjunction).
     */
-    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
+    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << " to " << this->Locations[loc].postLocations[0] << " of idx "
+    << this->Locations[loc].postLocations[0]->idx << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         Location* postLoc = this->Locations[loc].postLocations[i];
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.

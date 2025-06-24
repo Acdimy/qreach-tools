@@ -85,6 +85,13 @@ CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOB
     }
 }
 
+std::string stringPadding(std::string str, unsigned int length) {
+    if (str.length() >= length) {
+        return str;
+    }
+    return str + std::string(length - str.length(), '0');
+}
+
 // 1-norm
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     double threshold = 1e-8;
@@ -429,6 +436,7 @@ class QOperation {
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
+    unsigned int realqNum = 0;
     bool isIdentity = false;
     int isProj = -1;
     // std::unique_ptr<Node> ast = nullptr;
@@ -437,40 +445,42 @@ class QOperation {
     QOperation() : type(0) {}
     QOperation(std::vector<std::string> strings) {
         // Construct a QOperation of basic vectors.
-        type = false;
+        assert(strings.size() > 0);
         for (const auto& str : strings) {
-            SingleVecTerm term(str, std::pow(2, ceil(log2(str.size()))));
-            oplist.push_back(std::make_unique<SingleVecTerm>(term));
+            assert(str.size() > 0);
+            assert(str.size() == strings[0].size());
         }
-        if (!strings.empty()) {
-            qNum = std::pow(2, ceil(log2(strings[0].size())));
-        } else {
-            qNum = 0;
+        this->type = false;
+        this->realqNum = strings[0].size();
+        this->qNum = std::pow(2, ceil(log2(strings[0].size())));
+        for (const auto& str : strings) {
+            SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
+            oplist.push_back(std::make_unique<SingleVecTerm>(term));
         }
         this->normalized = true;
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
         // Construct a QOperation of quantum gate.
         // Could merge
-        type = true;
+        this->type = true;
+        this->realqNum = qNum;
+        unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+        this->qNum = logicqNum;
         // Just a copy of CreateProjectiveMeasQO
         if (nam == "meas0") {
-            this->qNum = qNum;
             this->isProj = idx[0];
-            QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
         } else if (nam == "meas1") {
-            this->qNum = qNum;
             this->isProj = idx[0];
-            QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
         } else {
-            oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
-            this->qNum = qNum;
+            oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, logicqNum));
             // Here, isIdentity is used in type == true case.
             if (toLower(nam) == "i") {
                 isIdentity = true;
@@ -1216,24 +1226,30 @@ I: the identity operator as the top of the QOperation lattice
 */
 
 QOperation CreateIdentityQO(unsigned int qNum) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(false);
-    res.qNum = qNum;
+    res.realqNum = qNum;
+    res.qNum = logicqNum;
     res.isIdentity = true;
     res.normalized = true;
     return res;
 }
 
 QOperation CreateZeroQO(unsigned int qNum) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(false);
-    res.qNum = qNum;
+    res.realqNum = qNum;
+    res.qNum = logicqNum;
     res.normalized = true;
     return res;
 }
 
 // Should be mearged into the constructor of QOperation
 QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(true);
-    res.qNum = qNum;
+    res.qNum = logicqNum;
+    res.realqNum = qNum;
     res.isProj = i;
     if (!val) {
         QuantumGateTerm tmp("meas0", std::vector<unsigned int>{i}, std::vector<double>{}, qNum);
