@@ -157,6 +157,13 @@ public:
     unsigned int getLocationNum() const {
         return static_cast<unsigned int>(this->Locations.size());
     }
+    std::string getRelationName(unsigned int from, unsigned int to) const {
+        auto it = this->relations.find(std::make_tuple(from, to));
+        if (it != this->relations.end()) {
+            return it->second.getName();
+        }
+        return "";
+    }
 };
 
 void TransitionSystem::addLocation(Location loc)

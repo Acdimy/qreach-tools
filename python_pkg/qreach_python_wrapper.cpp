@@ -28,7 +28,8 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readwrite("idx", &Location::idx)
         .def_readwrite("flag", &Location::flag)
         .def_readwrite("upperBound", &Location::upperBound)
-        .def_readwrite("lowerBound", &Location::lowerBound);
+        .def_readwrite("lowerBound", &Location::lowerBound)
+        .def_readonly("postLocations", &Location::postLocations);
 
     py::class_<TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
@@ -47,6 +48,8 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("satisfy", &TransitionSystem::satisfy, "satisfy")
         .def("getLocationNum", &TransitionSystem::getLocationNum, "getLocationNum")
         .def("printDims", &TransitionSystem::printDims, "printDims")
-        .def("printSupp", &TransitionSystem::printSupp, "printSupp");
+        .def("printSupp", &TransitionSystem::printSupp, "printSupp")
+        .def("getRelationName", &TransitionSystem::getRelationName, "getRelationName")
+        .def_readonly("Locations", &TransitionSystem::Locations);
     
 }

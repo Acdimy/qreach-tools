@@ -476,6 +476,7 @@ class QOperation {
         if (nam == "meas0") {
             this->isProj = idx[0];
             QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            // Whether it is necessary to concretize?
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
@@ -575,6 +576,29 @@ class QOperation {
         return *this;
     }
     
+    std::string getName() const {
+        if (this->type == false) {
+            return "Projective Operation";
+        } else if (this->isProj >= 0) {
+            return "Projective Measurement";
+        } else {
+            std::string res;
+            for (const auto& term : this->oplist) {
+                if (term && term->getType()) {
+                    auto* gateTerm = dynamic_cast<QuantumGateTerm*>(term.get());
+                    if (gateTerm) {
+                        res += gateTerm->name + " ";
+                    } else {
+                        std::cout << "Unknown quantum term type in getName()." << std::endl;
+                    }
+                } else {
+                    std::cout << "Null quantum term in getName()." << std::endl;
+                }
+            }
+            return res.empty() ? "Empty Quantum Operation" : res;
+        }
+    }
+
     void append(std::unique_ptr<QuantumTerm> qt) {
         if (qt->getType() != this->type) {
             std::cout << "Append a wrong type of quantum term.";

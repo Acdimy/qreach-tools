@@ -7,7 +7,7 @@ import numpy as np
 
 from parse_qiskit import *
 
-def prepare_5perfect(circ, idx):
+def prepare_5perfect_code(circ, idx):
     circ.z(idx[0])
 
     circ.h(idx[1])
@@ -34,7 +34,7 @@ circ = QuantumCircuit(6, 6)
 idx = [1,2,3,4,5]
 circ.h(1)
 
-prepare_5perfect(circ, idx)
+prepare_5perfect_code(circ, idx)
 circ.x(0)
 
 
@@ -51,3 +51,5 @@ ts.printDims(ts.getLocationNum()-1)
 # for i in range(ts.getLocationNum()):
 #     ts.printSupp(i)
 ts.printSupp(ts.getLocationNum()-1)
+
+visualize_transition_system(ts, "5perfect")

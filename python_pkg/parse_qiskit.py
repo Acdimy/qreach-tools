@@ -1,5 +1,6 @@
 import pyqreach
 from qiskit import QuantumCircuit
+from graphviz import Digraph
 
 
 
@@ -65,3 +66,22 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
         # Add the operation to the transition system
         ts.addRelation(loc_idx-1, loc_idx, op)  # Simplified relation for demonstration
     return ts
+
+def visualize_transition_system(ts: pyqreach.TransitionSystem, filename='transition_system'):
+    """
+    Visualize the transition system using Graphviz.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to visualize.
+        filename (str): The name of the output file.
+    """
+    dot = Digraph(comment='Transition System')
+    
+    for loc in ts.Locations:
+        dot.node(str(loc.idx), label=str(loc.idx))
+    
+        for post in loc.postLocations:
+            rel = ts.getRelationName(loc.idx, post)
+            dot.edge(str(loc.idx), str(post), label=str(rel))
+    
+    dot.render(filename, format='png', cleanup=True)
