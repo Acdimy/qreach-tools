@@ -30,26 +30,38 @@ def prepare_5perfect_code(circ, idx):
     circ.cz(idx[2],idx[4])
     circ.cx(idx[2],idx[3])
 
-circ = QuantumCircuit(6, 6)
-idx = [1,2,3,4,5]
-circ.h(1)
+circ = QuantumCircuit(10, 10)
+idx0 = list(range(5))
+idx1 = list(range(5,10))
 
-prepare_5perfect_code(circ, idx)
+
+circ.h(0)
+circ.t(0)
 circ.x(0)
 
+circ.h(5)
+prepare_5perfect_code(circ, idx0)
+prepare_5perfect_code(circ, idx1)
+
+for i in range(5):
+    circ.cx(i, 5+i)
 
 ts = parse_qiskit(circ)
 
 # print the relations in the transition system
 
+measList = applyFinalMeasurement(ts, 'ZZZZZ', idx1, 10)
 
-op00 = pyqreach.QOperation(["000000"])
+print(ts.getLocationNum())
+
+op00 = pyqreach.QOperation(["0000000000"])
 ts.setAnnotation([[0, op00]])
 ts.computingFixedPointPost()
-ts.printDims(0)
-ts.printDims(ts.getLocationNum()-1)
-# for i in range(ts.getLocationNum()):
-#     ts.printSupp(i)
-ts.printSupp(ts.getLocationNum()-1)
 
-visualize_transition_system(ts, "5perfect")
+measOutput = '11001'
+
+
+for l in measList:
+    ts.printDims(l)
+    # ts.printSupp(l)
+ts.printSupp(measList[int(measOutput, 2)])

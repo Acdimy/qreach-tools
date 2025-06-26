@@ -579,8 +579,6 @@ class QOperation {
     std::string getName() const {
         if (this->type == false) {
             return "Projective Operation";
-        } else if (this->isProj >= 0) {
-            return "Projective Measurement";
         } else {
             std::string res;
             for (const auto& term : this->oplist) {

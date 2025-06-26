@@ -169,7 +169,7 @@ public:
 void TransitionSystem::addLocation(Location loc)
 {
     this->Locations.push_back(loc);
-    // loc.idx = static_cast<unsigned int>(this->Locations.size()) - 1;
+    this->Locations.back().idx = static_cast<unsigned int>(this->Locations.size()) - 1;
 }
 
 void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperation op)
@@ -363,6 +363,9 @@ void TransitionSystem::postConditionInit() {
             }
         }
     }
+    for (unsigned int i = 0; i < this->Locations.size(); i++) {
+        std::cout << "Idx of location " << i << " is " << this->Locations[i].idx << std::endl;
+    }
 }
 
 void TransitionSystem::postConditionOneStep(unsigned int loc) {
@@ -376,6 +379,9 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         unsigned int postLocIdx = this->Locations[loc].postLocations[i];
         Location* postLoc = this->Locations.data() + postLocIdx; // Get the pointer to the postLocation
+        if (postLoc->idx != postLocIdx) {
+            std::cout << "Warning: postLoc->idx (" << postLoc->idx << ") != postLocIdx (" << postLocIdx << ")" << std::endl;
+        }
         assert(postLoc->idx == postLocIdx); // Ensure the index is correct
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
         if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {

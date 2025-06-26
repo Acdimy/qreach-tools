@@ -1,7 +1,12 @@
 import pyqreach
 from qiskit import QuantumCircuit
 from graphviz import Digraph
+from math import floor
+from math import ceil, log2
 
+# Get the binary representation of a number
+def getBinary(num, length):
+    return format(num, '0' + str(length) + 'b')
 
 
 def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
@@ -43,6 +48,10 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
             op = pyqreach.QOperation("Y", qnum, qubits, [])
         elif op_name == 'z':
             op = pyqreach.QOperation("Z", qnum, qubits, [])
+        elif op_name == 's':
+            op = pyqreach.QOperation("S", qnum, qubits, [])
+        elif op_name == 't':
+            op = pyqreach.QOperation("T", qnum, qubits, [])
         elif op_name == 'cx':
             op = pyqreach.QOperation("CX", qnum, qubits, [])
         elif op_name == 'cz':
@@ -85,3 +94,271 @@ def visualize_transition_system(ts: pyqreach.TransitionSystem, filename='transit
             dot.edge(str(loc.idx), str(post), label=str(rel))
     
     dot.render(filename, format='png', cleanup=True)
+
+def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
+    """
+    Apply a final measurement to the transition system.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to modify.
+        PauliString (str): The Pauli string representing the measurement.
+        Each Pauli is a local measurement on a qubit.
+        qlist (list): List of locations to apply the measurement to.
+    """
+    currLocNum = ts.getLocationNum()
+    nontrivialPauli = 0
+    for pauli in PauliString:
+        if pauli != 'I':
+            nontrivialPauli += 1
+            if pauli == 'X':
+                for i in range(2**nontrivialPauli):
+                    loc = pyqreach.Location(qnum, 0)
+                    ts.addLocation(loc)
+    for i in range(2**(nontrivialPauli + 1)):
+        loc = pyqreach.Location(qnum, 0)
+        ts.addLocation(loc)
+    numBasisSwitch = 0
+    lastLocNum = ts.getLocationNum()
+    resultList = []
+    for i in range(len(PauliString)):
+        if PauliString[i] == 'I':
+            continue
+        elif PauliString[i] == 'Z':
+            numBasisSwitch += 1
+            for j in range(2**(numBasisSwitch)):
+                if j % 2 == 0:
+                    op = pyqreach.QOperation("meas0", qnum, [qlist[i]], [])
+                else:
+                    op = pyqreach.QOperation("meas1", qnum, [qlist[i]], [])
+                currAbsLoc = currLocNum + 2**(numBasisSwitch) - 2 + j
+                ts.addRelation(floor(2**(numBasisSwitch-1) - 2 + j/2) + currLocNum, currAbsLoc, op)
+        elif PauliString[i] == 'X':
+            numBasisSwitch += 1
+            for j in range(2**(numBasisSwitch)):
+                if j % 2 == 0:
+                    op = pyqreach.QOperation("meas0", qnum, [qlist[i]], [])
+                else:
+                    op = pyqreach.QOperation("meas1", qnum, [qlist[i]], [])
+                currAbsLoc = currLocNum + 2**(numBasisSwitch) - 2 + j
+                oph = pyqreach.QOperation("H", qnum, [qlist[i]], [])
+                ts.addRelation(floor(2**(numBasisSwitch-1) - 2 + j/2)+currLocNum, lastLocNum - 1, oph)
+                ts.addRelation(lastLocNum - 1, currAbsLoc, op)
+                lastLocNum -= 1
+    for j in range(2**(numBasisSwitch)):
+        resultList.append(currLocNum + 2**(numBasisSwitch) - 2 + j)
+    return resultList
+
+def applyFinalMeasurementFine(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
+    """
+    Apply a final measurement to the transition system.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to modify.
+        PauliString (str): The Pauli string representing the measurement.
+        qlist (list): List of qubit indices to apply the measurement to.
+        qnum (int): Total number of qubits.
+    
+    Returns:
+        list: List of terminal locations corresponding to each measurement outcome.
+    """
+    startLocIndex = ts.getLocationNum()
+    numMeasuredQubits = sum(1 for p in PauliString if p != 'I')
+    layerStartIndices = [startLocIndex]
+
+    # Step 1: 为每一层非平凡测量增加新 location（形成测量树）
+    totalNewLocs = 2 ** (numMeasuredQubits + 1)  # 比原来稍多，但安全
+    for _ in range(totalNewLocs):
+        ts.addLocation(pyqreach.Location(qnum, 0))
+
+    nextTempIndex = ts.getLocationNum()
+    resultList = []
+
+    currentLayer = 0  # 第几层测量（跳过 'I'）
+    for idx, pauli in enumerate(PauliString):
+        if pauli == 'I':
+            continue
+        
+        parentStart = layerStartIndices[-1]
+        currLayerSize = 2 ** currentLayer
+        nextLayerStart = parentStart + currLayerSize
+        layerStartIndices.append(nextLayerStart)
+
+        for j in range(2 ** (currentLayer + 1)):
+            qubit = qlist[idx]
+            isZeroOutcome = (j % 2 == 0)
+            measType = "meas0" if isZeroOutcome else "meas1"
+            measOp = pyqreach.QOperation(measType, qnum, [qubit], [])
+
+            parentLoc = parentStart + j // 2
+            childLoc = nextLayerStart + j
+
+            if pauli == 'Z':
+                ts.addRelation(parentLoc, childLoc, measOp)
+
+            elif pauli == 'X':
+                # Apply Hadamard before measuring
+                hOp = pyqreach.QOperation("H", qnum, [qubit], [])
+                tempLoc = nextTempIndex
+                nextTempIndex += 1
+
+                ts.addRelation(parentLoc, tempLoc, hOp)
+                ts.addRelation(tempLoc, childLoc, measOp)
+
+        currentLayer += 1
+
+    # Step 3: 返回所有结果状态的编号
+    finalLayerStart = layerStartIndices[-1]
+    for j in range(2 ** currentLayer):
+        resultList.append(finalLayerStart + j)
+
+    return resultList
+
+
+def analyze_pruned_binary_tree(keepBitstrings: list[str]) -> tuple[int, list[list[str]]]:
+    """
+    Given a set of binary strings representing success paths,
+    build a minimal pruned binary decision tree and return:
+        - total node count
+        - each layer's node list (by bit prefix)
+    """
+    keepSet = set(keepBitstrings)
+    maxDepth = len(keepBitstrings[0])
+    assert all(len(k) == maxDepth for k in keepBitstrings)
+
+    from collections import deque, defaultdict
+
+    visited = set()
+    layers = defaultdict(list)
+
+    queue = deque()
+    queue.append("")  # root prefix
+
+    while queue:
+        prefix = queue.popleft()
+        if prefix in visited:
+            continue
+        visited.add(prefix)
+        layers[len(prefix)].append(prefix)
+
+        if len(prefix) < maxDepth:
+            left = prefix + "0"
+            right = prefix + "1"
+            if any(k.startswith(left) for k in keepSet):
+                queue.append(left)
+            if any(k.startswith(right) for k in keepSet):
+                queue.append(right)
+
+    totalNodes = len(visited)
+    layerList = [sum([len(layers[i]) for i in range(d+1)]) for d in range(maxDepth + 1)]
+
+    return totalNodes, layerList
+
+
+def applySelectiveFinalMeasurement(
+    ts: pyqreach.TransitionSystem,
+    PauliString: str,
+    qlist: list,
+    qnum: int,
+    entryLocList: list,
+    keepBitstrings: list[str]
+) -> tuple[list[list[int]], int]:
+    """
+    Apply a shared measurement tree from multiple entry locations, pruning paths
+    based on allowed outcome bitstrings. Invalid paths go to a common error location.
+
+    Args:
+        ts (pyqreach.TransitionSystem): Transition system to modify.
+        PauliString (str): Pauli measurement string (e.g., 'XZI').
+        qlist (list[int]): List of qubit indices, same length as PauliString.
+        qnum (int): Total number of qubits.
+        entryLocList (list[int]): List of entry location indices to attach the measurement tree.
+        keepBitstrings (list[str]): List of allowed outcome bitstrings (e.g., ['00001']).
+
+    Returns:
+        tuple: (List of list of valid final location indices per entry, error location index)
+    """
+    assert len(PauliString) == len(qlist)
+    depth = sum(1 for p in PauliString if p != 'I')
+    assert all(len(s) == depth for s in keepBitstrings)
+
+    # Step 1: 构造测量子树结构（只构造一次）
+    baseLocIndex = ts.getLocationNum() - 1
+
+    # totalTreeNodes = 0
+    # layerStartIndices = [baseLocIndex-1]
+    # for d in range(1, depth + 1):
+    #     layerStart = totalTreeNodes
+    #     layerStartIndices.append(layerStart)
+    #     totalTreeNodes += 2 ** d
+    # for _ in range(totalTreeNodes*len(entryLocList)):
+    #     ts.addLocation(pyqreach.Location(qnum, 0))
+
+    totalTreeNodes, layerStartIndices = analyze_pruned_binary_tree(keepBitstrings)
+    assert(len(layerStartIndices) == depth + 1)
+    totalTreeNodes -= 1
+    for _ in range(totalTreeNodes*len(entryLocList)):
+        ts.addLocation(pyqreach.Location(qnum, 0))
+
+    # Step 2: 构造 error location
+    errorLoc = ts.getLocationNum()
+    ts.addLocation(pyqreach.Location(qnum, 0))  # dummy error location
+
+    # Step 3: 构造精简版测量树：只连符合 keepBitstrings 的路径
+    indexInPauli = [i for i, p in enumerate(PauliString) if p != 'I']
+    keepSet = set(keepBitstrings)
+    
+
+    for e, entry in enumerate(entryLocList):
+        bitPrefixList = [['']]
+        for d in range(depth):  # 每一层测量
+            bitPrefixLayer = []
+            # print(f"Processing layer {d} for entry {entry}...")
+            pauliIndex = indexInPauli[d]
+            qubit = qlist[pauliIndex]
+            pauli = PauliString[pauliIndex]
+
+            parentStart = (layerStartIndices[d-1] + baseLocIndex + e * totalTreeNodes) if d != 0 else entry
+            childStart = layerStartIndices[d] + baseLocIndex + e * totalTreeNodes
+            parentTrace = 0
+            childTrace = 0
+
+            for i in range(layerStartIndices[d] - layerStartIndices[d-1] if d != 0 else layerStartIndices[d]):
+                bitPrefix = bitPrefixList[d][i]
+                parentTrace += 1
+
+                for outcomeBit in [0, 1]:
+                    newBitstring = bitPrefix + str(outcomeBit)
+                    parentLoc = parentStart + i
+                    childLoc = childStart + childTrace
+
+                    if any(s.startswith(newBitstring) for s in keepSet):
+                        # 构造合法测量路径
+                        if pauli == 'Z':
+                            meas = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                            ts.addRelation(parentLoc, childLoc, meas)
+                        elif pauli == 'X':
+                            had = pyqreach.QOperation("H", qnum, [qubit], [])
+                            meas = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                            tempLoc = ts.getLocationNum()
+                            ts.addLocation(pyqreach.Location(qnum, 0))
+                            ts.addRelation(parentLoc, tempLoc-1, had)
+                            ts.addRelation(tempLoc-1, childLoc, meas)
+                        childTrace += 1
+                        bitPrefixLayer.append(newBitstring)
+                    else:
+                        # 剪枝路径连接到 error location，并带有与合法路径相反的测量操作
+                        wrongMeas = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                        ts.addRelation(parentLoc, errorLoc, wrongMeas)
+                bitPrefixList.append(bitPrefixLayer)
+
+    # Step 4: 将所有 entry location 连接到测量树的根节点
+    validResultsPerEntry = []
+    finalLayerStart = layerStartIndices[-1]
+    for e, entry in enumerate(entryLocList):
+        entryResults = []
+        for j in range(2 ** depth):
+            resultLoc = finalLayerStart + j + e * totalTreeNodes
+            entryResults.append(resultLoc)
+        validResultsPerEntry.append(entryResults)
+
+    return validResultsPerEntry, errorLoc
