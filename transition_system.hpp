@@ -363,9 +363,6 @@ void TransitionSystem::postConditionInit() {
             }
         }
     }
-    for (unsigned int i = 0; i < this->Locations.size(); i++) {
-        std::cout << "Idx of location " << i << " is " << this->Locations[i].idx << std::endl;
-    }
 }
 
 void TransitionSystem::postConditionOneStep(unsigned int loc) {
@@ -375,7 +372,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     Use the method QOperation::postImage
     Do the disjunction with the existed lowerBound of postLocations (Use QOperation.disjunction).
     */
-    std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
+    // std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
         unsigned int postLocIdx = this->Locations[loc].postLocations[i];
         Location* postLoc = this->Locations.data() + postLocIdx; // Get the pointer to the postLocation
@@ -390,13 +387,13 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
         }
         // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
         if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
-            std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
+            // std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
             QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
             computedTablePost.insert(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size()));
             int dimBefore = postLoc->lowerBound.oplist.size(); // Lower bound: dimension 0 as default
             postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Disjunction inline
             if (visitedPost[postLoc->idx] == false) {
-                std::cout << "Visit a new post location " << postLoc->idx << std::endl;
+                // std::cout << "Visit a new post location " << postLoc->idx << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
                 visitedPost[postLoc->idx] = true;
             } else if (postLoc->lowerBound.oplist.size() > dimBefore && dimBefore < std::pow(2, postLoc->lowerBound.qNum)) {

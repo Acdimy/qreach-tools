@@ -179,7 +179,6 @@ class QuantumGateTerm : public QuantumTerm {
 
     CFLOBDD_COMPLEX_BIG concretize() const {
         std::string name = toLower(this->name);
-        std::cout << "Concretizing quantum gate: " << name << std::endl;
         unsigned index = this->index[0];
         CFLOBDD_COMPLEX_BIG res;
         // std::pow(2, this->content.root->level-1);
@@ -892,7 +891,7 @@ class QOperation {
         }
         if (other.oplist[0]->getType() == true) {
             // Case 1: other.oplist[0] is a quantumGate type: a projective measurement
-            std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
+            // std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
             // TODO: This is the most time-consuming part!
             assert(other.isProj >= 0);
             assert(other.oplist.size() == 1);
@@ -969,12 +968,12 @@ class QOperation {
         }
         if (other.oplist[0]->getType() == false) {
             // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
-            std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
+            // std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
             res = this->conjunction_simp(other); // This is not a const operator!
         } else if (other.oplist[0]->getType() == true && other.isProj >= 0) {
             // Case 1: other is a binary projection operator
             // other.genProjMeasSpace();
-            std::cout << "Case 1: other is a binary projection operator." << std::endl;
+            // std::cout << "Case 1: other is a binary projection operator." << std::endl;
             res = this->conjunction_simp(other);
             // TODO: Should negOther be saved? Save: reduce the time complexity; Don't save: reduce the space complexity.
             // I need to fix the following codes to reduce the time complexity!!!
@@ -983,7 +982,7 @@ class QOperation {
             res = res.disjunction(negOther);
         } else {
             // Case 2: other.oplist[0] is a QuantumGateTerm
-            std::cout << "Case 2: other.oplist[0] is a QuantumGateTerm. " << other.oplist[0]->getType() << " " << other.isProj << std::endl;
+            // std::cout << "Case 2: other.oplist[0] is a QuantumGateTerm. " << other.oplist[0]->getType() << " " << other.isProj << std::endl;
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) {std::cout << "Strange nullptr" << std::endl; continue;}
@@ -1293,5 +1292,15 @@ QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
     }
     return res;
 }
+
+// QOperation CreatePartialProjectiveQO(std::vector<std::string> parBasis, std::vector<unsigned int> parIndex, unsigned int qNum) {
+//     unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+//     QOperation res(true);
+//     res.qNum = logicqNum;
+//     res.realqNum = qNum;
+//     res.isProj = parIndex[0]; // Assume the first index is the projective index
+
+
+// }
 
 #endif

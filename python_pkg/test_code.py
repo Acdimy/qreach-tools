@@ -41,6 +41,8 @@ circ.x(0)
 
 circ.h(5)
 prepare_5perfect_code(circ, idx0)
+gateLength = circ.depth() - 1
+
 prepare_5perfect_code(circ, idx1)
 
 for i in range(5):
@@ -48,20 +50,32 @@ for i in range(5):
 
 ts = parse_qiskit(circ)
 
+locBeforeMeas = ts.getLocationNum() - 6
+
 # print the relations in the transition system
 
-measList = applyFinalMeasurement(ts, 'ZZZZZ', idx1, 10)
+measList = applyMeasureAndReset(ts, 'ZZZZZ', idx1, 10)
+# measList = applyFinalMeasurement(ts, 'ZZZZZ', idx1, 10)
 
-print(ts.getLocationNum())
+# ts.addLocation(pyqreach.Location(10, 0))
+
+# locMerge = ts.getLocationNum() - 1
+
+# id = pyqreach.QOperation("I", 10, [0], [])
+# for locMeas in measList:
+#     ts.addRelation(locMeas, locMerge, id)
+
+# ts.addRelation(gateLength, locMerge, id)
 
 op00 = pyqreach.QOperation(["0000000000"])
 ts.setAnnotation([[0, op00]])
 ts.computingFixedPointPost()
+outputMeas = '11100'
+ts.printSupp(measList[int(outputMeas, 2)])
+# for measLoc in measList[:1]:
+#     ts.printDims(measLoc)
+#     ts.printSupp(measLoc)
 
-measOutput = '11001'
+# ts.printDims(locMerge)
 
-
-for l in measList:
-    ts.printDims(l)
-    # ts.printSupp(l)
-ts.printSupp(measList[int(measOutput, 2)])
+visualize_transition_system(ts)

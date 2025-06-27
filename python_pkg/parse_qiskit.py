@@ -107,50 +107,51 @@ def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist
     """
     currLocNum = ts.getLocationNum()
     nontrivialPauli = 0
-    for pauli in PauliString:
-        if pauli != 'I':
-            nontrivialPauli += 1
-            if pauli == 'X':
-                for i in range(2**nontrivialPauli):
-                    loc = pyqreach.Location(qnum, 0)
-                    ts.addLocation(loc)
-    for i in range(2**(nontrivialPauli + 1)):
+    numMeasuredQubits = sum(1 for p in PauliString if p != 'I')
+    indexInPauli = [i for i, p in enumerate(PauliString) if p != 'I']
+    totalNewLocation = 2**(numMeasuredQubits + 1) - 2
+    # for pauli in PauliString:
+    #     if pauli != 'I':
+    #         nontrivialPauli += 1
+    #         if pauli == 'X':
+    #             for i in range(2**(nontrivialPauli - 1)):
+    #                 loc = pyqreach.Location(qnum, 0)
+    #                 ts.addLocation(loc)
+    for i in range(totalNewLocation):
         loc = pyqreach.Location(qnum, 0)
         ts.addLocation(loc)
-    numBasisSwitch = 0
-    lastLocNum = ts.getLocationNum()
+    for layer in range(numMeasuredQubits): # traverse each parent layer
+        currLayerSize = 2**(layer)
+        parentStart = currLocNum - 1 + 2**layer - 1
+        childLayerStart = currLocNum - 1 + 2**(layer+1) - 1
+        pauliIndex = indexInPauli[layer]
+        pauli = PauliString[pauliIndex]
+        qubit = qlist[pauliIndex]
+        for p in range(currLayerSize):  # traverse each parent node
+            if pauli == 'X':
+                oph = pyqreach.QOperation("H", qnum, [qubit], [])
+                ts.addLocation(pyqreach.Location(qnum, 0))  # add a new location for Hadamard
+                tmpHloc = ts.getLocationNum() - 1
+                ts.addRelation(parentStart + p, tmpHloc, oph)
+            for outcomeBit in [0, 1]:
+                parentLoc = parentStart + p
+                childLoc = childLayerStart + 2*p
+                if pauli == 'Z':
+                    measOp = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                    ts.addRelation(parentLoc, childLoc + outcomeBit, measOp)
+                elif pauli == 'X':
+                    measOp = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                    ts.addRelation(tmpHloc, childLoc + outcomeBit, measOp)
+
     resultList = []
-    for i in range(len(PauliString)):
-        if PauliString[i] == 'I':
-            continue
-        elif PauliString[i] == 'Z':
-            numBasisSwitch += 1
-            for j in range(2**(numBasisSwitch)):
-                if j % 2 == 0:
-                    op = pyqreach.QOperation("meas0", qnum, [qlist[i]], [])
-                else:
-                    op = pyqreach.QOperation("meas1", qnum, [qlist[i]], [])
-                currAbsLoc = currLocNum + 2**(numBasisSwitch) - 2 + j
-                ts.addRelation(floor(2**(numBasisSwitch-1) - 2 + j/2) + currLocNum, currAbsLoc, op)
-        elif PauliString[i] == 'X':
-            numBasisSwitch += 1
-            for j in range(2**(numBasisSwitch)):
-                if j % 2 == 0:
-                    op = pyqreach.QOperation("meas0", qnum, [qlist[i]], [])
-                else:
-                    op = pyqreach.QOperation("meas1", qnum, [qlist[i]], [])
-                currAbsLoc = currLocNum + 2**(numBasisSwitch) - 2 + j
-                oph = pyqreach.QOperation("H", qnum, [qlist[i]], [])
-                ts.addRelation(floor(2**(numBasisSwitch-1) - 2 + j/2)+currLocNum, lastLocNum - 1, oph)
-                ts.addRelation(lastLocNum - 1, currAbsLoc, op)
-                lastLocNum -= 1
-    for j in range(2**(numBasisSwitch)):
-        resultList.append(currLocNum + 2**(numBasisSwitch) - 2 + j)
+    for j in range(2**(numMeasuredQubits)):
+        resultList.append(currLocNum + 2**(numMeasuredQubits) - 2 + j)
     return resultList
 
-def applyFinalMeasurementFine(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
+
+def applyMeasureAndReset(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
     """
-    Apply a final measurement to the transition system.
+    Apply a measurement and reset operation to the transition system.
     
     Args:
         ts (pyqreach.TransitionSystem): The transition system to modify.
@@ -161,56 +162,17 @@ def applyFinalMeasurementFine(ts: pyqreach.TransitionSystem, PauliString: str, q
     Returns:
         list: List of terminal locations corresponding to each measurement outcome.
     """
-    startLocIndex = ts.getLocationNum()
-    numMeasuredQubits = sum(1 for p in PauliString if p != 'I')
-    layerStartIndices = [startLocIndex]
-
-    # Step 1: 为每一层非平凡测量增加新 location（形成测量树）
-    totalNewLocs = 2 ** (numMeasuredQubits + 1)  # 比原来稍多，但安全
-    for _ in range(totalNewLocs):
-        ts.addLocation(pyqreach.Location(qnum, 0))
-
-    nextTempIndex = ts.getLocationNum()
-    resultList = []
-
-    currentLayer = 0  # 第几层测量（跳过 'I'）
-    for idx, pauli in enumerate(PauliString):
-        if pauli == 'I':
-            continue
-        
-        parentStart = layerStartIndices[-1]
-        currLayerSize = 2 ** currentLayer
-        nextLayerStart = parentStart + currLayerSize
-        layerStartIndices.append(nextLayerStart)
-
-        for j in range(2 ** (currentLayer + 1)):
-            qubit = qlist[idx]
-            isZeroOutcome = (j % 2 == 0)
-            measType = "meas0" if isZeroOutcome else "meas1"
-            measOp = pyqreach.QOperation(measType, qnum, [qubit], [])
-
-            parentLoc = parentStart + j // 2
-            childLoc = nextLayerStart + j
-
-            if pauli == 'Z':
-                ts.addRelation(parentLoc, childLoc, measOp)
-
-            elif pauli == 'X':
-                # Apply Hadamard before measuring
-                hOp = pyqreach.QOperation("H", qnum, [qubit], [])
-                tempLoc = nextTempIndex
-                nextTempIndex += 1
-
-                ts.addRelation(parentLoc, tempLoc, hOp)
-                ts.addRelation(tempLoc, childLoc, measOp)
-
-        currentLayer += 1
-
-    # Step 3: 返回所有结果状态的编号
-    finalLayerStart = layerStartIndices[-1]
-    for j in range(2 ** currentLayer):
-        resultList.append(finalLayerStart + j)
-
+    resultList = applyFinalMeasurement(ts, PauliString, qlist, qnum)
+    # From resultList to original locations. Note that PauliString may contains 'I', which means no measurement on that qubit.
+    
+    for i, loc in enumerate(resultList):
+        resultStr = getBinary(i, len(qlist))
+        for j, bit in enumerate(resultStr):
+            if bit == '1':
+                resetOp = pyqreach.QOperation("X", qnum, [qlist[j]], [])
+                ts.addLocation(pyqreach.Location(qnum, 0))
+                ts.addRelation(loc, ts.getLocationNum() - 1, resetOp)
+            resultList[i] = ts.getLocationNum() - 1
     return resultList
 
 
@@ -362,3 +324,7 @@ def applySelectiveFinalMeasurement(
         validResultsPerEntry.append(entryResults)
 
     return validResultsPerEntry, errorLoc
+
+# TODO: Randomly inject errors into the transition system
+def injectRandomErrors(ts: pyqreach.TransitionSystem, errorRate: float):
+    pass
