@@ -415,6 +415,11 @@ class SingleVecTerm : public QuantumTerm {
     void applyGateInline(const QuantumGateTerm& other, bool direction) {
         this->content = this->applyGate(other, direction);
     }
+    double getMod() {
+        auto amp = this->dot(*this);
+        double res = double(sqrt(amp.real()));
+        return res;
+    }
 };
 
 class CliffordTerm : public QuantumTerm {
@@ -878,9 +883,13 @@ class QOperation {
         if (other.isIdentity) {
             return *this;
         }
-        if (this->isIdentity) {
-            assert(other.isProj < 0);
+        if (this->isIdentity && other.isProj < 0) {
             return other;
+        }
+        if (this->isIdentity && other.isProj >= 0) {
+            QOperation othercopy = other;
+            othercopy.genProjMeasSpace();
+            return othercopy;
         }
         if (other.oplist.size() == 0 || this->oplist.size() == 0) {
             // If one of the operands is empty, return an empty QOperation
