@@ -18,6 +18,9 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readonly("qNum", &QOperation::qNum)
         .def_readonly("isIdentity", &QOperation::isIdentity)
         .def_readonly("isProj", &QOperation::isProj);
+    
+    m.def("CreateIdentityQO", &CreateIdentityQO, "Create an identity quantum operation");
+    m.def("CreateZeroQO", &CreateZeroQO, "Create a zero quantum operation");
 
     py::class_<Location>(m, "Location")
         .def(py::init<>())
