@@ -152,7 +152,7 @@ public:
     void setInitLocation(unsigned int loc);
     void computingFixedPointPre();
     void computingFixedPointPost();
-    void printDims(unsigned int loc);
+    std::pair<int, int> printDims(unsigned int loc);
     void printSupp(unsigned int loc);
     unsigned int getLocationNum() const {
         return static_cast<unsigned int>(this->Locations.size());
@@ -408,7 +408,7 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
             }
         } else {}
     }
-    std::cout << "Post condition for location " << loc << " computed." << std::endl;
+    // std::cout << "Post condition for location " << loc << " computed." << std::endl;
 }
 
 void TransitionSystem::postConditions() {
@@ -443,12 +443,15 @@ bool TransitionSystem::satisfy(unsigned int loc, QOperation spec) {
     return this->Locations[loc].satisfy(spec);
 }
 
-void TransitionSystem::printDims(unsigned int loc) {
+std::pair<int, int> TransitionSystem::printDims(unsigned int loc) {
     /*
     Print the dimensions of the upperBound and lowerBound of the location.
     */
-    std::cout << "Location " << loc << ": upperBound dimension = " << (this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size()) 
-              << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
+    // std::cout << "Location " << loc << ": upperBound dimension = " << (this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size()) 
+    //           << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
+    int upperDim = this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size();
+    int lowerDim = this->Locations[loc].lowerBound.oplist.size();
+    return std::make_pair(upperDim, lowerDim);
 }
 
 void TransitionSystem::printSupp(unsigned int loc) {
