@@ -4,8 +4,17 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector
 # from qiskit_aer import AerSimulator
 import numpy as np
+from time import time
 
 from parse_qiskit import *
+
+"""
+Target: Entanglement distillation test.
+The setting in this test: 1. Forward. Over the right input, the protocol Ensure the correctness of the first pair of entangled states 
+at the expense of the second pair of entangled states
+2. Backward.
+
+"""
 
 circ = QuantumCircuit(4,4)
 circ.h(0)
@@ -27,7 +36,10 @@ for measLoc in measList:
     ts.setAnnotation([[measLoc, opO]])
 ts.setAnnotation([[measList[1], opI]])
 
+start_time = time()
 ts.computingFixedPointPre()
+end_time = time()
+print(f"Time taken for computing fixed point pre: {end_time - start_time:.2f} seconds")
 for locMeas in measList:
     ts.printSupp(locMeas)
 ts.printSupp(4)

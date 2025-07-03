@@ -245,9 +245,9 @@ class QuantumGateTerm : public QuantumTerm {
             std::vector<double> v{0,0,0,0,0,0,1,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
-        } else if (name == "reset") {
-            // Reset all the qubits to |0>
-            std::vector<double> v{1,0,0,0,0,0,0,0};
+        } else if (name == "reset0") {
+            // Reset the index qubit to |0>
+            std::vector<double> v{0,0,1,0,0,0,0,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
         } else if (name == "swap") {
@@ -490,7 +490,19 @@ class QOperation {
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
-        } else {
+        } else if (nam == "reset") {
+            // The reset operator creates a mixed state
+            this->isProj = idx[0];
+            QuantumGateTerm cond0("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            // Whether it is necessary to concretize?
+            cond0.concretizeInline();
+            // Attention!
+            this->oplist.push_back(cond0.clone());
+            QuantumGateTerm cond1("reset0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            cond1.concretizeInline();
+            this->oplist.push_back(cond1.clone());
+        }
+        else {
             oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, logicqNum));
             // Here, isIdentity is used in type == true case.
             if (toLower(nam) == "i") {

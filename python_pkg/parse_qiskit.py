@@ -149,7 +149,7 @@ def visualize_transition_system(ts: pyqreach.TransitionSystem, filename='transit
     
     dot.render(filename, format='png', cleanup=True)
 
-def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
+def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int, entryNode=-1) -> list:
     """
     Apply a final measurement to the transition system.
     
@@ -203,7 +203,7 @@ def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist
     return resultList
 
 
-def applyMeasureAndReset(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int) -> list:
+def applyMeasureAndReset(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int, entryNode=-1) -> list:
     """
     Apply a measurement and reset operation to the transition system.
     
@@ -298,7 +298,8 @@ def applySelectiveFinalMeasurement(
     """
     assert len(PauliString) == len(qlist)
     depth = sum(1 for p in PauliString if p != 'I')
-    assert all(len(s) == depth for s in keepBitstrings)
+    if len(keepBitstrings) > 0:
+        assert all(len(s) == depth for s in keepBitstrings)
 
     # Step 1: 构造测量子树结构（只构造一次）
     baseLocIndex = ts.getLocationNum() - 1

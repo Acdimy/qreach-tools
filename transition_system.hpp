@@ -450,7 +450,13 @@ std::pair<int, int> TransitionSystem::printDims(unsigned int loc) {
     // std::cout << "Location " << loc << ": upperBound dimension = " << (this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size()) 
     //           << ", lowerBound dimension = " << this->Locations[loc].lowerBound.oplist.size() << std::endl;
     int upperDim = this->Locations[loc].upperBound.isIdentity ? (std::pow(2, this->Locations[loc].upperBound.qNum)) : this->Locations[loc].upperBound.oplist.size();
-    int lowerDim = this->Locations[loc].lowerBound.oplist.size();
+    // exclude the zero operators!!
+    int lowerDim = 0;
+    for (const auto& op : this->Locations[loc].lowerBound.oplist) {
+        if (!checkifzero(op->content)) {
+            lowerDim++;
+        }
+    }
     return std::make_pair(upperDim, lowerDim);
 }
 

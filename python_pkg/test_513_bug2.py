@@ -3,8 +3,16 @@ import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector
 import numpy as np
+from time import time
 
 from parse_qiskit import *
+
+"""
+Target: Verify the infeasibility of using the 5-perfect code to share a quantum secret.
+The setting in this test: Trying to use the error-detection procedure of 5-perfect code. Measure 'ZXXZI' on the distributed ancilla qubits.
+
+Result: The data qubits also collapsed.
+"""
 
 circ = QuantumCircuit(10, 10)
 
@@ -39,8 +47,11 @@ for i in recoverLoc:
 
 op00 = pyqreach.QOperation(["0000000000"])
 ts.setAnnotation([[0, op00]])
+start_time = time()
 ts.computingFixedPointPost()
+end_time = time()
+print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} seconds")
 ts.printDims(locMerge)
 ts.printSupp(58)
 
-visualize_transition_system(ts, 'test_513_bug2')
+# visualize_transition_system(ts, 'test_513_bug2')

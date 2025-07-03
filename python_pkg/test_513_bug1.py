@@ -4,6 +4,13 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector
 # from qiskit_aer import AerSimulator
 import numpy as np
+from time import time
+"""
+Target: Verify the infeasibility of using the 5-perfect code to share a quantum secret.
+The setting in this test: Totally follow the instructions of verifiable quantum secret sharing protocol.
+
+Result: The results are spread over all possible measurement outcomes, and the state in the data qubits collapsed. (Because the CNOTs brought entanglements.)
+"""
 
 from parse_qiskit import *
 
@@ -37,7 +44,10 @@ ts.addRelation(gateLength, locMerge, id)
 
 op00 = pyqreach.QOperation(["0000000000"])
 ts.setAnnotation([[0, op00]])
+start_time = time()
 ts.computingFixedPointPost()
+end_time = time()
+print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} seconds")
 ts.printDims(locMerge)
 ts.printSupp(locMerge)
 ts.printSupp(10)
