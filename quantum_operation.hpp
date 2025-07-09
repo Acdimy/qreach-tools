@@ -250,6 +250,12 @@ class QuantumGateTerm : public QuantumTerm {
             std::vector<double> v{0,0,1,0,0,0,0,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
+        } else if (name == "resetAll") {
+            CFLOBDD_COMPLEX_BIG U = VectorComplexFloatBoost::NoDistinctionNode(ceil(log2(this->qNum)), 1);
+            U = VectorComplexFloatBoost::VectorToMatrixInterleaved(U);
+            U = Matrix1234ComplexFloatBoost::MatrixConjugate(U);
+            U = Matrix1234ComplexFloatBoost::MatrixTranspose(U);
+            res = U;
         } else if (name == "swap") {
             
         } else if (name == "iswap") {
@@ -635,6 +641,22 @@ class QOperation {
         return res;
     }
 
+    int findVectorContent(const SingleVecTerm& vec) const {
+        // Check if the vector is in the oplist
+        assert(this->type == false);
+        unsigned int i = 0;
+        for (const auto& term : this->oplist) {
+            if (term && term->getType() == false) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(term.get());
+                if (ivec && ivec->content == vec.content) {
+                    return i;
+                }
+            }
+            i++;
+        }
+        return -1;
+    }
+
     void genProjMeasSpace() {
         assert(this->isProj >= 0);
         if (this->oplist.size() > 1) {
@@ -956,9 +978,11 @@ class QOperation {
          ***/
         assert(!this->type && !other.type);
         if (other.oplist.size() == 0) {
+            // The vector remains unnormalized here!
             return *this;
         }
         if (this->oplist.size() == 0) {
+            // The vector remains unnormalized here!
             return other;
         }
         if (this->isIdentity || other.isIdentity || this->oplist.size() == std::pow(2, this->qNum) || other.oplist.size() == std::pow(2, other.qNum)) {
@@ -1016,6 +1040,16 @@ class QOperation {
                     // Backward induction
                     auto tmp = ivec->applyGate(*jgate, false);
                     res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                    /* We have GramSchmidt in preImage, no need to handle the res uniqueness */
+                    // SingleVecTerm preVec(tmp);
+                    // if (res.oplist.size() == 0) {
+                    //     res.append(std::make_unique<SingleVecTerm>(preVec));
+                    // } else if (res.findVectorContent(preVec) == -1) {
+                    //     // If the preVec is not in the res, append it.
+                    //     res.append(std::make_unique<SingleVecTerm>(preVec));
+                    // } else if (res.findVectorContent(preVec) >= 0) {
+                    //     // If the preVec is in the res, add the amplitude to the existing vector.
+                    // }
                 }
             }
         }
@@ -1045,10 +1079,25 @@ class QOperation {
                 if (!jgate) continue;
                 auto tmp = ivec->applyGate(*jgate, true);
                 res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                /* We don't have GramSchmidt in postImage (for some interface of probability), we need to handle the uniqueness */
+                // SingleVecTerm postVec(tmp);
+                // if (res.oplist.size() == 0) {
+                //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                // } else if (res.findVectorContent(postVec) == -1) {
+                //     // If the postVec is not in the res, append it.
+                //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                // } else if (res.findVectorContent(postVec) >= 0) {
+                //     // If the postVec is in the res, add the amplitude to the existing vector.
+                // }
             }
         }
         res.normalized = false;
         res.qNum = this->qNum;
+        // Use GramSchmidt to handle the uniqueness of the vectors.
+        if (res.oplist.size() > 1) {
+            res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+            res.normalized = true;
+        }
         return res;
     }
 
