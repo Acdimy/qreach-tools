@@ -1,4 +1,5 @@
 #include "quantum_operation.hpp"
+#include "cl_proposition.hpp"
 #include "QASM_parser.hpp"
 #include <functional>
 #include <deque>
@@ -30,6 +31,7 @@ class Location
 {
 public:
     unsigned int idx;
+    unsigned int qNum;
     /* Flag for some delicate settings
      * Only use in pre-condition computation
      * flag == -1: a normal location
@@ -45,29 +47,60 @@ public:
     std::vector<unsigned int> preLocations;
     std::vector<unsigned int> postLocations;
     std::vector<QOperation> tempOperations;
+    ClassicalProposition cp;
 public:
     Location(/* args */) {};
     Location(const int qNum);
     Location(const int qNum, const unsigned int idx);
+    Location(const int qNum, const unsigned int idx, const unsigned int cNum);
     ~Location();
     // void setAnnotation(QOperation annotation);
     void appendPreLocation(unsigned int loc);
     void appendPostLocation(unsigned int loc);
+    void appendClassicalAP(std::string ap);
+    void copyClassicalAP(const Location& other) {
+        // Copy the classical proposition from another location
+        this->cp = other.cp;
+    }
     bool satisfy(QOperation spec);
+    bool satisfy(std::string ap);
+    bool equalAP(const Location& other) const {
+        // Check if the classical propositions are equal
+        return this->cp == other.cp;
+    }
+    void setClassicalValue(unsigned int index, bool value) {
+        // Set the value of the classical proposition at a specific index
+        this->cp.setValue(index, value);
+    }
+    std::vector<std::string> satisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values);
+    std::vector<std::string> unsatisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values);
+    int termNum() const {
+        return static_cast<int>(this->cp.terms.size());
+    }
 };
 
 Location::Location(const int qNum)
 {
+    this->qNum = qNum;
     this->upperBound = CreateIdentityQO(qNum);
     this->lowerBound = CreateZeroQO(qNum);
 }
 
 Location::Location(const int qNum, const unsigned int idx)
 {
-    // std::cout << "Create a location with address = " << this << " and idx = " << idx << std::endl;
+    this->qNum = qNum;
     this->idx = idx;
     this->upperBound = CreateIdentityQO(qNum);
     this->lowerBound = CreateZeroQO(qNum);
+}
+
+Location::Location(const int qNum, const unsigned int idx, const unsigned int cNum)
+{
+    this->qNum = qNum;
+    this->idx = idx;
+    this->upperBound = CreateIdentityQO(qNum);
+    this->lowerBound = CreateZeroQO(qNum);
+    this->cp = ClassicalProposition(cNum);
 }
 
 Location::~Location()
@@ -96,10 +129,32 @@ void Location::appendPostLocation(unsigned int loc)
     // loc->appendPreLocation(this->idx); // Ensure the reverse relation is also established
 }
 
+void Location::appendClassicalAP(std::string ap)
+{
+    this->cp.addTerm(ap);
+}
+
 bool Location::satisfy(QOperation spec)
 {
     assert(spec.isProj < 0); // Only projective operations are supported for now
     return (this->lowerBound.compare(spec) == 0 && spec.compare(this->upperBound) == 0);
+}
+
+bool Location::satisfy(std::string ap)
+{
+    // Check if the classical proposition satisfies the given AP
+    return this->cp.satisfy(ap);
+}
+
+std::vector<std::string> Location::satisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values)
+{
+    // Returns a list of terms that satisfy the proposition with the given bit assignment.
+    return this->cp.satisfyBit(indexs, values);
+}
+std::vector<std::string> Location::unsatisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values)
+{
+    // Returns a list of terms that do not satisfy the proposition with the given bit assignment.
+    return this->cp.unsatisfyBit(indexs, values);
 }
 
 /***

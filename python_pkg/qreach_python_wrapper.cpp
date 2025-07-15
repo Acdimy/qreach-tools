@@ -22,16 +22,33 @@ PYBIND11_MODULE(pyqreach, m) {
     m.def("CreateIdentityQO", &CreateIdentityQO, "Create an identity quantum operation");
     m.def("CreateZeroQO", &CreateZeroQO, "Create a zero quantum operation");
 
+    py::class_<ClassicalProposition>(m, "ClassicalProposition")
+        .def(py::init<>())
+        .def("toString", &ClassicalProposition::toString, "toString")
+        .def("print", &ClassicalProposition::print, "print")
+        .def_readonly("terms", &ClassicalProposition::terms);
+
     py::class_<Location>(m, "Location")
         .def(py::init<>())
         .def(py::init<int>())
         .def(py::init<int, unsigned int>())
+        .def_readonly("qNum", &Location::qNum)
         .def("appendPreLocation", &Location::appendPreLocation, "appendPreLocation")
         .def("appendPostLocation", &Location::appendPostLocation, "appendPostLocation")
+        .def("appendClassicalAP", &Location::appendClassicalAP, "appendClassicalAP")
+        .def("copyClassicalAP", &Location::copyClassicalAP, "copyClassicalAP")
+        .def("satisfyBit", &Location::satisfyBit, "satisfyBit")
+        .def("unsatisfyBit", &Location::unsatisfyBit, "unsatisfyBit")
+        .def("termNum", &Location::termNum, "termNum")
+        .def("equalAP", &Location::equalAP, "equalAP")
+        .def("setClassicalValue", &Location::setClassicalValue, "setClassicalValue")
+        // .def("satisfy", py::overload_cast<QOperation>(&Location::satisfy), "satisfy with QOperation")
+        // .def("satisfy", py::overload_cast<std::string>(&Location::satisfy), "satisfy with string")
         .def_readwrite("idx", &Location::idx)
         .def_readwrite("flag", &Location::flag)
         .def_readwrite("upperBound", &Location::upperBound)
         .def_readwrite("lowerBound", &Location::lowerBound)
+        .def_readwrite("cp", &Location::cp)
         .def_readonly("postLocations", &Location::postLocations);
 
     py::class_<TransitionSystem>(m, "TransitionSystem")

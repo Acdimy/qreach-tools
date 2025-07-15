@@ -1,5 +1,6 @@
 import pyqreach
-from qiskit import QuantumCircuit
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+from qiskit.circuit import Clbit
 from graphviz import Digraph
 from math import floor
 from math import ceil, log2
@@ -78,20 +79,16 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
     ts.setInitLocation(0)
 
     # Add locations based on the number of qubits
-    loc_list = []
     loc0 = pyqreach.Location(qnum, loc0_idx)
     ts.addLocation(loc0)
-    loc_list.append(loc0)
 
     # Define operations based on the gates in the circuit
     loc_idx = loc0_idx
+    curr_loc_list = [loc0_idx]
     for _,gate in enumerate(qc.data):
         op_name = gate[0].name
         qubits = [q._index for q in gate[1]]
         cbits = [c._index for c in gate[2]] if gate[2] else []
-        loc = pyqreach.Location(qnum, loc_idx+1)
-        ts.addLocation(loc)
-        loc_idx += 1
         if op_name == 'h':
             op = pyqreach.QOperation("H", qnum, qubits, [])
         elif op_name == 'id':
@@ -124,11 +121,349 @@ def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
             ts.addLocation(loc_merge)
             loc_idx += 1
             ts.addRelation(loc_idx-2, loc_idx, op)
+        elif op_name == 'reset':
+            # The case if reset on all qubits
+            pass
+        elif op_name == 'if_else':
+            # Two instruction blocks, one for if and one for else, double the curr_loc_list
+            pass
+        elif op_name == 'switch_case':
+            pass
+        elif op_name == 'for_loop':
+            pass
+        elif op_name == 'while_loop':
+            pass
+        elif op_name == 'measure':
+            pass
         else:
             print(f"Unsupported gate: {op_name}")
+        
+        # Make new locations
+        loc = pyqreach.Location(qnum, loc_idx+1)
+        ts.addLocation(loc)
+        loc_idx += 1
         # Add the operation to the transition system
         ts.addRelation(loc_idx-1, loc_idx, op)  # Simplified relation for demonstration
     return ts
+
+def get_condition_info(cregs: list, condition: tuple) -> str:
+    """
+    cregs: list of classical registers (including bit number and name)
+    condition: (ClassicalRegister, value)
+    Returns: tuple(list of clbits indexes, list of clbits values in condition)
+    """
+    clreg, value = condition
+    clbits_idx, clbits_vals = [], []
+    if isinstance(clreg, ClassicalRegister):
+        clreg_name = clreg.name
+        clreg_size = clreg.size
+        clreg_reg_idx = next((i for i, reg in enumerate(cregs) if reg.name == clreg_name), None)
+        reg_start_idx = sum([reg.size for reg in cregs[:clreg_reg_idx]])
+        clbits_idx = [reg_start_idx + i for i in range(clreg_size)]
+        # need reverse?
+        clbits_vals = [int(bit) for bit in format(value, f'0{clreg_size}b')]
+    elif isinstance(clreg, Clbit):
+        clreg_name = clreg._register.name
+        clreg_bit_idx = clreg._index
+        clreg_reg_idx = next((i for i, reg in enumerate(cregs) if reg.name == clreg_name), None)
+        reg_start_idx = sum([reg.size for reg in cregs[:clreg_reg_idx]]) + clreg_bit_idx
+        clbits_idx = [reg_start_idx]
+        clbits_vals = [int(value)]  # value is a single bit, so just convert it to int
+    else:
+        raise ValueError("Unsupported classical register type in condition")
+    return clbits_idx, clbits_vals
+
+def groupby_classical_aps(ts: pyqreach.TransitionSystem, currLocs: list) -> dict:
+    """
+    Group current locations by their classical APs.
+
+    ts: Transition system (including all locations)
+    currLocs: List of indexes of current locations. Each of them has a classical APs.
+    Returns: A dictionary where keys are tuples of classical APs and values are lists of location indexes.
+    """
+    grouped = {}
+    for loc_idx in currLocs:
+        loc = ts.getLocation(loc_idx)
+        # classical proposition (cp) is originally ordered in the construction phase, so we directly use its string representation as the key.
+        key = loc.cp.toString() if loc.cp else "empty"
+        if key not in grouped:
+            grouped[key] = []
+        grouped[key].append(loc_idx)
+    return grouped
+
+def merge_locations(ts: pyqreach.TransitionSystem, currLocs: list, toMergeLocs: list) -> list:
+    """
+    ts: Transition system to modify
+    currLocs: List of current locations (including locations to be merged and not to be merged)
+    toMergeLocs: List of locations to be merged. Merge them into a new location.
+    Returns: The list of index of all new current locations. (replacing toMergeLocs with the new location)
+    """
+    qNum = currLocs[0].qNum
+    ts.addLocation(pyqreach.Location(qNum))
+    newLocIdx = ts.getLocationNum() - 1
+    newCurrLocs = [loc for loc in currLocs if loc not in toMergeLocs]
+    for loc in toMergeLocs:
+        # Merge classical APs
+        for term in loc.cp.terms:
+            if not newLocIdx.satisfy(term):
+                newLocIdx.appendClassicalAP(term)
+        # Add relations from the merged locations to the new location
+        for preLoc in loc.preLocations:
+            ts.addRelation(preLoc.idx, newLocIdx, loc.upperBound)
+        for postLoc in loc.postLocations:
+            ts.addRelation(newLocIdx, postLoc.idx, loc.lowerBound)
+
+def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whileStarter: list, startIdx: int, ts: pyqreach.TransitionSystem, abstractLevel=1) -> list:
+    """
+    Build a while loop in the transition system based on the Qiskit QuantumCircuit.
+    
+    Args:
+        qc (QuantumCircuit): The loop body of the while loop.
+        qnum (int): Total number of qubits.
+        whileStarter (list): List of starting locations for the while loop.
+        startIdx (int): The index to start parsing the while loop.
+        ts (pyqreach.TransitionSystem): The transition system to modify.
+        abstractLevel (int): Level of abstraction for merging locations.
+        
+    Returns:
+        list: List of resulting locations (exiting locations) after processing the while loop.
+    """
+    exitList = []
+    afterLoopBodyList = []
+    satisfyTerms = ts.Locations[startIdx].satisfyBit(clbits_idx, clbits_vals)
+    unsatisfyTerms = ts.Locations[startIdx].unsatisfyBit(clbits_idx, clbits_vals)
+    assert(len(satisfyTerms) + len(unsatisfyTerms) == ts.Locations[startIdx].termNum()), "Condition terms do not match the location's terms."
+    if len(satisfyTerms) != 0:
+        # Create a new location for the while loop
+        whileLocation = pyqreach.Location(qnum)
+        for term in satisfyTerms:
+            whileLocation.appendClassicalAP(term)
+        ts.addLocation(whileLocation)
+        ts.addRelation(startIdx, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+        # Parse the while loop body
+        afterLoopBodyList = parse_qiskit_cir(qc, ts, ts.getLocationNum()-1, 0)
+        # For each afterLoopBody location, recursively call the while loop
+        for loc in afterLoopBodyList:
+            # Check whether the AP of the loc satisfies one of the whileStarter locations
+            findEqLoc = False
+            for sloc in whileStarter:
+                if ts.Locations[loc].equalAP(ts.Locations[sloc]):
+                    findEqLoc = True
+                    # A back edge to the while loop starter
+                    ts.addRelation(loc, sloc, pyqreach.QOperation("I", qnum, [0], []))
+                    break
+            if not findEqLoc:
+                newStarter = pyqreach.Location(qnum)
+                newStarter.copyClassicalAP(ts.Locations[loc])
+                ts.addLocation(newStarter)  # Create a new location for the after loop body
+                ts.addRelation(loc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+                whileStarter.append(ts.getLocationNum()-1)  # Add the new location to the whileStarter list
+                # Add the while loop location to the exit list
+                exitList.extend(build_while_loop(qc, qnum, clbits_idx, clbits_vals, whileStarter, loc, ts, abstractLevel))
+    if len(unsatisfyTerms) != 0:
+        # Create a new location for the exit of the while loop
+        exitLocation = pyqreach.Location(qnum)
+        for term in unsatisfyTerms:
+            exitLocation.appendClassicalAP(term)
+        ts.addLocation(exitLocation)
+        ts.addRelation(startIdx, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+        exitList.append(ts.getLocationNum()-1)
+    # update exitList by grouping by classical APs (Default abstractLevel is 1)
+    grouped = groupby_classical_aps(ts, exitList)
+    exitList = []
+    for key, locs in grouped.items():
+        if len(locs) > 1:
+            newLocs = merge_locations(ts, whileStarter, locs)
+            exitList.extend(newLocs)
+        else:
+            exitList.append(locs[0])
+    return exitList
+    
+
+def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNodes: list=[], pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:
+    """
+    Parse a Qiskit QuantumCircuit into a pyqreach TransitionSystem, starting from specified nodes.
+    qc: QuantumCircuit to parse
+    startNodes: List of starting locations (indexes) to begin parsing from
+    ts: Transition system to modify
+    pivot: Index to start parsing from (default is 0)
+    pivotend: Index to end parsing (default is 1000000, meaning until the end of the circuit)
+    abstractLevel: Level of abstraction for merging locations (default is 1)
+    Returns: List of resulting locations after parsing the circuit
+    """
+    qnum = qc.num_qubits
+    # Assert start nodes don't exceed numLocations of ts
+    for node in startNodes:
+        assert node < ts.getLocationNum(), f"Start node {node} exceeds the number of locations in the transition system."
+    if startNodes == []:
+        # Append an initial location to the transition system
+        loc0 = pyqreach.Location(qnum, 0)
+        # Initialize the Clasical APs with all zero by the number of clbits of qc
+        loc0.appendClassicalAP('0' * qc.num_clbits)
+        ts.addLocation(loc0)
+        startNodes = [0]  # Start from the initial location
+    instructions = qc.data[pivot:pivotend] if pivotend != 1000000 else qc.data[pivot:]
+    currLoc = startNodes
+    resultLocs = []
+    for _,gate in enumerate(instructions):
+        # Assume each Locs in currLoc has different classical APs (In the current abstractlevel==1)
+        op_name = gate.operation.name
+        qubits = [q._index for q in gate.qubits]
+        cbits = [c._index for c in gate.clbits] if gate.clbits else []
+        if op_name == 'if_else':
+            # Two instruction blocks, one for if and one for else, double the curr_loc_list
+            # 1. For each current location, create a branch for ITE (in case part of the clVars satisfy if and part satisfy else). Otherwise, create a single postLoc.
+            # 2. Call parse_qiskit_cir recursively for each branch.
+            # 3. For each branch, do a heuristic merge.
+            if_block_cir = gate.operation.params[0]
+            else_block_cir = gate.operation.params[1] if len(gate.operation.params) > 1 else [] # Maybe None
+            condition = gate.operation.condition
+            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                # First judge if cLoc satisfies the condition
+                satisfyTerms = ts.Locations[cLoc].satisfyBit(clbits_idx, clbits_vals)
+                unsatisfyTerms = ts.Locations[cLoc].unsatisfyBit(clbits_idx, clbits_vals)
+                assert(len(satisfyTerms) + len(unsatisfyTerms) == ts.Locations[cLoc].termNum()), "Condition terms do not match the location's terms."
+                if_result_locs, else_result_locs = [], []
+                if len(satisfyTerms) != 0:
+                    # Create a new location for the if block
+                    ifLocation = pyqreach.Location(qnum)
+                    for term in satisfyTerms:
+                        ifLocation.appendClassicalAP(term)
+                    ts.addLocation(ifLocation)
+                    ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+                    # Parse the if block
+                    if_result_locs = parse_qiskit_cir(if_block_cir, ts, ts.getLocationNum()-1, 0)
+                if len(unsatisfyTerms) != 0:
+                    # Create a new location for the else block
+                    elseLocation = pyqreach.Location(qnum)
+                    for term in unsatisfyTerms:
+                        elseLocation.appendClassicalAP(term)
+                    ts.addLocation(elseLocation)
+                    ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+                    # Parse the else block
+                    if else_block_cir is not None:
+                        else_result_locs = parse_qiskit_cir(else_block_cir, ts, ts.getLocationNum()-1, 0)
+                    else:
+                        else_result_locs = [ts.getLocationNum()-1]
+                tempNewCurrLoc.extend(if_result_locs)
+                tempNewCurrLoc.extend(else_result_locs)
+            # Merge locations if needed
+            if abstractLevel == 0:
+                # Don't merge any locations. (STATE EXPLOSION!!!)
+                raise ValueError("Unsupported merge level 0 for if_else operation.")
+            elif abstractLevel == 1:
+                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                grouped = groupby_classical_aps(ts, tempNewCurrLoc)
+                tempNewCurrLoc = []
+                for key, locs in grouped.items():
+                    if len(locs) > 1:
+                        newLocs = merge_locations(ts, currLoc, locs)
+                        tempNewCurrLoc.extend(newLocs)
+                    else:
+                        tempNewCurrLoc.append(locs[0])
+            elif abstractLevel == 2:
+                # Do a heuristic merge on measured locations.
+                raise ValueError("Unsupported merge level 2 for if_else operation.")
+            elif abstractLevel == 3:
+                # merge ALL locations after a program block.
+                locs = if_result_locs + else_result_locs
+                newLocs = merge_locations(ts, currLoc, locs)
+            else:
+                raise ValueError("Unsupported merge level for if_else operation.")
+            currLoc = tempNewCurrLoc
+        elif op_name == 'while_loop':
+            while_block_cir = gate.operation.params[0]
+            condition = gate.operation.condition
+            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+            tempNewCurrLoc = []
+            outLoopLocs = []
+            for cLoc in currLoc:
+                exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, abstractLevel)
+                outLoopLocs.extend(exitLocs)
+            # Merge locations if needed
+            if abstractLevel == 1:
+                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                grouped = groupby_classical_aps(ts, outLoopLocs)
+                tempNewCurrLoc = []
+                for key, locs in grouped.items():
+                    if len(locs) > 1:
+                        newLocs = merge_locations(ts, currLoc, locs)
+                        tempNewCurrLoc.extend(newLocs)
+                    else:
+                        tempNewCurrLoc.append(locs[0])
+            else:
+                raise ValueError("Unsupported merge level for while_loop operation.")
+            currLoc = tempNewCurrLoc
+                
+        elif op_name == 'measure':
+            # Another operation that split the locations. The only operation that can modify classical bits.
+            for i,cl in enumerate(currLoc):
+                for j in range(i+1, len(currLoc)):
+                    assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
+            assert len(qubits) == 1, "Measure operation can only be applied to one qubit at a time."
+            measuredLocDict = {}
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                # create two locations with meas0 and meas1, update their classical APs, let their string representation as keys, if in measuredLocDict,
+                # then use the existing location, otherwise, append the new location to the transition system and update the measuredLocDict.
+                loc_meas0 = pyqreach.Location(qnum, 0)
+                loc_meas1 = pyqreach.Location(qnum, 0)
+                loc_meas0.copyClassicalAP(ts.Locations[cLoc])  # Copy classical APs from the current location
+                loc_meas1.copyClassicalAP(ts.Locations[cLoc])
+                loc_meas0.setClassicalValue(qubits[0], 0)
+                loc_meas1.setClassicalValue(qubits[0], 1)
+                meas0_key = loc_meas0.cp.toString()
+                meas1_key = loc_meas1.cp.toString()
+                if meas0_key not in measuredLocDict:
+                    ts.addLocation(loc_meas0)
+                    measuredLocDict[meas0_key] = ts.getLocationNum() - 1
+                    tempNewCurrLoc.append(ts.getLocationNum() - 1)
+                    ts.addRelation(cLoc, ts.getLocationNum() - 1, pyqreach.QOperation("meas0", qnum, qubits, []))
+                else:
+                    ts.addRelation(cLoc, measuredLocDict[meas0_key], pyqreach.QOperation("meas0", qnum, qubits, []))
+                if meas1_key not in measuredLocDict:
+                    ts.addLocation(loc_meas1)
+                    measuredLocDict[meas1_key] = ts.getLocationNum() - 1
+                    tempNewCurrLoc.append(ts.getLocationNum() - 1)
+                    ts.addRelation(cLoc, ts.getLocationNum() - 1, pyqreach.QOperation("meas1", qnum, qubits, []))
+                else:
+                    ts.addRelation(cLoc, measuredLocDict[meas1_key], pyqreach.QOperation("meas1", qnum, qubits, []))
+            # Update the current locations
+            currLoc = tempNewCurrLoc
+        else:
+            if op_name == 'h':
+                op = pyqreach.QOperation("H", qnum, qubits, [])
+            elif op_name == 'id':
+                op = pyqreach.QOperation("I", qnum, qubits, [])
+            elif op_name == 'x':
+                op = pyqreach.QOperation("X", qnum, qubits, [])
+            elif op_name == 'y':
+                op = pyqreach.QOperation("Y", qnum, qubits, [])
+            elif op_name == 'z':
+                op = pyqreach.QOperation("Z", qnum, qubits, [])
+            elif op_name == 's':
+                op = pyqreach.QOperation("S", qnum, qubits, [])
+            elif op_name == 't':
+                op = pyqreach.QOperation("T", qnum, qubits, [])
+            elif op_name == 'cx':
+                op = pyqreach.QOperation("CX", qnum, qubits, [])
+            elif op_name == 'cz':
+                op = pyqreach.QOperation("CZ", qnum, qubits, [])
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                # Make new locations
+                loc = pyqreach.Location(qnum, 0)
+                loc.copyClassicalAP(ts.Locations[cLoc])  # Copy classical APs from the current location!!
+                ts.addLocation(loc)
+                # Add the operation to the transition system
+                ts.addRelation(cLoc, ts.getLocationNum()-1, op)
+                tempNewCurrLoc.append(ts.getLocationNum()-1)
+            # Update the current locations
+            currLoc = tempNewCurrLoc
+    resultLocs = currLoc
+    return resultLocs
 
 def visualize_transition_system(ts: pyqreach.TransitionSystem, filename='transition_system'):
     """
