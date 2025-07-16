@@ -52,21 +52,10 @@ public:
         // normOther.normalize();
         return (n == other.n) && (normThis.terms == normOther.terms);
     }
-    bool satisfy(const std::string& assignment) const {
-        assert(assignment.size() == n);
-        for (const auto& term : terms) {
-            bool satisfied = true;
-            for (unsigned int i = 0; i < n; ++i) {
-                if (term[i] == '1' && assignment[i] != '1') {
-                    satisfied = false;
-                    break;
-                }
-            }
-            if (satisfied) {
-                return true;
-            }
-        }
-        return false;
+    bool find(const std::string& assignment) const {
+        assert(assignment.size() == n || n == 0);
+        // Check if assignment is in the terms
+        return std::find(terms.begin(), terms.end(), assignment) != terms.end();
     }
     std::vector<std::string> satisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values) const {
         // Returns a list of terms that satisfy the proposition with all the given bit assignment.

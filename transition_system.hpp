@@ -63,7 +63,7 @@ public:
         this->cp = other.cp;
     }
     bool satisfy(QOperation spec);
-    bool satisfy(std::string ap);
+    bool find(std::string ap);
     bool equalAP(const Location& other) const {
         // Check if the classical propositions are equal
         return this->cp == other.cp;
@@ -140,10 +140,10 @@ bool Location::satisfy(QOperation spec)
     return (this->lowerBound.compare(spec) == 0 && spec.compare(this->upperBound) == 0);
 }
 
-bool Location::satisfy(std::string ap)
+bool Location::find(std::string ap)
 {
     // Check if the classical proposition satisfies the given AP
-    return this->cp.satisfy(ap);
+    return this->cp.find(ap);
 }
 
 std::vector<std::string> Location::satisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values)
@@ -239,8 +239,8 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
     // The operation is a projective operation, and from has two post-locations.
     // Haven't finished yet.
     if (op.isProj >= 0) {
-        // Assert that the operation is a binary projective operation.
-        assert(op.oplist.size() == 1);
+        // Assert that the operation is a binary projective operation or a resetting.
+        assert(op.oplist.size() <= 2);
         assert(op.oplist[0]->getType() == true);
         auto name = dynamic_cast<QuantumGateTerm*>(op.oplist[0].get())->name;
         assert(name == "meas0" || name == "meas1");
