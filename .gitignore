@@ -23,3 +23,5 @@ test_qreach
 /.vscode/
 
 *.png
+
+*.smv
