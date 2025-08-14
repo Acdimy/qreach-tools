@@ -71,7 +71,6 @@ for i in range(2):
         # circ.ry(theta, 0); circ.ry(theta, 1)
         circ.u(theta, 0, 0, 0)
         circ.u(theta, 0, 0, 1)
-
         circ.cx(0, 1)
         circ.h(0)
         circ.measure(0,0)
@@ -105,7 +104,15 @@ for i in range(2):
         circ.measure(0,0)
         circ.measure(1,1)
 ts = pyqreach.TransitionSystem()
-resultList = parse_qiskit_cir(circ, ts)
+resultList = parse_qiskit_cir(circ, circ.num_qubits, ts)
 print("Transition System Locations:", ts.getLocationNum())
+print("Result List size:", len(resultList))
+
+op00 = pyqreach.QOperation(["000"])
+ts.setAnnotation([[0, op00]])
+start_time = time()
+ts.computingFixedPointPost()
+end_time = time()
+print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} seconds")
 
 # visualize_transition_system(ts, 'unit_test')

@@ -245,7 +245,7 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
         ts.addLocation(whileLocation)
         ts.addRelation(startIdx, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
         # Parse the while loop body
-        afterLoopBodyList = parse_qiskit_cir(qc, ts, [ts.getLocationNum()-1], 0)
+        afterLoopBodyList = parse_qiskit_cir(qc, qnum, ts, [ts.getLocationNum()-1], 0)
         # For each afterLoopBody location, recursively call the while loop
         for loc in afterLoopBodyList:
             # Check whether the AP of the loc satisfies one of the whileStarter locations
@@ -282,9 +282,17 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
             exitList.append(locs[0])
     # print("Exit locations after while loop:", exitList)
     return exitList
-    
 
-def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNodes: list=[], pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:
+def simplify_gates(instruction: list, qnum: int) -> list:
+    """
+    This function merges single reset gates into a single resetAll gate if all qubits are reset.
+    instruction: List of Qiskit instructions (gates) to simplify.
+    qnum: Total number of qubits in the circuit.
+    Returns: A list of simplified Qiskit instructions.
+    """
+    pass
+
+def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSystem, startNodes: list=[], pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:
     """
     Parse a Qiskit QuantumCircuit into a pyqreach TransitionSystem, starting from specified nodes.
     qc: QuantumCircuit to parse
@@ -295,7 +303,6 @@ def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNod
     abstractLevel: Level of abstraction for merging locations (default is 1)
     Returns: List of resulting locations after parsing the circuit
     """
-    qnum = qc.num_qubits
     # Assert start nodes don't exceed numLocations of ts
     for node in startNodes:
         assert node < ts.getLocationNum(), f"Start node {node} exceeds the number of locations in the transition system."
@@ -305,13 +312,23 @@ def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNod
         # Initialize the Clasical APs with all zero by the number of clbits of qc
         loc0.appendClassicalAP('0' * qc.num_clbits)
         ts.addLocation(loc0)
+        ts.setInitLocation(0)
         startNodes = [0]  # Start from the initial location
     instructions = qc.data[pivot:pivotend] if pivotend != 1000000 else qc.data[pivot:]
     currLoc = startNodes
     resultLocs = []
+    pruning_resets = False
     for _,gate in enumerate(instructions):
         # Assume each Locs in currLoc has different classical APs (In the current abstractlevel==1)
         op_name = gate.operation.name
+        if op_name != 'reset':
+            pruning_resets = False
+        if pruning_resets:
+            # If we are pruning resets, skip the reset gates
+            if op_name == 'reset':
+                # pass
+                continue
+        # Note: Assume there is a single quantum register in the circuit!!!
         qubits = [q._index for q in gate.qubits]
         cbits = [c._index for c in gate.clbits] if gate.clbits else []
         if op_name == 'if_else':
@@ -339,7 +356,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNod
                     ts.addLocation(ifLocation)
                     ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse the if block
-                    if_result_locs = parse_qiskit_cir(if_block_cir, ts, [ts.getLocationNum()-1], 0)
+                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [ts.getLocationNum()-1], 0)
                 if len(unsatisfyTerms) != 0:
                     # Create a new location for the else block
                     elseLocation = pyqreach.Location(qnum)
@@ -349,7 +366,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNod
                     ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse the else block
                     if else_block_cir is not None:
-                        else_result_locs = parse_qiskit_cir(else_block_cir, ts, [ts.getLocationNum()-1], 0)
+                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [ts.getLocationNum()-1], 0)
                     else:
                         else_result_locs = [ts.getLocationNum()-1]
                 tempNewCurrLoc.extend(if_result_locs)
@@ -451,8 +468,18 @@ def parse_qiskit_cir(qc: QuantumCircuit, ts: pyqreach.TransitionSystem, startNod
             elif op_name == 'reset':
                 # Reset operation, we assume it resets all qubits to |0>, using resetAll QOperation, or reset a single qubit to |0>,
                 # resulting in a mixed state, we use reset QOperation.
-                assert len(qubits) == 1 or len(qubits) == qnum, "Reset operation can only be applied to one qubit or all qubits at a time."
-                if len(qubits) == 1:
+                # Check if the continuous qnum gates are all resets, if so, we set pruning_resets to True.
+                doResetAll = True if _ + qnum <= len(instructions) and all(instructions[i][0].name == 'reset' for i in range(_, _ + qnum-1)) else False
+                # If there exists a qubit that is not reset, we set doResetAll to False.
+                recordResetSet = set()
+                if doResetAll:
+                    for gidx in range(_, _+qnum-1):
+                        resetBit = instructions[gidx].qubits[0]._index
+                        if resetBit not in recordResetSet:
+                            recordResetSet.add(resetBit)
+                        else:
+                            doResetAll = False
+                if not doResetAll:
                     op = pyqreach.QOperation("reset", qnum, qubits, [])
                 else:
                     op = pyqreach.QOperation("resetAll", qnum, qubits, [])
@@ -728,3 +755,132 @@ def applySelectiveFinalMeasurement(
 # TODO: Randomly inject errors into the transition system
 def injectRandomErrors(ts: pyqreach.TransitionSystem, errorRate: float):
     pass
+
+def ts2Dict(ts: pyqreach.TransitionSystem) -> dict:
+    """
+    Convert the transition system to a dictionary representation.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to convert.
+    
+    Returns:
+        dict: Dictionary representation of the transition system.
+    """
+    labelDict = {}
+    for loc in ts.Locations:
+        loclabels = ts.getLabels(loc.idx)
+        # print(f"Location {loc.idx} labels: {loclabels}")
+        labelDict[str(loc.idx)] = loclabels if loclabels else []
+    ts_dict = {
+        'locationsTuple': [(loc.idx, ts.printDims(loc.idx)[1]>0) for loc in ts.Locations],
+        'locations': [str(loc.idx) for loc in ts.Locations],
+        'relations': {f"{rel[0]}->{rel[1]}": ts.getRelationName(rel[0], rel[1]) for rel, op in ts.relations.items()},
+        'init_location': str(ts.getInitLocation()),
+        'num_locations': str(ts.getLocationNum()),
+        'labels': labelDict
+    }
+    return ts_dict
+
+import networkx as nx
+import matplotlib.pyplot as plt
+
+def dict2NX(dts: dict) -> nx.DiGraph:
+    """
+    Convert a dictionary representation of a transition system to a NetworkX directed graph.
+    
+    Args:
+        dts (dict): Dictionary representation of the transition system.
+    
+    Returns:
+        nx.DiGraph: NetworkX directed graph representation of the transition system.
+    """
+    G = nx.DiGraph()
+    
+    # Add nodes
+    for loc,highlight in dts['locationsTuple']:
+        G.add_node(loc, label=str(loc), highlight=highlight)
+    
+    # Add edges
+    for rel, op in dts['relations'].items():
+        src, dst = map(int, rel.split('->'))
+        G.add_edge(src, dst, label=op)
+    
+    return G
+
+def nx2Graph(G: nx.DiGraph, filename='transition_system', layout='spring'):
+    """
+    Visualize a NetworkX directed graph using matplotlib.
+
+    Args:
+        G (nx.DiGraph): The directed graph to visualize.
+        filename (str): The name of the output file.
+        layout (str): Layout type: 'spring', 'circular', 'shell', 'kamada_kawai', 'spectral'.
+    """
+    # 选择布局
+    if layout == 'spring':
+        pos = nx.spring_layout(G)
+    elif layout == 'shell':
+        pos = nx.shell_layout(G)
+    elif layout == 'kamada_kawai':
+        pos = nx.kamada_kawai_layout(G)
+    elif layout == 'spectral':
+        pos = nx.spectral_layout(G)
+    else:
+        raise ValueError(f"Unsupported layout: {layout}")
+
+    # 边标签
+    labels = nx.get_edge_attributes(G, 'label')
+
+    plt.figure(figsize=(10, 6))
+    nx.draw(
+        G, pos,
+        with_labels=False,         # 不显示节点标签
+        node_size=10,             # 节点尺寸
+        node_color='grey',    # 节点颜色
+        font_size=10,              # 字体大小
+        font_color='black',        # 节点字体颜色
+        arrows=False
+        # edgecolors='black',        # 节点轮廓颜色
+        # linewidths=1               # 节点轮廓宽度
+    )
+    # nx.draw_networkx_edge_labels(G, pos, edge_labels=labels, font_size=9)
+
+    plt.axis('off')
+    # plt.tight_layout()
+    plt.savefig(filename + '.png', dpi=300)
+    plt.close()
+
+from networkx.drawing.nx_agraph import graphviz_layout
+def nx2Graph_hierarchical(G, filename="tree_layout"):
+    pos = graphviz_layout(G, prog="dot")  # 分层布局
+    labels = nx.get_edge_attributes(G, 'label')
+    node_colors = ['orange' if G.nodes[n].get('highlight', False) else 'grey' for n in G.nodes()]
+    plt.figure(figsize=(8, 6))
+    nx.draw(G, pos,
+            with_labels=False, # 不显示节点标签
+            node_size=10,
+            node_color=node_colors,
+            edgecolors="black",
+            arrows=False,
+            linewidths=0.3)
+    # nx.draw_networkx_edge_labels(G, pos, edge_labels=labels, font_size=9)
+    plt.axis("off")
+    # plt.tight_layout()
+    plt.savefig(filename + ".png", dpi=300)
+    plt.close()
+
+def dict2SMV(dts, ctl_formula):
+    smv = "MODULE main\nVAR\n  state: {" + ", ".join(dts['locations']) + "};\n"
+    smv += "ASSIGN\n  init(state) := " + dts['init_location'] + ";\n"
+    smv += "  next(state) := case\n"
+    for s in dts['locations']:
+        next_states = [t.split('->')[1] for t in dts['relations'] if t.split('->')[0] == s]
+        if next_states:
+            smv += f"    state = {s} : {{ {', '.join(next_states)} }};\n"
+    smv += "    TRUE : state;\n  esac;\n"
+    smv += "DEFINE\n"
+    for s, props in dts['labels'].items():
+        for p in props:
+            smv += f"  {p} := state = {s};\n"
+    smv += f"SPEC\n  {ctl_formula};\n"
+    return smv

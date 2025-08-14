@@ -48,6 +48,7 @@ public:
     std::vector<unsigned int> postLocations;
     std::vector<QOperation> tempOperations;
     ClassicalProposition cp;
+    std::vector<std::string> APs;
 public:
     Location(/* args */) {};
     Location(const int qNum);
@@ -76,6 +77,12 @@ public:
     std::vector<std::string> unsatisfyBit(std::vector<unsigned int> indexs, std::vector<bool> values);
     int termNum() const {
         return static_cast<int>(this->cp.terms.size());
+    }
+    void setLabel(std::string label) {
+        this->APs.push_back(label);
+    }
+    std::vector<std::string> getLabels() const {
+        return this->APs;
     }
 };
 
@@ -137,7 +144,8 @@ void Location::appendClassicalAP(std::string ap)
 bool Location::satisfy(QOperation spec)
 {
     assert(spec.isProj < 0); // Only projective operations are supported for now
-    return (this->lowerBound.compare(spec) == 0 && spec.compare(this->upperBound) == 0);
+    // std::cout << this->lowerBound.compare(spec) << " " << spec.compare(this->upperBound) << std::endl;
+    return (this->lowerBound.compare(spec) % 4 == 0 && spec.compare(this->upperBound) % 4 == 0);
 }
 
 bool Location::find(std::string ap)
@@ -205,6 +213,9 @@ public:
     void createAdd();
     bool satisfy(unsigned int loc, QOperation spec);
     void setInitLocation(unsigned int loc);
+    unsigned int getInitLocation() const {
+        return this->initLocation;
+    }
     void computingFixedPointPre();
     void computingFixedPointPost();
     std::pair<int, int> printDims(unsigned int loc);
@@ -218,6 +229,19 @@ public:
             return it->second.getName();
         }
         return "";
+    }
+    void setLabel(unsigned int loc, std::string label) {
+        // Set the label for the location
+        this->Locations[loc].setLabel(label);
+    }
+    std::vector<std::string> getLabels(unsigned int loc) const {
+        // Get the labels for the location
+        return this->Locations[loc].getLabels();
+    }
+    bool isLeafLoc(unsigned int loc) const {
+        // Check if the location is a leaf location (no post-locations)
+        return this->Locations[loc].postLocations.empty() || 
+               (this->Locations[loc].postLocations.size() == 1 && this->Locations[loc].postLocations[0] == loc);
     }
 };
 
@@ -455,11 +479,11 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
                 // If postLoc->idx is not in currPostLocs, append it.
                 if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), postLoc->idx) == this->currPostLocs.end()) {
-                    std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
+                    // std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
                     this->currPostLocs.push_back(postLoc->idx);
                 }
             } else {
-                std::cout << "Post condition for location " << postLoc->idx << " is not updated." << std::endl;
+                // std::cout << "Post condition for location " << postLoc->idx << " is not updated." << std::endl;
             }
         } else {}
     }

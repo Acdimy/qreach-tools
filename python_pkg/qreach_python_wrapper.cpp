@@ -43,7 +43,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("equalAP", &Location::equalAP, "equalAP")
         .def("setClassicalValue", &Location::setClassicalValue, "setClassicalValue")
         .def("find", &Location::find, "find")
-        // .def("satisfy", py::overload_cast<QOperation>(&Location::satisfy), "satisfy with QOperation")
+        .def("satisfy", &Location::satisfy, "satisfy with QOperation")
         .def_readwrite("idx", &Location::idx)
         .def_readwrite("flag", &Location::flag)
         .def_readwrite("upperBound", &Location::upperBound)
@@ -56,6 +56,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("addLocation", &TransitionSystem::addLocation, "addLocation")
         .def("addRelation", &TransitionSystem::addRelation, "addRelation")
         .def("setInitLocation", &TransitionSystem::setInitLocation, "setInitLocation")
+        .def("getInitLocation", &TransitionSystem::getInitLocation, "getInitLocation")
         .def("setAnnotation", &TransitionSystem::setAnnotation, "setAnnotation")
         .def("preConditionInit", &TransitionSystem::preConditionInit, "preConditionInit")
         .def("preConditionOneStep", &TransitionSystem::preConditionOneStep, "preConditionOneStep")
@@ -70,6 +71,10 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("printDims", &TransitionSystem::printDims, "printDims")
         .def("printSupp", &TransitionSystem::printSupp, "printSupp")
         .def("getRelationName", &TransitionSystem::getRelationName, "getRelationName")
+        .def("setLabel", &TransitionSystem::setLabel, "setLabel")
+        .def("getLabels", &TransitionSystem::getLabels, "getLabels")
+        .def("isLeafLoc", &TransitionSystem::isLeafLoc, "isLeafLoc")
+        .def_readonly("relations", &TransitionSystem::relations)
         .def_readonly("Locations", &TransitionSystem::Locations);
     
 }

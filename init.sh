@@ -2,6 +2,8 @@ conda activate qmc && cd python_pkg &&\
 alias python=python3\
 export PYTHON_INCLUDE=`python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"` \
 export BOOST_PATH="~/stab_dd/boost_1_81_0"
+export NUSMV_LIBRARY_PATH="~/stab_dd/NuSMV-2.7.0/share/nusmv"
+export PATH="~/stab_dd/NuSMV-2.7.0-linux64/bin:$PATH"
 
 invoke build-qreach && invoke build-pybind11
 

@@ -250,7 +250,7 @@ class QuantumGateTerm : public QuantumTerm {
             std::vector<double> v{0,0,1,0,0,0,0,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
-        } else if (name == "resetAll") {
+        } else if (name == "resetall") {
             CFLOBDD_COMPLEX_BIG U = VectorComplexFloatBoost::NoDistinctionNode(ceil(log2(this->qNum)), 1);
             U = VectorComplexFloatBoost::VectorToMatrixInterleaved(U);
             U = Matrix1234ComplexFloatBoost::MatrixConjugate(U);
@@ -452,6 +452,7 @@ class QOperation {
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
+    // realqNum may not be an exp of 2, it is the real number of qubits in the ideal algorithm.
     unsigned int realqNum = 0;
     bool isIdentity = false;
     int isProj = -1;
@@ -485,6 +486,7 @@ class QOperation {
         // Just a copy of CreateProjectiveMeasQO
         if (nam == "meas0") {
             this->isProj = idx[0];
+            this->normalized = true;
             QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             // Whether it is necessary to concretize?
             tmp.concretizeInline();
@@ -492,13 +494,16 @@ class QOperation {
             this->oplist.push_back(tmp.clone());
         } else if (nam == "meas1") {
             this->isProj = idx[0];
+            this->normalized = true;
             QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
         } else if (nam == "reset") {
             // The reset operator creates a mixed state
+            // This is another projective operation!!!
             this->isProj = idx[0];
+            this->normalized = true;
             QuantumGateTerm cond0("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             // Whether it is necessary to concretize?
             cond0.concretizeInline();
@@ -1091,11 +1096,13 @@ class QOperation {
                 // }
             }
         }
-        res.normalized = false;
+        // res.normalized = true;
         res.qNum = this->qNum;
-        // Use GramSchmidt to handle the uniqueness of the vectors.
+        // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
         if (res.oplist.size() > 1) {
             res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+            // res.normalized = true;
+        } else {
             res.normalized = true;
         }
         return res;
@@ -1191,6 +1198,7 @@ class QOperation {
     int compare(const QOperation& other) const {
         /* Compare the relation of this and other */
         /* 0: this is included in other; 1: other is included in this; 2: exclude; 3: intersect but not include; 4: equality*/
+        // std::cout << this->normalized << " " << other.normalized << std::endl;
         assert(this->normalized && other.normalized);
         if (this->oplist.size() > 0) {
             assert(this->oplist[0]->getType() == false);
@@ -1201,6 +1209,23 @@ class QOperation {
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
             return -1;
         }
+        if (this->isIdentity && other.isIdentity) {
+            return 4; // Both are identity operators
+        }
+        if (this->isIdentity) {
+            return 1;
+        }
+        if (other.isIdentity) {
+            return 0;
+        }
+        if (this->isProj >=0 && other.isProj >=0) {
+            
+        } else if (this->isProj >= 0 && other.isProj < 0) {
+            // this is a projective operator, other is a subspace
+        } else if (this->isProj < 0 && other.isProj >= 0) {
+            // this is a subspace, other is a projective operator
+        }
+        // In case this is support-vector like subspace
         int inside_cnt = 0;
         for (size_t i = 0; i < this->oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
@@ -1348,6 +1373,7 @@ QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
     res.qNum = logicqNum;
     res.realqNum = qNum;
     res.isProj = i;
+    res.normalized = true;
     if (!val) {
         QuantumGateTerm tmp("meas0", std::vector<unsigned int>{i}, std::vector<double>{}, qNum);
         tmp.concretizeInline();
