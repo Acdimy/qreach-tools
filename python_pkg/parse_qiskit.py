@@ -483,6 +483,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                     op = pyqreach.QOperation("reset", qnum, qubits, [])
                 else:
                     op = pyqreach.QOperation("resetAll", qnum, qubits, [])
+                    pruning_resets = True  # Set pruning_resets to True to skip the reset gates in the next iterations
             else:
                 raise ValueError(f"Unsupported gate: {op_name}")
             tempNewCurrLoc = []
@@ -878,9 +879,59 @@ def dict2SMV(dts, ctl_formula):
         if next_states:
             smv += f"    state = {s} : {{ {', '.join(next_states)} }};\n"
     smv += "    TRUE : state;\n  esac;\n"
-    smv += "DEFINE\n"
+    prop_states = {}
     for s, props in dts['labels'].items():
         for p in props:
-            smv += f"  {p} := state = {s};\n"
+            prop_states.setdefault(p, []).append(s)
+    smv += "DEFINE\n"
+    for p, states in prop_states.items():
+        cond = " | ".join(f"state = {st}" for st in states)
+        smv += f"  {p} := {cond};\n"
     smv += f"SPEC\n  {ctl_formula};\n"
     return smv
+
+import subprocess
+import re
+
+def ts2SMV(ts: pyqreach.TransitionSystem, ctl_formula: str):
+    """
+    Convert a transition system to SMV format and save it to a file.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to convert.
+        ctl_formula (str): The CTL formula to include in the SMV file.
+        filename (str): The name of the output file (without extension).
+    
+    Returns:
+        str: The SMV content as a string.
+    """
+    dts = ts2Dict(ts)
+    smv_content = dict2SMV(dts, ctl_formula)
+    return smv_content
+
+def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str):
+    smv_code = ts2SMV(ts, ctl_formula)
+    try:
+        result = subprocess.run(['NuSMV'], input=smv_code, capture_output=True, text=True, timeout=60)
+        output = result.stdout + result.stderr
+    except subprocess.TimeoutExpired:
+        return {'satisfied': None, 'counterexample': None, 'output': 'Timeout: NuSMV took too long to respond.'}
+    except FileNotFoundError:
+        return {'satisfied': None, 'counterexample': None, 'output': 'Error: NuSMV not found in PATH. Please install NuSMV.'}
+    except Exception as e:
+        return {'satisfied': None, 'counterexample': None, 'output': f'Error running NuSMV: {str(e)}'}
+    
+    # Parse the output to check if the specification is satisfied
+    match = re.search(r"-- specification (.+) is (true|false)", output, re.MULTILINE | re.DOTALL)
+    if match:
+        satisfied = match.group(2) == 'true'
+        counterexample = None
+        if not satisfied:
+            # Extract counterexample if the specification is false
+            cex_start = output.find("-- as demonstrated by the following execution sequence")
+            if cex_start != -1:
+                cex_end = output.find("********", cex_start)  # counterexample ends with a line of asterisks
+                counterexample = output[cex_start:cex_end].strip() if cex_end != -1 else output[cex_start:].strip()
+        return {'satisfied': satisfied, 'counterexample': counterexample, 'output': output}
+    else:
+        return {'satisfied': None, 'counterexample': None, 'output': f'Unexpected output: {output}'}

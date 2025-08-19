@@ -116,3 +116,7 @@ end_time = time()
 print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} seconds")
 
 # visualize_transition_system(ts, 'unit_test')
+
+graph_dic = ts2Dict(ts)
+graph_nx = dict2NX(graph_dic)
+nx2Graph_hierarchical(graph_nx, 'qbf_dynamic_qiskit')
