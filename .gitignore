@@ -25,3 +25,5 @@ test_qreach
 *.png
 
 *.smv
+
+/NuSMV-2.7.0-linux64/
