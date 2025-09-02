@@ -13,6 +13,8 @@ Result: The results are spread over all possible measurement outcomes, and the s
 """
 
 from parse_qiskit import *
+from qctl import *
+from circ_utils import *
 
 circ = QuantumCircuit(10, 10)
 

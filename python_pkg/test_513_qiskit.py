@@ -9,16 +9,18 @@ from parse_qiskit import *
 from qctl import *
 from circ_utils import *
 
-# Qiskit program
-circ = QuantumCircuit(14, 14)
-prepare_steane_code(circ, list(range(7)))
-circ.h(13)
-prepare_steane_code(circ, list(range(7, 14)))
-for i in range(7):
-    circ.cx(i, 7+i)
-for i in range(7, 14):
+
+circ = QuantumCircuit(10, 10)
+
+prepare_5perfect_code(circ, [0,1,2,3,4])
+circ.h(5)
+prepare_5perfect_code(circ, [5,6,7,8,9])
+
+for i in range(5):
+    circ.cx(i, 5+i)
+for i in range(5, 10):
     circ.measure(i, i)
-for i in range(7, 14):
+for i in range(5, 10):
     with circ.if_test((i, 1)):
         circ.x(i)
 
@@ -32,39 +34,24 @@ print("Transition System Locations:", ts.getLocationNum())
 print("Result List size:", len(resultList))
 
 # Set the initial state (annotation) of the transition system
-op00 = pyqreach.QOperation(["00000000000000"])
+op00 = pyqreach.QOperation(["0000000000"])
 ts.setAnnotation([[0, op00]])
 start_time = time()
 ts.computingFixedPointPost()
 end_time = time()
 print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} seconds")
 
-
 # Specify atomic propositions and the CTL formula
 # Atomic proposition p
 ap_start_time = time()
-prop0 = ts.Locations[14].lowerBound
+prop0 = ts.Locations[17].lowerBound
 tsLabelling(ts, prop0, "p")
 # Atomic proposition q: leaf nodes
 for loc in range(ts.getLocationNum()):
     if ts.isLeafLoc(loc):
         ts.setLabel(loc, "q")
-# Atomic proposition r: is a valid [7,4,3] Hamming code
-pat = ["1111111", "0000111", "1001011", "0110011", "0101101", "1010101", "0011001", "1100001",
-       "0011110", "1100110", "0101010", "1010010", "1001100", "0110100", "1111000", "0000000"]
-# padding pat with 0s to match the number of clbits
-pat = [p.ljust(14, '0') for p in pat]
-tsLabellingClRegList(ts, pat, "r")
 ap_end_time = time()
 print(f"Time taken for atomic proposition labelling: {ap_end_time - ap_start_time:.2f} seconds")
-
-# Convert the transition system to a dictionary and then to a SMV file
-# graph_dic = ts2Dict(ts)
-# # graph_nx = dict2NX(graph_dic)
-# # nx2Graph_hierarchical(graph_nx, 'steane_dynamic_qiskit')
-# smv_content = dict2SMV(graph_dic, 'AG ((q & r) -> p)')
-# with open('unit_test.smv', 'w') as f:
-#     f.write(smv_content)
 
 # Model checking
 model_start_time = time()
@@ -72,3 +59,7 @@ result = modelChecking(ts, 'AG (q -> p)')
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Model checking result:", result['satisfied'])
+print("Model checking counterexample:", result['counterexample'])
+
+# visualize_transition_system(ts, "ts_513_qiskit")
+
