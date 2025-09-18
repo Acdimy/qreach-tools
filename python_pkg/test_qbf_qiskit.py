@@ -89,10 +89,9 @@ def p_coin_qiskit(p: float, k: int) -> bool:
             circ.measure(1,1)
         with circ.if_test((midBits, 0b00)):
             circ.x(2)
-            circ.measure(2,2)
         with circ.if_test((midBits, 0b11)):
             circ.x(2)
-            circ.measure(2,2)
+        circ.measure(2,2)
         with circ.while_loop((ancBits, 0b1)):
             circ.reset(0)
             circ.reset(1)
@@ -112,7 +111,7 @@ def p_coin_qiskit(p: float, k: int) -> bool:
             with circ.if_test((midBits, 0b11)):
                 circ.x(2)
             circ.measure(2,2)
-        with circ.if_test((midBits, 0b01)):
+        with circ.if_test((midBits, 0b10)):
             circ.reset(0)
             circ.reset(1)
             circ.reset(2)

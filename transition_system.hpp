@@ -41,6 +41,7 @@ public:
      * flag == 2: a measurement location when all of the post-locations reached here
      */
     int flag = -1;
+    std::string identifier;
     QOperation upperBound;
     QOperation lowerBound;
     // QOperation annotation;
@@ -64,6 +65,7 @@ public:
         this->cp = other.cp;
     }
     bool satisfy(QOperation spec);
+    bool satisfyDefault();
     bool find(std::string ap);
     bool equalAP(const Location& other) const {
         // Check if the classical propositions are equal
@@ -83,6 +85,12 @@ public:
     }
     std::vector<std::string> getLabels() const {
         return this->APs;
+    }
+    void setIdentifier(std::string id) {
+        this->identifier = id;
+    }
+    std::string getIdentifier() const {
+        return this->identifier;
     }
 };
 
@@ -146,6 +154,11 @@ bool Location::satisfy(QOperation spec)
     assert(spec.isProj < 0); // Only projective operations are supported for now
     // std::cout << this->lowerBound.compare(spec) << " " << spec.compare(this->upperBound) << std::endl;
     return (this->lowerBound.compare(spec) % 4 == 0 && spec.compare(this->upperBound) % 4 == 0);
+}
+
+bool Location::satisfyDefault()
+{
+    return this->lowerBound.compare(this->upperBound) % 4 == 0;
 }
 
 bool Location::find(std::string ap)

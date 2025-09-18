@@ -7,6 +7,8 @@ export PATH="~/stab_dd/NuSMV-2.7.0-linux64/bin:$PATH"
 
 invoke build-qreach && invoke build-pybind11
 
+python -m case_studies.mutation_test_runner
+
 
 g++ -g -O3 -std=c++20 -w -I. -I$BOOST_PATH -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/ -lm\
  *.cpp cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp cflobdd/CFLOBDD/*.cpp -o test

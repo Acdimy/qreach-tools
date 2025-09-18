@@ -13,9 +13,15 @@ def tsLabelling(ts, op: pyqreach.QOperation, label: str):
             ts.setLabel(loc, label)
             # print(f"Location {loc} labelled with {label}")
 
+def tsLabellingDefault(ts, label: str):
+    for loc in range(ts.getLocationNum()):
+        # if ts.Locations[loc].satisfyDefault():
+        if ts.printDims(loc)[1] > 0:
+            ts.setLabel(loc, label)
+
 def tsLabellingClRegList(ts, clRegList: list, label: str):
     """
-    Label locations in the transition system based on classical register values.
+    Label locations in the transition system based on classical register values: |= BigVee clRegList.
     :param ts: Transition system
     :param clRegList: List of strings as classical registers
     :label: Label to assign to the locations that satisfy the classical register values
@@ -55,6 +61,24 @@ def ts2Dict(ts: pyqreach.TransitionSystem) -> dict:
         'labels': labelDict
     }
     return ts_dict
+
+# def ts2Dict_simp(ts: pyqreach.TransitionSystem) -> dict:
+#     """
+#     Simplified version of ts2Dict, only includes locations and relations.
+    
+#     Args:
+#         ts (pyqreach.TransitionSystem): The transition system to convert.
+    
+#     Returns:
+#         dict: Simplified dictionary representation of the transition system.
+#     """
+#     ts_dict = {
+#         'locations': [str(loc.idx) for loc in ts.Locations],
+#         'relations': {f"{rel[0]}->{rel[1]}": ts.getRelationName(rel[0], rel[1]) for rel, op in ts.relations.items()},
+#         'init_location': str(ts.getInitLocation()),
+#         'num_locations': str(ts.getLocationNum())
+#     }
+#     return ts_dict
 
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -132,8 +156,10 @@ def nx2Graph_hierarchical(G, filename="tree_layout"):
     node_colors = ['orange' if G.nodes[n].get('highlight', False) else 'grey' for n in G.nodes()]
     plt.figure(figsize=(8, 6))
     nx.draw(G, pos,
-            with_labels=False, # 不显示节点标签
-            node_size=10,
+            with_labels=True, # 显示节点标签
+            node_size=20,
+            # node label size small
+            font_size=5,
             node_color=node_colors,
             edgecolors="black",
             arrows=False,

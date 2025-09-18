@@ -257,7 +257,21 @@ class QuantumGateTerm : public QuantumTerm {
             U = Matrix1234ComplexFloatBoost::MatrixTranspose(U);
             res = U;
         } else if (name == "swap") {
-            
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int index1 = this->index[0];
+            unsigned int index2 = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(index1 != index2);
+            if (index1 < index2)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index1, index2);
+                res = C;
+            }
+            else
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index2, index1);
+                res = C;
+            }
         } else if (name == "iswap") {
             
         } else if (name == "cz") {
@@ -282,7 +296,26 @@ class QuantumGateTerm : public QuantumTerm {
                 res = C;
             }
         } else if (name == "cp") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller = this->index[0];
+            unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            double theta = this->vars[0];
+            assert(controller != controlled);
 
+            if (controller < controlled)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, theta);
+                res = C;
+            }
+            else
+            {
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, theta);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
         } else if (name == "cs") {
             
         } /* CCNOT, CSWAP, GlobalPhase */
@@ -1202,9 +1235,18 @@ class QOperation {
         assert(this->normalized && other.normalized);
         if (this->oplist.size() > 0) {
             assert(this->oplist[0]->getType() == false);
+        } else {
+            // If other is not empty, return 0; else return 4
+            if (other.oplist.size() > 0) {
+                return 0; // The empty operator is a subspace of any operator.
+            } else {
+                return 4; // The empty operator is equal to the empty operator.
+            }
         }
         if (other.oplist.size() > 0) {
             assert(other.oplist[0]->getType() == false);
+        } else {
+            return 1; // Any non zero operator is a super-space of the empty operator.
         }
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
             return -1;
