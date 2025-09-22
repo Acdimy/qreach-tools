@@ -57,6 +57,7 @@ public:
     Location(const int qNum, const unsigned int idx, const unsigned int cNum);
     ~Location();
     // void setAnnotation(QOperation annotation);
+    void resetBounds();
     void appendPreLocation(unsigned int loc);
     void appendPostLocation(unsigned int loc);
     void appendClassicalAP(std::string ap);
@@ -120,6 +121,12 @@ Location::Location(const int qNum, const unsigned int idx, const unsigned int cN
 
 Location::~Location()
 {
+}
+
+void Location::resetBounds()
+{
+    this->upperBound = CreateIdentityQO(this->qNum);
+    this->lowerBound = CreateZeroQO(this->qNum);
 }
 
 // void Location::setAnnotation(QOperation annotation)
@@ -212,11 +219,23 @@ public:
         Matrix1234ComplexFloatBoost::Matrix1234Initializer();
         VectorComplexFloatBoost::VectorInitializer();
     };
+    TransitionSystem(bool init) {
+        if (init) {
+            CFLOBDDNodeHandle::InitNoDistinctionTable();
+            CFLOBDDNodeHandle::InitAdditionInterleavedTable();
+            CFLOBDDNodeHandle::InitReduceCache();
+            InitPairProductCache();
+            InitTripleProductCache();
+            Matrix1234ComplexFloatBoost::Matrix1234Initializer();
+            VectorComplexFloatBoost::VectorInitializer();
+        }
+    };
     ~TransitionSystem();
     // void initialization();
     void addLocation(Location loc);
     void addRelation(unsigned int from, unsigned int to, QOperation op);
     void setAnnotation(std::vector<std::tuple<unsigned int, QOperation>> annotations);
+    void resetLocationBounds();
     void preConditionInit();
     void preConditionOneStep(unsigned int loc);
     void preConditions();
@@ -309,6 +328,13 @@ void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOpera
 void TransitionSystem::setInitLocation(unsigned int loc)
 {
     this->initLocation = loc;
+}
+
+void TransitionSystem::resetLocationBounds()
+{
+    for (auto& loc : this->Locations) {
+        loc.resetBounds();
+    }
 }
 
 TransitionSystem::~TransitionSystem()

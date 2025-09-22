@@ -56,6 +56,7 @@ PYBIND11_MODULE(pyqreach, m) {
 
     py::class_<TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
+        .def(py::init<bool>())
         .def("addLocation", &TransitionSystem::addLocation, "addLocation")
         .def("addRelation", &TransitionSystem::addRelation, "addRelation")
         .def("setInitLocation", &TransitionSystem::setInitLocation, "setInitLocation")

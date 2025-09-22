@@ -3,6 +3,7 @@ import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector
 from qiskit_aer import Aer
+from qiskit.quantum_info import Pauli
 import numpy as np
 from math import pi
 import random
@@ -29,21 +30,28 @@ def assert_equal(circuit1, circuit2):
     opinit1 = pyqreach.QOperation(["0"*qubits1])
     ts1.setAnnotation([[0, opinit1]])
 
-    ts2 = pyqreach.TransitionSystem()
-    resultList2 = parse_qiskit_cir(circuit2, qubits2, ts2)
+    circ1EndNode = ts1.getLocationNum()-1
+    ts1.addLocation(pyqreach.Location(qubits1, 0))
+    newStartLoc = ts1.getLocationNum()-1
+
+
+    resultList2 = parse_qiskit_cir(circuit2, qubits2, ts1, startNodes=[newStartLoc])
     # For all locations in resultList2, add a new location and connect with identity transition, and extract the lowerBound of the location as expectedState
     if len(resultList2) > 1:
-        ts2.addLocation(pyqreach.Location(qubits2, 0))
+        ts1.addLocation(pyqreach.Location(qubits2, 0))
         for resultLoc in resultList2:
-            ts2.addRelation(resultLoc, ts2.getLocationNum()-1, pyqreach.QOperation("I", qubits2, [0], []))
+            ts1.addRelation(resultLoc, ts1.getLocationNum()-1, pyqreach.QOperation("I", qubits2, [0], []))
     opinit2 = pyqreach.QOperation(["0"*qubits2])
-    ts2.setAnnotation([[0, opinit2]])
+    ts1.setAnnotation([[newStartLoc, opinit2]])
 
+    
     ts1.computingFixedPointPost()
-    ts2.computingFixedPointPost()
 
-    prop0 = ts2.Locations[ts2.getLocationNum()-1].lowerBound
-    if ts1.Locations[ts1.getLocationNum()-1].satisfy(prop0):
+    prop0 = ts1.Locations[ts1.getLocationNum()-1].lowerBound
+    # ts1.printSupp(3)
+    # ts1.printSupp(5)
+    # visualize_transition_system(ts1, "unit_test_assert_equal")
+    if ts1.Locations[circ1EndNode].satisfy(prop0):
         return True
     return False
     
@@ -70,56 +78,7 @@ def assert_entangled(qubit_indices, circuit, basis='Z'):
                 return False
     return True
 
-from qiskit.quantum_info import Pauli
-def quantum_fourier_transform_em(qubits, swap=True):
-    # build circuit
-    qft = QuantumCircuit(qubits, qubits)
 
-    # modify phase
-    for qubit in range(qubits):
-        # insert the initial hadamard gate on all qubits in the register
-
-        # semantic preserving changes loc 1, gates 12, index 0
-        qft.z(0)
-        qft.y(0)
-        qft.append(Pauli('-iX'), [0])
-
-        qft.h(qubit)
-
-        # iterate across all indexes to get the appropriate controlled gates
-        for offset in range(1, qubits - qubit):
-            control_index = qubit + offset
-            target_index = qubit
-            rotation_amount = (np.pi / 2 ** offset)
-            qft.cp(rotation_amount, control_index, target_index)
-
-    # do swaps
-    if swap:
-        for qubit in range(qubits // 2):
-            qft.swap(qubit, qubits - 1 - qubit)
-    return qft
-
-def quantum_fourier_transform(qubits, swap=True):
-    # build circuit
-    qft = QuantumCircuit(qubits, qubits)
-
-    # modify phase
-    for qubit in range(qubits):
-        # insert the initial hadamard gate on all qubits in the register
-        qft.h(qubit)
-
-        # iterate across all indexes to get the appropriate controlled gates
-        for offset in range(1, qubits - qubit):
-            control_index = qubit + offset
-            target_index = qubit
-            rotation_amount = (np.pi / 2 ** offset)
-            qft.cp(rotation_amount, control_index, target_index)
-
-    # do swaps
-    if swap:
-        for qubit in range(qubits // 2):
-            qft.swap(qubit, qubits - 1 - qubit)
-    return qft
 
 
 # Entanglement test
@@ -130,6 +89,14 @@ def quantum_fourier_transform(qubits, swap=True):
 # print(assert_entangled([0, 1], qc, basis='Z'))
 
 # Equality test
-circ1 = quantum_fourier_transform(8)
-circ2 = quantum_fourier_transform_em(8)
+
+
+circ1 = QuantumCircuit(2)
+circ1.z(0)
+circ1.y(0)
+circ1.append(Pauli('-iX'), [0])
+
+circ2 = QuantumCircuit(2)
+circ2.id(0)
+
 print(assert_equal(circ1, circ2))

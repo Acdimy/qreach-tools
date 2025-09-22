@@ -3,7 +3,7 @@ from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit.circuit import Clbit
 from graphviz import Digraph
 from math import floor
-from math import ceil, log2
+from math import ceil, log2, pi
 
 # Get the binary representation of a number
 def getBinary(num, length):
@@ -400,6 +400,81 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                         currLoc.append(locs[0])
             else:
                 raise ValueError("Unsupported merge level for while_loop operation.")
+        elif op_name == 'for_loop':
+            # print("For loop operation detected")
+            for_block_cir = gate.operation.params[0]
+            loop_range = gate.operation.params[1]
+            outLoopLocs = []
+            for cLoc in currLoc:
+                loopStarter = [cLoc]
+                for _ in range(loop_range):
+                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F")
+                    loopStarter = loopResultLocs
+                outLoopLocs.extend(loopStarter)
+            currLoc = outLoopLocs
+            # Merge locations if needed
+            if abstractLevel == 1:
+                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                grouped = groupby_classical_aps(ts, outLoopLocs)
+                # print("Grouped locations by classical APs:", grouped)
+                for key, locs in grouped.items():
+                    if len(locs) > 1:
+                        currLoc = merge_locations(ts, currLoc, locs, identifier+"F.M")
+                    else:
+                        currLoc.append(locs[0])
+            else:
+                raise ValueError("Unsupported merge level for for_loop operation.")
+        elif op_name == 'switch_case':
+            # Multiple instruction blocks, one for each case, double the curr_loc_list
+            # 1. For each current location, create a branch for each case (in case part of the clVars satisfy one case and part satisfy another). Otherwise, create a single postLoc.
+            # 2. Call parse_qiskit_cir recursively for each branch.
+            # 3. For each branch, do a heuristic merge.
+            case_block_cirs = gate.operation.params[0]  # A list of QuantumCircuits for each case
+            condition = gate.operation.condition
+            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+            # print(clbits_idx, clbits_vals, "Condition info for switch_case operation.")
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                # First judge if cLoc satisfies the condition
+                satisfyTerms = ts.Locations[cLoc].satisfyBit(clbits_idx, clbits_vals)
+                unsatisfyTerms = ts.Locations[cLoc].unsatisfyBit(clbits_idx, clbits_vals)
+                assert(len(satisfyTerms) + len(unsatisfyTerms) == ts.Locations[cLoc].termNum()), "Condition terms do not match the location's terms."
+                case_result_locs = []
+                if len(satisfyTerms) != 0:
+                    # Create a new location for the switch_case block
+                    switchLocation = pyqreach.Location(qnum)
+                    for term in satisfyTerms:
+                        switchLocation.appendClassicalAP(term)
+                    switchLocation.setIdentifier(identifier + "S" + str(pivot + _ + 1) + ".C")
+                    ts.addLocation(switchLocation)
+                    ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+                    # Parse each case block
+                    for idx,case_cir in enumerate(case_block_cirs):
+                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [ts.getLocationNum()-1], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx))
+                        tempNewCurrLoc.extend(case_result_locs)
+                if len(unsatisfyTerms) != 0:
+                    # Create a new location for the default block (not satisfying any case)
+                    defaultLocation = pyqreach.Location(qnum)
+                    for term in unsatisfyTerms:
+                        defaultLocation.appendClassicalAP(term)
+                    defaultLocation.setIdentifier(identifier + "S" + str(pivot + _ + 1) + ".D")
+                    ts.addLocation(defaultLocation)
+                    ts.addRelation(cLoc, ts.getLocationNum()-1, pyqreach.QOperation("I", qnum, [0], []))
+                    # Parse the default block
+                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [ts.getLocationNum()-1], identifier+"S"+str(pivot + _ + 1)+".D") if gate.operation.default is not None else [ts.getLocationNum()-1]
+                    tempNewCurrLoc.extend(default_result_locs)
+            # Merge locations if needed
+            currLoc = tempNewCurrLoc
+            if abstractLevel == 1:
+                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                grouped = groupby_classical_aps(ts, tempNewCurrLoc)
+                for key, locs in grouped.items():
+                    if len(locs) > 1:
+                        currLoc = merge_locations(ts, currLoc, locs, identifier+"C.M")
+                    else:
+                        currLoc.append(locs[0])
+            else:
+                raise ValueError("Unsupported merge level for switch_case operation.")
                 
         elif op_name == 'measure':
             # Another operation that split the locations. The only operation that can modify classical bits.
@@ -462,6 +537,34 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             currLoc = tempNewCurrLoc
             for l in currLoc:
                 ts.Locations[l].setIdentifier(identifier + "S" + str(pivot + _ + 1))
+        elif op_name == 'initialize':
+            # 1. Apply reset to the qubit indexes;
+            # 2. Apply an init gate to the qubit indexes;
+            # Assert the indexes are sequential ordered
+            assert all(qubits[i] + 1 == qubits[i + 1] for i in range(len(qubits) - 1)), "For now, initialize operation can only be applied to sequential qubits."
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                indexNum = len(qubits)
+                # For each index, apply reset gates seperately, and append new locations in a sequence
+                prevLoc = cLoc
+                for i in range(indexNum):
+                    loc_reset = pyqreach.Location(qnum, 0)
+                    loc_reset.copyClassicalAP(ts.Locations[prevLoc])  # Copy classical APs from the current location
+                    loc_reset.setIdentifier(identifier + "S" + str(pivot + _ + 1) + ".R" + str(i+1))
+                    ts.addLocation(loc_reset)
+                    ts.addRelation(prevLoc, ts.getLocationNum() - 1, pyqreach.QOperation("reset", qnum, [qubits[i]], []))
+                    prevLoc = ts.getLocationNum() - 1
+                # Then apply the init gate
+                loc_init = pyqreach.Location(qnum, 0)
+                loc_init.copyClassicalAP(ts.Locations[prevLoc])  # Copy classical APs from the current location
+                loc_init.setIdentifier(identifier + "S" + str(pivot + _ + 1) + ".N")
+                ts.addLocation(loc_init)
+                params_real = [param.real for param in gate.operation.params]
+                params_imag = [param.imag for param in gate.operation.params]
+                ts.addRelation(prevLoc, ts.getLocationNum() - 1, pyqreach.QOperation("init", qnum, qubits, params_real + params_imag))
+                tempNewCurrLoc.append(ts.getLocationNum() - 1)
+            # Update the current locations
+            currLoc = tempNewCurrLoc
         else:
             op = None
             if op_name == 'h':
@@ -481,6 +584,18 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             elif op_name == 'u':
                 theta, phi, lam = gate.operation.params
                 op = pyqreach.QOperation("U3", qnum, qubits, [theta, phi, lam])
+            elif op_name == 'iX':
+                op = pyqreach.QOperation("U3", qnum, qubits, [1, 1/2, -1/2])
+            elif op_name == 'iY':
+                op = pyqreach.QOperation("U3", qnum, qubits, [1, 1, 1])
+            elif op_name == 'iZ':
+                op = pyqreach.QOperation("arb", qnum, qubits, [0,1,0,0,0,0,0,-1])
+            elif op_name == '-iX':
+                op = pyqreach.QOperation("U3", qnum, qubits, [1, -1/2, 1/2])
+            elif op_name == '-iY':
+                op = pyqreach.QOperation("U3", qnum, qubits, [1, 0, 0])
+            elif op_name == '-iZ':
+                op = pyqreach.QOperation("arb", qnum, qubits, [0,-1,0,0,0,0,0,1])
             elif op_name == 'cx':
                 op = pyqreach.QOperation("CX", qnum, qubits, [])
             elif op_name == 'cz':

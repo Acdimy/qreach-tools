@@ -85,6 +85,31 @@ CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOB
     }
 }
 
+CFLOBDD_COMPLEX_BIG InitializeWithVector(unsigned int qnum, std::vector<double> vec_raw) {
+    // The length of vec must be a power of 2
+    // TODO: the qubits of the vector may not be a power of 2!!!
+    unsigned int n = vec_raw.size();
+    assert((n & (n - 1)) == 0 && n != 0);
+    assert(n == 4);
+    assert(2 * (1 << qnum) == n);
+    std::vector<std::complex<double>> vec(n/2);
+    for (unsigned int i = 0; i < n/2; i++) {
+        vec[i] = std::complex<double>(vec_raw[i], vec_raw[i+n/2]);
+    }
+    unsigned int level = ceil(log2(qnum));
+    CFLOBDD_COMPLEX_BIG res = VectorComplexFloatBoost::NoDistinctionNode(level, 0);
+    for (unsigned int i = 0; i < n/2; i++) {
+        if (abs(vec[i]) > 1e-10) {
+            auto basisVec = VectorComplexFloatBoost::MkBasisVector(level, i);
+            auto scaledVec = BIG_COMPLEX_FLOAT(vec[i]) * basisVec;
+            res = res + scaledVec;
+        }
+    }
+    res = VectorComplexFloatBoost::VectorToMatrixInterleaved(res);
+    // VectorComplexFloatBoost::VectorPrintColumnHead(res, std::cout);
+    return res;
+}
+
 std::string stringPadding(std::string str, unsigned int length) {
     if (str.length() >= length) {
         return str;
@@ -237,6 +262,10 @@ class QuantumGateTerm : public QuantumTerm {
             v.push_back(theta); v.push_back(phi); v.push_back(lambda);
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkU3GateInterleaved, v);
             res = U;
+        } else if (name == "arb") {
+            assert(this->vars.size() == 8);
+            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, this->vars);
+            res = U;
         } else if (name == "meas0") {
             std::vector<double> v{1,0,0,0,0,0,0,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
@@ -256,6 +285,21 @@ class QuantumGateTerm : public QuantumTerm {
             U = Matrix1234ComplexFloatBoost::MatrixConjugate(U);
             U = Matrix1234ComplexFloatBoost::MatrixTranspose(U);
             res = U;
+        } else if (name == "init") {
+            // Assume the state is in a tensor state, all indexed qubits are |0>
+            // Assume the indexes are sequentially ordered
+            // Prepare the state from this->vars
+            // TODO: Out of compromise, we make the following assumption: only one qubit is initialized.
+            unsigned int numVars = this->vars.size();
+            assert(numVars && (numVars & (numVars - 1)) == 0);
+            // stateVec: [a+bi, c+di]
+            // auto stateVec = InitializeWithVector(1, this->vars);
+            // Prepare the projecor |init><0|
+            // stateVec = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVec);
+            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, this->vars);
+            // Check the indexes that before and after the applied indexes, padding them (through tensor) with identity
+            res = U;
+            
         } else if (name == "swap") {
             assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int index1 = this->index[0];
@@ -358,6 +402,18 @@ class SingleVecTerm : public QuantumTerm {
         unsigned int level = ceil(log2(qubits));
         this->qNum = std::pow(2, level);
         CFLOBDD_COMPLEX_BIG stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
+        stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
+        this->content = stateVector;
+    }
+    SingleVecTerm(std::vector<double> amp, unsigned int qubits) {
+        unsigned level = ceil(log2(qubits));
+        this->qNum = std::pow(2, level);
+        assert(amp.size() == 2 * (1 << qubits));
+        // Padding the amp to 2^(this->qNum) with 0s
+        while(amp.size() < (1 << this->qNum)) {
+            amp.push_back(0);
+        }
+        CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
         stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
         this->content = stateVector;
     }
@@ -1233,21 +1289,6 @@ class QOperation {
         /* 0: this is included in other; 1: other is included in this; 2: exclude; 3: intersect but not include; 4: equality*/
         // std::cout << this->normalized << " " << other.normalized << std::endl;
         assert(this->normalized && other.normalized);
-        if (this->oplist.size() > 0) {
-            assert(this->oplist[0]->getType() == false);
-        } else {
-            // If other is not empty, return 0; else return 4
-            if (other.oplist.size() > 0) {
-                return 0; // The empty operator is a subspace of any operator.
-            } else {
-                return 4; // The empty operator is equal to the empty operator.
-            }
-        }
-        if (other.oplist.size() > 0) {
-            assert(other.oplist[0]->getType() == false);
-        } else {
-            return 1; // Any non zero operator is a super-space of the empty operator.
-        }
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
             return -1;
         }
@@ -1266,6 +1307,21 @@ class QOperation {
             // this is a projective operator, other is a subspace
         } else if (this->isProj < 0 && other.isProj >= 0) {
             // this is a subspace, other is a projective operator
+        }
+        if (this->oplist.size() > 0) {
+            assert(this->oplist[0]->getType() == false);
+        } else {
+            // If other is not empty, return 0; else return 4
+            if (other.oplist.size() > 0) {
+                return 0; // The empty operator is a subspace of any operator.
+            } else {
+                return 4; // The empty operator is equal to the empty operator.
+            }
+        }
+        if (other.oplist.size() > 0) {
+            assert(other.oplist[0]->getType() == false);
+        } else {
+            return 1; // Any non zero operator is a super-space of the empty operator.
         }
         // In case this is support-vector like subspace
         int inside_cnt = 0;
