@@ -1,5 +1,4 @@
 import pyqreach
-### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector
 from qiskit_aer import Aer

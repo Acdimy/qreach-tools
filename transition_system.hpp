@@ -185,6 +185,17 @@ std::vector<std::string> Location::unsatisfyBit(std::vector<unsigned int> indexs
     return this->cp.unsatisfyBit(indexs, values);
 }
 
+void initializeTransitionSystem()
+{
+    CFLOBDDNodeHandle::InitNoDistinctionTable();
+    CFLOBDDNodeHandle::InitAdditionInterleavedTable();
+    CFLOBDDNodeHandle::InitReduceCache();
+    InitPairProductCache();
+    InitTripleProductCache();
+    Matrix1234ComplexFloatBoost::Matrix1234Initializer();
+    VectorComplexFloatBoost::VectorInitializer();
+}
+
 /***
  * Transition system for model checking algorithms.
  ***/

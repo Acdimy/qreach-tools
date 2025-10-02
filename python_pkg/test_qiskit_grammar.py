@@ -104,13 +104,15 @@ for i in range(1):
         circ.measure(0,0)
         circ.measure(1,1)
         circ.measure(2,2)
+
+
 ts = pyqreach.TransitionSystem()
 resultList = parse_qiskit_cir(circ, circ.num_qubits, ts)
 print("Transition System Locations:", ts.getLocationNum())
 print("Result List size:", len(resultList))
 
-op00 = pyqreach.QOperation(["000"])
-ts.setAnnotation([[0, op00]])
+opinit = pyqreach.QOperation(["000"])
+ts.setAnnotation([[0, opinit]])
 start_time = time()
 ts.computingFixedPointPost()
 end_time = time()
@@ -154,6 +156,7 @@ model_start_time = time()
 # AG ((p) -> ! EG valid)
 # 同时check多个specs
 result = modelChecking(ts, 'AG ((p & valid) -> ! E [valid U head])')
+# result = modelChecking(ts, 'AF (head)')
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Output: ", result["output"])

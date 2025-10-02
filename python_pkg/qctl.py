@@ -1,5 +1,6 @@
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
+import re
 
 class Proposition:
     def __init__(self, name: str, content=None, condition=None):
@@ -26,16 +27,58 @@ def tsLabellingClRegList(ts, clRegList: list, label: str):
     :param clRegList: List of strings as classical registers
     :label: Label to assign to the locations that satisfy the classical register values
     """
+    clRegBins = [[int(bit) for bit in clReg] for clReg in clRegList]
     for loc in range(ts.getLocationNum()):
-        for clReg in clRegList:
+        # Once one of the clReg in clRegList is satisfied, label the location and break
+        for clRegBin in clRegBins:
             # convert clReg to a binary list
-            clRegBin = [int(bit) for bit in clReg]
-            if ts.Locations[loc].satisfyBit(list(range(len(clRegBin))), clRegBin):
+            if len(ts.Locations[loc].satisfyBit(list(range(len(clRegBin))), clRegBin)) != 0:
                 ts.setLabel(loc, label)
                 break
 
 def labelling(ts: pyqreach.TransitionSystem, propositions: list):
     pass
+
+# 可扩展的保留关键字集合（大小写不敏感）
+CTL_NUSMV_RESERVED = {
+    # CTL / temporal operators (常见写法)
+    "A","E","AX","EX","AF","EF","AG","EG","AU","EU",
+    "X","F","G","U","R",
+    # 布尔 / 逻辑 / 常量
+    "NOT","AND","OR","XOR","IMPLIES","TRUE","FALSE",
+    # NuSMV / SMV 中常见关键字（预防被误识别）
+    "MODULE","VAR","DEFINE","SPEC","ASSIGN","INIT","NEXT","CASE","ESAC",
+    # 你在模型中可能会用到但不应当被当成原子命题的名字
+    "state"
+}
+
+# 小写化的集合，便于不区分大小写匹配
+_reserved_lc = {w.lower() for w in CTL_NUSMV_RESERVED}
+
+def extract_atoms_from_ctl(ctl_formula: str, extra_reserved: set = None) -> set:
+    """
+    从 ctl_formula 中提取可能的原子命题标识符（不包含保留关键字）。
+    返回一个标识符集合（原样大小写保留）。
+    """
+    if extra_reserved is None:
+        extra_reserved = set()
+    extra_reserved_lc = {w.lower() for w in extra_reserved}
+
+    # 匹配标识符的正则（以字母或下划线开头，后面字母数字或下划线）
+    tokens = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', ctl_formula))
+
+    atoms = set()
+    for t in tokens:
+        tl = t.lower()
+        # 过滤掉保留关键字和额外排除项
+        if tl in _reserved_lc or tl in extra_reserved_lc:
+            continue
+        # 过滤掉布尔常量（重复保险）
+        if tl in ("true", "false"):
+            continue
+        # 现在剩下的基本都是用户定义的原子命题或变量名
+        atoms.add(t)
+    return atoms
 
 def ts2Dict(ts: pyqreach.TransitionSystem) -> dict:
     """
@@ -156,18 +199,22 @@ def nx2Graph_hierarchical(G, filename="tree_layout"):
     node_colors = ['orange' if G.nodes[n].get('highlight', False) else 'grey' for n in G.nodes()]
     plt.figure(figsize=(8, 6))
     nx.draw(G, pos,
-            with_labels=True, # 显示节点标签
+            with_labels=False, # 显示节点标签
             node_size=20,
             # node label size small
             font_size=5,
             node_color=node_colors,
-            edgecolors="black",
+            edgecolors="lightgrey",
+            edge_color="grey",
+            width=0.2,
+            alpha=0.9,
             arrows=False,
-            linewidths=0.3)
+            linewidths=0.1)
     # nx.draw_networkx_edge_labels(G, pos, edge_labels=labels, font_size=9)
     plt.axis("off")
     # plt.tight_layout()
-    plt.savefig(filename + ".png", dpi=300)
+    # save as pdf
+    plt.savefig(filename + '.pdf', dpi=300)    
     plt.close()
 
 def dict2SMV(dts, ctl_formula):
@@ -179,19 +226,25 @@ def dict2SMV(dts, ctl_formula):
         if next_states:
             smv += f"    state = {s} : {{ {', '.join(next_states)} }};\n"
     smv += "    TRUE : state;\n  esac;\n"
+    # Collect labels that occured in the transition system
     prop_states = {}
     for s, props in dts['labels'].items():
         for p in props:
             prop_states.setdefault(p, []).append(s)
+    # Collect labels that never occured in TS but are in the ctl_formula
+    atoms_in_formula = extract_atoms_from_ctl(ctl_formula, extra_reserved={'state', 'init', 'next'})
     smv += "DEFINE\n"
     for p, states in prop_states.items():
         cond = " | ".join(f"state = {st}" for st in states)
         smv += f"  {p} := {cond};\n"
+    # Add false definitions for atoms not in the TS
+    missing_atoms = atoms_in_formula - set(prop_states.keys())
+    for p in sorted(missing_atoms):
+        smv += f"  {p} := FALSE;\n"
     smv += f"SPEC\n  {ctl_formula};\n"
     return smv
 
 import subprocess
-import re
 
 def ts2SMV(ts: pyqreach.TransitionSystem, ctl_formula: str):
     """

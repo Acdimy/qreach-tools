@@ -45,17 +45,17 @@ print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} s
 # Atomic proposition p
 ap_start_time = time()
 prop0 = ts.Locations[17].lowerBound
-tsLabelling(ts, prop0, "p")
+tsLabelling(ts, prop0, "sp17")
 # Atomic proposition q: leaf nodes
 for loc in range(ts.getLocationNum()):
     if ts.isLeafLoc(loc):
-        ts.setLabel(loc, "q")
+        ts.setLabel(loc, "leaf")
 ap_end_time = time()
 print(f"Time taken for atomic proposition labelling: {ap_end_time - ap_start_time:.2f} seconds")
 
 # Model checking
 model_start_time = time()
-result = modelChecking(ts, 'AG (q -> p)')
+result = modelChecking(ts, 'AG (leaf -> sp17)')
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Model checking result:", result['satisfied'])

@@ -15,8 +15,8 @@ from circ_utils import *
 q = QuantumRegister(3, "q")
 c = ClassicalRegister(3, "c")
 circ = QuantumCircuit(q, c)
-circ.h(0)
-circ.cx(0, 1)
+# circ.h(0)
+# circ.cx(0, 1)
 circ.initialize([1/np.sqrt(2), 1/np.sqrt(2)], [0])
 circ.h(0)
 

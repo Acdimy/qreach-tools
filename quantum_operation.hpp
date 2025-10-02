@@ -90,12 +90,18 @@ CFLOBDD_COMPLEX_BIG InitializeWithVector(unsigned int qnum, std::vector<double> 
     // TODO: the qubits of the vector may not be a power of 2!!!
     unsigned int n = vec_raw.size();
     assert((n & (n - 1)) == 0 && n != 0);
-    assert(n == 4);
+    // assert(n == 4);
     assert(2 * (1 << qnum) == n);
     std::vector<std::complex<double>> vec(n/2);
     for (unsigned int i = 0; i < n/2; i++) {
         vec[i] = std::complex<double>(vec_raw[i], vec_raw[i+n/2]);
     }
+    // assert vec is normalized
+    double norm = 0;
+    for (unsigned int i = 0; i < n/2; i++) {
+        norm += std::norm(vec[i]);
+    }
+    assert(abs(norm - 1.0) < 1e-8);
     unsigned int level = ceil(log2(qnum));
     CFLOBDD_COMPLEX_BIG res = VectorComplexFloatBoost::NoDistinctionNode(level, 0);
     for (unsigned int i = 0; i < n/2; i++) {
@@ -233,6 +239,12 @@ class QuantumGateTerm : public QuantumTerm {
             double theta = this->vars[0];
             auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, theta);
             res = S;
+        } else if (name == "sx") {
+            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
+            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, S);
+            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, H);
+            res = S;
         } else if (name == "cx") {
             assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
@@ -251,6 +263,32 @@ class QuantumGateTerm : public QuantumTerm {
                 auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+        } else if (name == "csx") {
+            // Use the identity CSX = H(target) CP[pi/2](control, target) H(target)
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller = this->index[0];
+            unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(controller != controlled);
+
+            auto H = ApplyGateF(this->qNum, controlled, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            if (controller < controlled)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1/2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
+                res = C;
+            }
+            else
+            {
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1/2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
                 res = C;
             }
         } else if (name == "u3") {
@@ -317,7 +355,21 @@ class QuantumGateTerm : public QuantumTerm {
                 res = C;
             }
         } else if (name == "iswap") {
-            
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int index1 = this->index[0];
+            unsigned int index2 = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(index1 != index2);
+            if (index1 < index2)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index1, index2);
+                res = C;
+            }
+            else
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index2, index1);
+                res = C;
+            }
         } else if (name == "cz") {
             // Assert qNum is a power of 2
             assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
@@ -362,7 +414,66 @@ class QuantumGateTerm : public QuantumTerm {
             }
         } else if (name == "cs") {
             
-        } /* CCNOT, CSWAP, GlobalPhase */
+        } /* CCNOT, CSWAP */ else if (name == "ccx") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller1 = this->index[0];
+            unsigned int controller2 = this->index[1];
+            unsigned int controlled = this->index[2];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(controller1 != controlled);
+            assert(controller2 != controlled);
+            assert(controller1 != controller2);
+            if (controller1 < controller2 && controller2 < controlled)
+            {
+                // a b c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controller2, controlled);
+                res = C;
+            }
+            else if (controller1 < controlled && controlled < controller2)
+            {
+                // a c b   
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controlled, controller2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controller2 < controller1 && controller1 < controlled)
+            {
+                // b a c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controller1, controlled);
+                res = C;
+            }
+            else if (controller2 < controlled && controlled < controller1)
+            {
+                // b c a
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controlled, controller1);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controlled < controller1 && controller1 < controller2)
+            {
+                // c a b
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
+                // b a c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller1, controller2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controlled < controller2 && controller2 < controller1)
+            {
+                // c b a
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
+                // a b c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller2, controller1);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+        }
         else {
             std::cout << "Unknown quantum gate: " << name << std::endl;
             throw std::runtime_error("Unknown quantum gate.");
@@ -406,6 +517,7 @@ class SingleVecTerm : public QuantumTerm {
         this->content = stateVector;
     }
     SingleVecTerm(std::vector<double> amp, unsigned int qubits) {
+        // qubits is the realQubits, qNum is the total physical qubits.
         unsigned level = ceil(log2(qubits));
         this->qNum = std::pow(2, level);
         assert(amp.size() == 2 * (1 << qubits));
@@ -414,7 +526,6 @@ class SingleVecTerm : public QuantumTerm {
             amp.push_back(0);
         }
         CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
-        stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
         this->content = stateVector;
     }
     SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
@@ -563,6 +674,31 @@ class QOperation {
             SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
             oplist.push_back(std::make_unique<SingleVecTerm>(term));
         }
+        this->normalized = true;
+    }
+    QOperation(std::vector<double> amps, unsigned int qubits) {
+        // Construct a QOperation of arbitrary amplitude vectors.
+        // qubits is the real qubits, qNum is the CLFOBDD qubits.
+        // assert it is normalized.
+        assert(amps.size() > 0);
+        assert(amps.size() == 2 * (1 << qubits));
+        this->type = false;
+        this->realqNum = qubits;
+        this->qNum = std::pow(2, ceil(log2(qubits)));
+        // Tensor the amps to the next power of 2 with |0>s, that is, padding 0s after every elements. For example, qubits = 3, amps = [1,1,0,0,1,1,0,0], 
+        // then we tensor it to qubits = 4, amps = [1,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0]
+        std::vector<double> newamps;
+        unsigned int targetSize = 2 * (1 << this->qNum);
+        for (unsigned int i = 0; i < amps.size(); i++) {
+            newamps.push_back(amps[i]);
+            // padding
+            for (unsigned int j = 0; j < (targetSize / amps.size() - 1); j++) {
+                newamps.push_back(0);
+            }
+        }
+        assert(newamps.size() == targetSize);
+        SingleVecTerm term(newamps, this->qNum);
+        oplist.push_back(std::make_unique<SingleVecTerm>(term));
         this->normalized = true;
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {

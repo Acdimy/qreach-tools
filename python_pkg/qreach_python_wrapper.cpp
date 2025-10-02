@@ -12,6 +12,7 @@ PYBIND11_MODULE(pyqreach, m) {
     py::class_<QOperation>(m, "QOperation")
         .def(py::init<>())
         .def(py::init<std::vector<std::string>>())
+        .def(py::init<std::vector<double>, unsigned int>())
         .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>())
         .def_readonly("type", &QOperation::type)
         .def_readonly("normalized", &QOperation::normalized)
@@ -54,6 +55,8 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readwrite("cp", &Location::cp)
         .def_readonly("postLocations", &Location::postLocations);
 
+    m.def("initializeTransitionSystem", &initializeTransitionSystem, "initializeTransitionSystem");
+
     py::class_<TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
         .def(py::init<bool>())
@@ -62,6 +65,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def("setInitLocation", &TransitionSystem::setInitLocation, "setInitLocation")
         .def("getInitLocation", &TransitionSystem::getInitLocation, "getInitLocation")
         .def("setAnnotation", &TransitionSystem::setAnnotation, "setAnnotation")
+        .def("resetLocationBounds", &TransitionSystem::resetLocationBounds, "resetLocationBounds")
         .def("preConditionInit", &TransitionSystem::preConditionInit, "preConditionInit")
         .def("preConditionOneStep", &TransitionSystem::preConditionOneStep, "preConditionOneStep")
         .def("preConditions", &TransitionSystem::preConditions, "preConditions")

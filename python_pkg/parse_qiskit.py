@@ -4,12 +4,49 @@ from qiskit.circuit import Clbit
 from graphviz import Digraph
 from math import floor
 from math import ceil, log2, pi
+import numpy as np
 
 # Get the binary representation of a number
 def getBinary(num, length):
     return format(num, '0' + str(length) + 'b')
 
+import numpy as np
 
+def expand_amplitude(p: np.ndarray, idx: list[int], n: int) -> np.ndarray:
+    """
+    Expand a partial amplitude vector `p` (on qubits `idx`) into a full
+    n-qubit amplitude vector, assuming all other qubits are |0>.
+
+    Args:
+        p   : np.ndarray, shape (2**k,), complex amplitudes
+        idx : list of int, length k, distinct qubit indices in [0, n-1]
+        n   : total number of qubits
+
+    Returns:
+        np.ndarray, shape (2**n,), complex amplitudes
+    """
+    k = len(idx)
+    assert p.size == 2**k, "Length of p must be 2**len(idx)"
+    
+    # reshape p into a tensor with k qubits
+    tensor = p.reshape([2]*k)
+
+    # prepare full tensor with all qubits
+    full_tensor = np.zeros([2]*n, dtype=complex)
+
+    # insert p into the positions specified by idx, others fixed to |0>
+    # we do this by using advanced indexing
+    index = [0]*n
+    for basis in np.ndindex(*([2]*k)):
+        for i, qubit in enumerate(idx):
+            index[qubit] = basis[i]
+        full_tensor[tuple(index)] = tensor[basis]
+        # reset unused positions back to 0 (since only one slice is filled)
+        for qubit in set(range(n)) - set(idx):
+            index[qubit] = 0
+
+    # flatten to vector
+    return full_tensor.reshape(-1)
 
 def parse_qiskit(qc: QuantumCircuit, loc0_idx=0) -> pyqreach.TransitionSystem:
     """
@@ -491,8 +528,8 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 loc_meas1 = pyqreach.Location(qnum, 0)
                 loc_meas0.copyClassicalAP(ts.Locations[cLoc])  # Copy classical APs from the current location
                 loc_meas1.copyClassicalAP(ts.Locations[cLoc])
-                loc_meas0.setClassicalValue(qubits[0], 0)
-                loc_meas1.setClassicalValue(qubits[0], 1)
+                loc_meas0.setClassicalValue(cbits[0], 0)
+                loc_meas1.setClassicalValue(cbits[0], 1)
                 meas0_key = loc_meas0.cp.toString()
                 meas1_key = loc_meas1.cp.toString()
                 if meas0_key not in measuredLocDict:
@@ -565,6 +602,28 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 tempNewCurrLoc.append(ts.getLocationNum() - 1)
             # Update the current locations
             currLoc = tempNewCurrLoc
+        elif op_name == 'dcx':
+            # Slightly difficult to implement in C++
+            # Just apply cx[q0,q1], cx[q1,q0]
+            assert len(qubits) == 2, "DCX operation must be applied to two qubits."
+            op1 = pyqreach.QOperation("CX", qnum, [qubits[0], qubits[1]], [])
+            op2 = pyqreach.QOperation("CX", qnum, [qubits[1], qubits[0]], [])
+            tempNewCurrLoc = []
+            for cLoc in currLoc:
+                # Make new locations
+                loc1 = pyqreach.Location(qnum, 0)
+                loc1.copyClassicalAP(ts.Locations[cLoc])  # Copy classical APs from the current location!!
+                loc1.setIdentifier(identifier + "S" + str(pivot + _ + 1) + ".1")
+                ts.addLocation(loc1)
+                ts.addRelation(cLoc, ts.getLocationNum()-1, op1)
+                loc2 = pyqreach.Location(qnum, 0)
+                loc2.copyClassicalAP(ts.Locations[ts.getLocationNum()-1])  # Copy classical APs from the previous location!!
+                loc2.setIdentifier(identifier + "S" + str(pivot + _ + 1))
+                ts.addLocation(loc2)
+                ts.addRelation(ts.getLocationNum()-2, ts.getLocationNum()-1, op2)
+                tempNewCurrLoc.append(ts.getLocationNum()-1)
+            # Update the current locations
+            currLoc = tempNewCurrLoc
         else:
             op = None
             if op_name == 'h':
@@ -581,9 +640,25 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 op = pyqreach.QOperation("S", qnum, qubits, [])
             elif op_name == 't':
                 op = pyqreach.QOperation("T", qnum, qubits, [])
+            elif op_name == 'tdg':
+                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, -1/4])
             elif op_name == 'u':
                 theta, phi, lam = gate.operation.params
-                op = pyqreach.QOperation("U3", qnum, qubits, [theta, phi, lam])
+                op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, phi/pi, lam/pi])
+            elif op_name == 'rx':
+                pass
+            elif op_name == 'ry':
+                theta = gate.operation.params[0]
+                op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, 0, 0])
+            elif op_name == 'rz':
+                # Lack a global phase
+                lam = gate.operation.params[0]
+                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
+            elif op_name == 'p':
+                lam = gate.operation.params[0]
+                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
+            elif op_name == 'sx':
+                op = pyqreach.QOperation("SX", qnum, qubits, [])
             elif op_name == 'iX':
                 op = pyqreach.QOperation("U3", qnum, qubits, [1, 1/2, -1/2])
             elif op_name == 'iY':
@@ -602,16 +677,22 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 op = pyqreach.QOperation("CZ", qnum, qubits, [])
             elif op_name == 'cp':
                 op = pyqreach.QOperation("CP", qnum, qubits, [gate.operation.params[0]])
+            elif op_name == 'csx':
+                op = pyqreach.QOperation("CSX", qnum, qubits, [])
             elif op_name == 'swap':
                 op = pyqreach.QOperation("SWAP", qnum, qubits, [])
+            elif op_name == 'iswap':
+                op = pyqreach.QOperation("iSWAP", qnum, qubits, [])
             elif op_name == 'reset':
                 # Reset operation, we assume it resets all qubits to |0>, using resetAll QOperation, or reset a single qubit to |0>,
                 # resulting in a mixed state, we use reset QOperation.
                 # Check if the continuous qnum gates are all resets, if so, we set pruning_resets to True.
-                doResetAll = True if _ + qnum <= len(instructions) and all(instructions[i][0].name == 'reset' for i in range(_, _ + qnum-1)) else False
+                # TODO: Here is a trick! we assume all reset gates on different qubits are grouped together!
+                doResetAll = True if _ + qnum <= len(instructions) and all(instructions[i][0].name == 'reset' for i in range(_, _ + qnum)) else False
                 # If there exists a qubit that is not reset, we set doResetAll to False.
                 recordResetSet = set()
                 if doResetAll:
+                    print("Into resetAll pruning at instruction index:", _)
                     for gidx in range(_, _+qnum-1):
                         resetBit = instructions[gidx].qubits[0]._index
                         if resetBit not in recordResetSet:
