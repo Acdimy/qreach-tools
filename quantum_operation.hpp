@@ -85,6 +85,44 @@ CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOB
     }
 }
 
+CFLOBDD_COMPLEX_BIG InitializeWithVector(unsigned int qnum, std::vector<double> vec_raw) {
+    // The length of vec must be a power of 2
+    // TODO: the qubits of the vector may not be a power of 2!!!
+    unsigned int n = vec_raw.size();
+    assert((n & (n - 1)) == 0 && n != 0);
+    // assert(n == 4);
+    assert(2 * (1 << qnum) == n);
+    std::vector<std::complex<double>> vec(n/2);
+    for (unsigned int i = 0; i < n/2; i++) {
+        vec[i] = std::complex<double>(vec_raw[i], vec_raw[i+n/2]);
+    }
+    // assert vec is normalized
+    double norm = 0;
+    for (unsigned int i = 0; i < n/2; i++) {
+        norm += std::norm(vec[i]);
+    }
+    assert(abs(norm - 1.0) < 1e-8);
+    unsigned int level = ceil(log2(qnum));
+    CFLOBDD_COMPLEX_BIG res = VectorComplexFloatBoost::NoDistinctionNode(level, 0);
+    for (unsigned int i = 0; i < n/2; i++) {
+        if (abs(vec[i]) > 1e-10) {
+            auto basisVec = VectorComplexFloatBoost::MkBasisVector(level, i);
+            auto scaledVec = BIG_COMPLEX_FLOAT(vec[i]) * basisVec;
+            res = res + scaledVec;
+        }
+    }
+    res = VectorComplexFloatBoost::VectorToMatrixInterleaved(res);
+    // VectorComplexFloatBoost::VectorPrintColumnHead(res, std::cout);
+    return res;
+}
+
+std::string stringPadding(std::string str, unsigned int length) {
+    if (str.length() >= length) {
+        return str;
+    }
+    return str + std::string(length - str.length(), '0');
+}
+
 // 1-norm
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     double threshold = 1e-8;
@@ -201,22 +239,56 @@ class QuantumGateTerm : public QuantumTerm {
             double theta = this->vars[0];
             auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, theta);
             res = S;
+        } else if (name == "sx") {
+            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
+            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, S);
+            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, H);
+            res = S;
         } else if (name == "cx") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
             assert(controller != controlled);
     
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controller, controlled);
+                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controller, controlled);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(this->content.root->level, std::pow(2, this->content.root->level - 1), controlled, controller);
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+        } else if (name == "csx") {
+            // Use the identity CSX = H(target) CP[pi/2](control, target) H(target)
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller = this->index[0];
+            unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(controller != controlled);
+
+            auto H = ApplyGateF(this->qNum, controlled, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            if (controller < controlled)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1/2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
+                res = C;
+            }
+            else
+            {
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1/2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
                 res = C;
             }
         } else if (name == "u3") {
@@ -228,6 +300,10 @@ class QuantumGateTerm : public QuantumTerm {
             v.push_back(theta); v.push_back(phi); v.push_back(lambda);
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkU3GateInterleaved, v);
             res = U;
+        } else if (name == "arb") {
+            assert(this->vars.size() == 8);
+            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, this->vars);
+            res = U;
         } else if (name == "meas0") {
             std::vector<double> v{1,0,0,0,0,0,0,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
@@ -236,33 +312,168 @@ class QuantumGateTerm : public QuantumTerm {
             std::vector<double> v{0,0,0,0,0,0,1,0};
             auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
             res = U;
+        } else if (name == "reset0") {
+            // Reset the index qubit to |0>
+            std::vector<double> v{0,0,1,0,0,0,0,0};
+            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
+            res = U;
+        } else if (name == "resetall") {
+            CFLOBDD_COMPLEX_BIG U = VectorComplexFloatBoost::NoDistinctionNode(ceil(log2(this->qNum)), 1);
+            U = VectorComplexFloatBoost::VectorToMatrixInterleaved(U);
+            U = Matrix1234ComplexFloatBoost::MatrixConjugate(U);
+            U = Matrix1234ComplexFloatBoost::MatrixTranspose(U);
+            res = U;
+        } else if (name == "init") {
+            // Assume the state is in a tensor state, all indexed qubits are |0>
+            // Assume the indexes are sequentially ordered
+            // Prepare the state from this->vars
+            // TODO: Out of compromise, we make the following assumption: only one qubit is initialized.
+            unsigned int numVars = this->vars.size();
+            assert(numVars && (numVars & (numVars - 1)) == 0);
+            // stateVec: [a+bi, c+di]
+            // auto stateVec = InitializeWithVector(1, this->vars);
+            // Prepare the projecor |init><0|
+            // stateVec = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVec);
+            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, this->vars);
+            // Check the indexes that before and after the applied indexes, padding them (through tensor) with identity
+            res = U;
+            
         } else if (name == "swap") {
-            
-        } else if (name == "iswap") {
-            
-        } else if (name == "cz") {
-            unsigned int controller = this->index[0];
-            unsigned int controlled = this->index[1];
-            assert(controller != controlled);
-    
-            if (controller < controlled)
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int index1 = this->index[0];
+            unsigned int index2 = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(index1 != index2);
+            if (index1 < index2)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controller, controlled, 1.0);
+                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index1, index2);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(this->content.root->level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(this->content.root->level, controlled, controller, 1.0);
+                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index2, index1);
+                res = C;
+            }
+        } else if (name == "iswap") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int index1 = this->index[0];
+            unsigned int index2 = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(index1 != index2);
+            if (index1 < index2)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index1, index2);
+                res = C;
+            }
+            else
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index2, index1);
+                res = C;
+            }
+        } else if (name == "cz") {
+            // Assert qNum is a power of 2
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller = this->index[0];
+            unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(controller != controlled);
+    
+            if (controller < controlled)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1.0);
+                res = C;
+            }
+            else
+            {
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1.0);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
                 C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
                 res = C;
             }
         } else if (name == "cp") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller = this->index[0];
+            unsigned int controlled = this->index[1];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            double theta = this->vars[0];
+            assert(controller != controlled);
 
+            if (controller < controlled)
+            {
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, theta);
+                res = C;
+            }
+            else
+            {
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
+                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, theta);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
         } else if (name == "cs") {
             
-        } /* CCNOT, CSWAP, GlobalPhase */
+        } /* CCNOT, CSWAP */ else if (name == "ccx") {
+            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
+            unsigned int controller1 = this->index[0];
+            unsigned int controller2 = this->index[1];
+            unsigned int controlled = this->index[2];
+            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            assert(controller1 != controlled);
+            assert(controller2 != controlled);
+            assert(controller1 != controller2);
+            if (controller1 < controller2 && controller2 < controlled)
+            {
+                // a b c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controller2, controlled);
+                res = C;
+            }
+            else if (controller1 < controlled && controlled < controller2)
+            {
+                // a c b   
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controlled, controller2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controller2 < controller1 && controller1 < controlled)
+            {
+                // b a c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controller1, controlled);
+                res = C;
+            }
+            else if (controller2 < controlled && controlled < controller1)
+            {
+                // b c a
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controlled, controller1);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controlled < controller1 && controller1 < controller2)
+            {
+                // c a b
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
+                // b a c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller1, controller2);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+            else if (controlled < controller2 && controller2 < controller1)
+            {
+                // c b a
+                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
+                // a b c
+                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller2, controller1);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
+                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                res = C;
+            }
+        }
         else {
             std::cout << "Unknown quantum gate: " << name << std::endl;
             throw std::runtime_error("Unknown quantum gate.");
@@ -303,6 +514,18 @@ class SingleVecTerm : public QuantumTerm {
         this->qNum = std::pow(2, level);
         CFLOBDD_COMPLEX_BIG stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
         stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
+        this->content = stateVector;
+    }
+    SingleVecTerm(std::vector<double> amp, unsigned int qubits) {
+        // qubits is the realQubits, qNum is the total physical qubits.
+        unsigned level = ceil(log2(qubits));
+        this->qNum = std::pow(2, level);
+        assert(amp.size() == 2 * (1 << qubits));
+        // Padding the amp to 2^(this->qNum) with 0s
+        while(amp.size() < (1 << this->qNum)) {
+            amp.push_back(0);
+        }
+        CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
         this->content = stateVector;
     }
     SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
@@ -398,6 +621,11 @@ class SingleVecTerm : public QuantumTerm {
     void applyGateInline(const QuantumGateTerm& other, bool direction) {
         this->content = this->applyGate(other, direction);
     }
+    double getMod() {
+        auto amp = this->dot(*this);
+        double res = double(sqrt(amp.real()));
+        return res;
+    }
 };
 
 class CliffordTerm : public QuantumTerm {
@@ -424,6 +652,8 @@ class QOperation {
     std::vector<std::unique_ptr<QuantumTerm>> oplist;
     bool normalized = 0;
     unsigned int qNum = 0;
+    // realqNum may not be an exp of 2, it is the real number of qubits in the ideal algorithm.
+    unsigned int realqNum = 0;
     bool isIdentity = false;
     int isProj = -1;
     // std::unique_ptr<Node> ast = nullptr;
@@ -432,40 +662,84 @@ class QOperation {
     QOperation() : type(0) {}
     QOperation(std::vector<std::string> strings) {
         // Construct a QOperation of basic vectors.
-        type = false;
+        assert(strings.size() > 0);
         for (const auto& str : strings) {
-            SingleVecTerm term(str, std::pow(2, ceil(log2(str.size()))));
+            assert(str.size() > 0);
+            assert(str.size() == strings[0].size());
+        }
+        this->type = false;
+        this->realqNum = strings[0].size();
+        this->qNum = std::pow(2, ceil(log2(strings[0].size())));
+        for (const auto& str : strings) {
+            SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
             oplist.push_back(std::make_unique<SingleVecTerm>(term));
         }
-        if (!strings.empty()) {
-            qNum = std::pow(2, ceil(log2(strings[0].size())));
-        } else {
-            qNum = 0;
+        this->normalized = true;
+    }
+    QOperation(std::vector<double> amps, unsigned int qubits) {
+        // Construct a QOperation of arbitrary amplitude vectors.
+        // qubits is the real qubits, qNum is the CLFOBDD qubits.
+        // assert it is normalized.
+        assert(amps.size() > 0);
+        assert(amps.size() == 2 * (1 << qubits));
+        this->type = false;
+        this->realqNum = qubits;
+        this->qNum = std::pow(2, ceil(log2(qubits)));
+        // Tensor the amps to the next power of 2 with |0>s, that is, padding 0s after every elements. For example, qubits = 3, amps = [1,1,0,0,1,1,0,0], 
+        // then we tensor it to qubits = 4, amps = [1,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0]
+        std::vector<double> newamps;
+        unsigned int targetSize = 2 * (1 << this->qNum);
+        for (unsigned int i = 0; i < amps.size(); i++) {
+            newamps.push_back(amps[i]);
+            // padding
+            for (unsigned int j = 0; j < (targetSize / amps.size() - 1); j++) {
+                newamps.push_back(0);
+            }
         }
+        assert(newamps.size() == targetSize);
+        SingleVecTerm term(newamps, this->qNum);
+        oplist.push_back(std::make_unique<SingleVecTerm>(term));
         this->normalized = true;
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
         // Construct a QOperation of quantum gate.
         // Could merge
-        type = true;
+        this->type = true;
+        this->realqNum = qNum;
+        unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+        this->qNum = logicqNum;
         // Just a copy of CreateProjectiveMeasQO
         if (nam == "meas0") {
-            this->qNum = qNum;
             this->isProj = idx[0];
-            QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            this->normalized = true;
+            QuantumGateTerm tmp("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            // Whether it is necessary to concretize?
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
         } else if (nam == "meas1") {
-            this->qNum = qNum;
             this->isProj = idx[0];
-            QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, qNum);
+            this->normalized = true;
+            QuantumGateTerm tmp("meas1", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
             tmp.concretizeInline();
             // Attention!
             this->oplist.push_back(tmp.clone());
-        } else {
-            oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, qNum));
-            this->qNum = qNum;
+        } else if (nam == "reset") {
+            // The reset operator creates a mixed state
+            // This is another projective operation!!!
+            this->isProj = idx[0];
+            this->normalized = true;
+            QuantumGateTerm cond0("meas0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            // Whether it is necessary to concretize?
+            cond0.concretizeInline();
+            // Attention!
+            this->oplist.push_back(cond0.clone());
+            QuantumGateTerm cond1("reset0", std::vector<unsigned int>{idx[0]}, std::vector<double>{}, logicqNum);
+            cond1.concretizeInline();
+            this->oplist.push_back(cond1.clone());
+        }
+        else {
+            oplist.push_back(std::make_unique<QuantumGateTerm>(nam, idx, pars, logicqNum));
             // Here, isIdentity is used in type == true case.
             if (toLower(nam) == "i") {
                 isIdentity = true;
@@ -554,6 +828,27 @@ class QOperation {
         return *this;
     }
     
+    std::string getName() const {
+        if (this->type == false) {
+            return "Projective Operation";
+        } else {
+            std::string res;
+            for (const auto& term : this->oplist) {
+                if (term && term->getType()) {
+                    auto* gateTerm = dynamic_cast<QuantumGateTerm*>(term.get());
+                    if (gateTerm) {
+                        res += gateTerm->name + " ";
+                    } else {
+                        std::cout << "Unknown quantum term type in getName()." << std::endl;
+                    }
+                } else {
+                    std::cout << "Null quantum term in getName()." << std::endl;
+                }
+            }
+            return res.empty() ? "Empty Quantum Operation" : res;
+        }
+    }
+
     void append(std::unique_ptr<QuantumTerm> qt) {
         if (qt->getType() != this->type) {
             std::cout << "Append a wrong type of quantum term.";
@@ -574,6 +869,22 @@ class QOperation {
             }
         }
         return res;
+    }
+
+    int findVectorContent(const SingleVecTerm& vec) const {
+        // Check if the vector is in the oplist
+        assert(this->type == false);
+        unsigned int i = 0;
+        for (const auto& term : this->oplist) {
+            if (term && term->getType() == false) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(term.get());
+                if (ivec && ivec->content == vec.content) {
+                    return i;
+                }
+            }
+            i++;
+        }
+        return -1;
     }
 
     void genProjMeasSpace() {
@@ -608,6 +919,8 @@ class QOperation {
             this->oplist.push_back(std::make_unique<SingleVecTerm>(basis));
         }
         this->type = false; // Change the type to support vectors of subspaces.
+        this->isProj = -1; // Reset isProj to indicate this is a projective operation.
+        this->normalized = true; // Mark as normalized since we have generated the basis vectors.
     }
 
     SingleVecTerm projectIn(const SingleVecTerm& vec) const {
@@ -622,6 +935,7 @@ class QOperation {
                 if (!ivec) continue;
                 content = content + vec.projectOnto(*ivec);
             }
+            // std::cout << "SingleVecTerm projectIn: content is zero? " << checkifzero(content) << std::endl;
             SingleVecTerm res(content);
             res.qNum = this->qNum;
             return res;
@@ -732,7 +1046,7 @@ class QOperation {
         temp.oplist.erase(temp.oplist.begin() + orthogonalBasis.size(), temp.oplist.end());
         // this->oplist = std::move(orthogonalBasis);
         QOperation res;
-        for (size_t i = temp.oplist.size(); i < temp.oplist.size(); i++) {
+        for (size_t i = 0; i < temp.oplist.size(); i++) {
             SingleVecTerm projVec = this->projectIn(*dynamic_cast<SingleVecTerm*>(temp.oplist[i].get()));
             // if (!projVec.isZero()) {
             if (!checkifzero(projVec.content)) {
@@ -833,17 +1147,25 @@ class QOperation {
         if (other.isIdentity) {
             return *this;
         }
-        if (this->isIdentity) {
-            assert(other.isProj < 0);
+        if (this->isIdentity && other.isProj < 0) {
             return other;
+        }
+        if (this->isIdentity && other.isProj >= 0) {
+            QOperation othercopy = other;
+            othercopy.genProjMeasSpace();
+            return othercopy;
         }
         if (other.oplist.size() == 0 || this->oplist.size() == 0) {
             // If one of the operands is empty, return an empty QOperation
-            return QOperation();
+            QOperation res(false);
+            res.qNum = this->qNum;
+            res.normalized = true;
+            return res;
         }
         if (other.oplist[0]->getType() == true) {
             // Case 1: other.oplist[0] is a quantumGate type: a projective measurement
-            std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
+            // std::cout << "Conjunction of a supp subspace and a projective operator." << std::endl;
+            // TODO: This is the most time-consuming part!
             assert(other.isProj >= 0);
             assert(other.oplist.size() == 1);
             // auto *jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
@@ -886,10 +1208,19 @@ class QOperation {
          ***/
         assert(!this->type && !other.type);
         if (other.oplist.size() == 0) {
+            // The vector remains unnormalized here!
             return *this;
         }
         if (this->oplist.size() == 0) {
+            // The vector remains unnormalized here!
             return other;
+        }
+        if (this->isIdentity || other.isIdentity || this->oplist.size() == std::pow(2, this->qNum) || other.oplist.size() == std::pow(2, other.qNum)) {
+            QOperation res(false);
+            res.normalized = true;
+            res.qNum = this->qNum;
+            res.isIdentity = true;
+            return res;
         }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
@@ -905,23 +1236,28 @@ class QOperation {
         QOperation res(false);
         /* Two cases here: other.oplist contains only QuantumGateTerm, or only SingleVecTerm. 
                 In the later case, we should use jvec->projectOnto() */
+        if (this->oplist.size() == 0) {
+            res.normalized = true;
+            res.qNum = this->qNum;
+            return res; // If this is an empty operator, return an empty operator.
+        }
         if (other.oplist[0]->getType() == false) {
             // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
-            std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
+            // std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
             res = this->conjunction_simp(other); // This is not a const operator!
         } else if (other.oplist[0]->getType() == true && other.isProj >= 0) {
             // Case 1: other is a binary projection operator
-            // Here is the TODO:BUG!! Need to consider \neg P part of the Sasaki hook.
             // other.genProjMeasSpace();
-            std::cout << "Case 1: other is a binary projection operator." << std::endl;
+            // std::cout << "Case 1: other is a binary projection operator." << std::endl;
             res = this->conjunction_simp(other);
             // TODO: Should negOther be saved? Save: reduce the time complexity; Don't save: reduce the space complexity.
+            // I need to fix the following codes to reduce the time complexity!!!
             QOperation negOther = other.negation();
             negOther.genProjMeasSpace();
             res = res.disjunction(negOther);
         } else {
             // Case 2: other.oplist[0] is a QuantumGateTerm
-            std::cout << "Case 2: other.oplist[0] is a QuantumGateTerm. " << other.oplist[0]->getType() << " " << other.isProj << std::endl;
+            // std::cout << "Case 2: other.oplist[0] is a QuantumGateTerm. " << other.oplist[0]->getType() << " " << other.isProj << std::endl;
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) {std::cout << "Strange nullptr" << std::endl; continue;}
@@ -934,6 +1270,16 @@ class QOperation {
                     // Backward induction
                     auto tmp = ivec->applyGate(*jgate, false);
                     res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                    /* We have GramSchmidt in preImage, no need to handle the res uniqueness */
+                    // SingleVecTerm preVec(tmp);
+                    // if (res.oplist.size() == 0) {
+                    //     res.append(std::make_unique<SingleVecTerm>(preVec));
+                    // } else if (res.findVectorContent(preVec) == -1) {
+                    //     // If the preVec is not in the res, append it.
+                    //     res.append(std::make_unique<SingleVecTerm>(preVec));
+                    // } else if (res.findVectorContent(preVec) >= 0) {
+                    //     // If the preVec is in the res, add the amplitude to the existing vector.
+                    // }
                 }
             }
         }
@@ -963,10 +1309,27 @@ class QOperation {
                 if (!jgate) continue;
                 auto tmp = ivec->applyGate(*jgate, true);
                 res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                /* We don't have GramSchmidt in postImage (for some interface of probability), we need to handle the uniqueness */
+                // SingleVecTerm postVec(tmp);
+                // if (res.oplist.size() == 0) {
+                //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                // } else if (res.findVectorContent(postVec) == -1) {
+                //     // If the postVec is not in the res, append it.
+                //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                // } else if (res.findVectorContent(postVec) >= 0) {
+                //     // If the postVec is in the res, add the amplitude to the existing vector.
+                // }
             }
         }
-        res.normalized = false;
+        // res.normalized = true;
         res.qNum = this->qNum;
+        // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
+        if (res.oplist.size() > 1) {
+            res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+            // res.normalized = true;
+        } else {
+            res.normalized = true;
+        }
         return res;
     }
 
@@ -1060,16 +1423,43 @@ class QOperation {
     int compare(const QOperation& other) const {
         /* Compare the relation of this and other */
         /* 0: this is included in other; 1: other is included in this; 2: exclude; 3: intersect but not include; 4: equality*/
+        // std::cout << this->normalized << " " << other.normalized << std::endl;
         assert(this->normalized && other.normalized);
-        if (this->oplist.size() > 0) {
-            assert(this->oplist[0]->getType() == false);
-        }
-        if (other.oplist.size() > 0) {
-            assert(other.oplist[0]->getType() == false);
-        }
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
             return -1;
         }
+        if (this->isIdentity && other.isIdentity) {
+            return 4; // Both are identity operators
+        }
+        if (this->isIdentity) {
+            return 1;
+        }
+        if (other.isIdentity) {
+            return 0;
+        }
+        if (this->isProj >=0 && other.isProj >=0) {
+            
+        } else if (this->isProj >= 0 && other.isProj < 0) {
+            // this is a projective operator, other is a subspace
+        } else if (this->isProj < 0 && other.isProj >= 0) {
+            // this is a subspace, other is a projective operator
+        }
+        if (this->oplist.size() > 0) {
+            assert(this->oplist[0]->getType() == false);
+        } else {
+            // If other is not empty, return 0; else return 4
+            if (other.oplist.size() > 0) {
+                return 0; // The empty operator is a subspace of any operator.
+            } else {
+                return 4; // The empty operator is equal to the empty operator.
+            }
+        }
+        if (other.oplist.size() > 0) {
+            assert(other.oplist[0]->getType() == false);
+        } else {
+            return 1; // Any non zero operator is a super-space of the empty operator.
+        }
+        // In case this is support-vector like subspace
         int inside_cnt = 0;
         for (size_t i = 0; i < this->oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
@@ -1192,25 +1582,32 @@ I: the identity operator as the top of the QOperation lattice
 */
 
 QOperation CreateIdentityQO(unsigned int qNum) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(false);
-    res.qNum = qNum;
+    res.realqNum = qNum;
+    res.qNum = logicqNum;
     res.isIdentity = true;
     res.normalized = true;
     return res;
 }
 
 QOperation CreateZeroQO(unsigned int qNum) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(false);
-    res.qNum = qNum;
+    res.realqNum = qNum;
+    res.qNum = logicqNum;
     res.normalized = true;
     return res;
 }
 
 // Should be mearged into the constructor of QOperation
 QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
+    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
     QOperation res(true);
-    res.qNum = qNum;
+    res.qNum = logicqNum;
+    res.realqNum = qNum;
     res.isProj = i;
+    res.normalized = true;
     if (!val) {
         QuantumGateTerm tmp("meas0", std::vector<unsigned int>{i}, std::vector<double>{}, qNum);
         tmp.concretizeInline();
@@ -1225,5 +1622,15 @@ QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
     }
     return res;
 }
+
+// QOperation CreatePartialProjectiveQO(std::vector<std::string> parBasis, std::vector<unsigned int> parIndex, unsigned int qNum) {
+//     unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+//     QOperation res(true);
+//     res.qNum = logicqNum;
+//     res.realqNum = qNum;
+//     res.isProj = parIndex[0]; // Assume the first index is the projective index
+
+
+// }
 
 #endif

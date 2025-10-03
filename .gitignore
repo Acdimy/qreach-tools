@@ -21,3 +21,9 @@ test_qreach
 /python_pkg/__pycache__/
 
 /.vscode/
+
+*.png
+
+*.smv
+
+/NuSMV-2.7.0-linux64/

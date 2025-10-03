@@ -25,11 +25,17 @@ SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp)
 SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp)
 SOURCE_FILES += $(shell find cflobdd/CFLOBDD -maxdepth 1 -mindepth 1 -name \*.cpp -a -not -name main.cpp)
 SOURCE_FILES := $(filter-out quantum_circuit.cpp, $(SOURCE_FILES))
+SOURCE_FILES := $(filter-out test.cpp, $(SOURCE_FILES))
 # [SOURCE_FILES] -= $(shell ls cflobdd/CFLOBDD/main.cpp)
 # $(info $(SOURCE_FILES))
 
 # Create an object file of every cpp file
 OBJECTS = $(patsubst %.cpp, %.o, $(SOURCE_FILES))
+
+SOURCE_FILES_TEST := $(filter-out qts.cpp, $(SOURCE_FILES))
+SOURCE_FILES_TEST += $(shell ls test.cpp)
+
+OBJECTS_TEST = $(patsubst %.cpp, %.o, $(SOURCE_FILES_TEST))
 
 # Dependencies
 DEPENDENCIES = $(patsubst %.cpp, %.d, $(SOURCE_FILES))
@@ -46,8 +52,8 @@ $(PROJECT): $(OBJECTS)
 #   include $(DEPENDENCIES)
 # endif
 
-$(TEST): $(OBJECTS)
-	$(CC) -o $(TEST) $(OBJECTS)
+$(TEST): $(OBJECTS_TEST)
+	$(CC) -o $(TEST) $(OBJECTS_TEST)
 
 test: $(TEST)
 	@echo "Target $(TEST) is built."
