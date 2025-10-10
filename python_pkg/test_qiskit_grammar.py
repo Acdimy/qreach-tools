@@ -68,7 +68,7 @@ ancBits = ClassicalRegister(1, name='anc')
 circ = QuantumCircuit(qubits, midBits, ancBits)
 theta = 2 * np.arccos(np.sqrt(0.2))
 circ.reset([0, 1, 2])
-for i in range(1):
+for i in range(2):
     with circ.if_test((midBits, 0b00)):
         # circ.ry(theta, 0); circ.ry(theta, 1)
         circ.u(theta, 0, 0, 0)
@@ -99,11 +99,12 @@ for i in range(1):
         with circ.if_test((midBits, 0b11)):
             circ.x(2)
         circ.measure(2,2)
-    with circ.if_test((midBits, 0b10)): # The first register is 0, the second is 1
-        circ.reset([0, 1, 2])
-        circ.measure(0,0)
-        circ.measure(1,1)
-        circ.measure(2,2)
+    if i < 1:
+        with circ.if_test((midBits, 0b10)): # The first register is 0, the second is 1
+            circ.reset([0, 1, 2])
+            circ.measure(0,0)
+            circ.measure(1,1)
+            circ.measure(2,2)
 
 
 ts = pyqreach.TransitionSystem()
@@ -122,14 +123,18 @@ print(f"Time taken for computing fixed point post: {end_time - start_time:.2f} s
 ap_start_time = time()
 tsLabellingDefault(ts, "valid")
 # Note that the order of labelling matters here! The first register is 1, the second is 0, that is different from line 102
-tsLabellingClRegList(ts, ["10"], "p")
+tsLabellingClRegList(ts, ["10"], "t")
+tsLabellingClRegList(ts, ["00", "11"], "f")
+tsLabellingClRegList(ts, ["01"], "h")
 # tsLabellingClRegList(ts, ["11"], "p11")
 for loc in range(ts.getLocationNum()):
-    if ts.Locations[loc].getIdentifier() == "S8.I.S1" and "valid" in ts.getLabels(loc):
-        ts.setLabel(loc, "head")
+    # if ts.Locations[loc].getIdentifier() == "S8.I.S1" and "valid" in ts.getLabels(loc):
+    #     ts.setLabel(loc, "head")
     # If 'W' is in the identifier
     if 'W' in ts.Locations[loc].getIdentifier():
         ts.setLabel(loc, "loop")
+    if ts.isLeafLoc(loc):
+        ts.setLabel(loc, "leaf")
 
 for loc in range(ts.getLocationNum()):
     # if the identifier is S12.W.S8, set label 's8'
@@ -154,14 +159,18 @@ model_start_time = time()
 # AG ((p & valid & !loop) -> ! E [valid U head]) True
 # AG ((p) -> ! E [valid U head])
 # AG ((p) -> ! EG valid)
+# AG ((p & valid) -> ! E [valid U head])
+# AG ((t & valid) -> ! E [valid U (leaf & ! t)])
+# AG leaf -> !f
 # 同时check多个specs
-result = modelChecking(ts, 'AG ((p & valid) -> ! E [valid U head])')
-# result = modelChecking(ts, 'AF (head)')
+result = modelChecking(ts, 'AG ((t & valid) -> ! E [valid U (valid & leaf & ! t)])')
+# result = modelChecking(ts, 'AG leaf -> !f')
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Output: ", result["output"])
 print("Model checking result:", result['satisfied'])
 
+# visualize_transition_system(ts, 'output/qbf_dynamic_qiskit_1009')
 # graph_dic = ts2Dict(ts)
 # smv_content = dict2SMV(graph_dic, 'AG ((p & !loop) -> ! E [valid U head])')
 # with open('qbf.smv', 'w') as f:
@@ -169,4 +178,4 @@ print("Model checking result:", result['satisfied'])
 
 # graph_dic = ts2Dict(ts)
 # graph_nx = dict2NX(graph_dic)
-# nx2Graph_hierarchical(graph_nx, 'qbf_dynamic_qiskit')
+# nx2Graph_hierarchical(graph_nx, 'output/qbf_dynamic_qiskit_nx1009')

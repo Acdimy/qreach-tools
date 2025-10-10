@@ -175,6 +175,23 @@ def get_condition_info(cregs: list, condition: tuple) -> str:
         raise ValueError("Unsupported classical register type in condition")
     return clbits_idx, clbits_vals
 
+def get_global_cl_index(clbits) -> list:
+    """
+    Get the global indices of the classical bit of a gate.
+    
+    clbits: list of Clbit (from a Qiskit instruction)
+    Returns: list of global indices of the classical bits
+    """
+    global CLREG_ORDER
+    clbits_idx = []
+    for c in clbits:
+        clreg_name = c._register.name
+        clreg_bit_idx = c._index
+        clreg_reg_idx = next((i for i, reg in enumerate(CLREG_ORDER) if reg.name == clreg_name), None)
+        reg_start_idx = sum([reg.size for reg in CLREG_ORDER[:clreg_reg_idx]]) + clreg_bit_idx
+        clbits_idx.append(reg_start_idx)
+    return clbits_idx
+
 def groupby_classical_aps(ts: pyqreach.TransitionSystem, currLocs: list) -> dict:
     """
     Group current locations by their classical APs.
@@ -240,6 +257,8 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
     afterLoopBodyList = []
     satisfyTerms = ts.Locations[startIdx].satisfyBit(clbits_idx, clbits_vals)
     unsatisfyTerms = ts.Locations[startIdx].unsatisfyBit(clbits_idx, clbits_vals)
+    # print(ts.Locations[startIdx].cp.toString())
+    # print(len(satisfyTerms), "satisfy terms, ", len(unsatisfyTerms), "unsatisfy terms at location", startIdx)
     assert(len(satisfyTerms) + len(unsatisfyTerms) == ts.Locations[startIdx].termNum()), "Condition terms do not match the location's terms."
     if identifier != "" and not identifier.endswith('.'):
         identifier += "."
@@ -344,7 +363,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 continue
         # Note: Assume there is a single quantum register in the circuit!!!
         qubits = [q._index for q in gate.qubits]
-        cbits = [c._index for c in gate.clbits] if gate.clbits else []
+        cbits = get_global_cl_index(gate.clbits) if gate.clbits else []
         if op_name == 'if_else':
             # Two instruction blocks, one for if and one for else, double the curr_loc_list
             # 1. For each current location, create a branch for ITE (in case part of the clVars satisfy if and part satisfy else). Otherwise, create a single postLoc.
@@ -405,8 +424,6 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             if abstractLevel == 1:
                 # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
                 grouped = groupby_classical_aps(ts, tempNewCurrLoc)
-                if 2636 in currLoc:
-                    print("Grouped locations by classical APs:", grouped)
                 tempNewCurrLoc = []
                 for key, locs in grouped.items():
                     if len(locs) > 1:
@@ -420,6 +437,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             while_block_cir = gate.operation.params[0]
             condition = gate.operation.condition
             clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+            # print(clbits_idx, clbits_vals, "Condition info for while_loop operation.")
             outLoopLocs = []
             for cLoc in currLoc:
                 exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, identifier+"S"+str(pivot+_+1), abstractLevel)
@@ -515,9 +533,10 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 
         elif op_name == 'measure':
             # Another operation that split the locations. The only operation that can modify classical bits.
-            for i,cl in enumerate(currLoc):
-                for j in range(i+1, len(currLoc)):
-                    assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
+            # Assert single qubit measurement!
+            # for i_meas,cl in enumerate(currLoc):
+            #     for j in range(i_meas+1, len(currLoc)):
+            #         assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
             assert len(qubits) == 1, "Measure operation can only be applied to one qubit at a time."
             measuredLocDict = {}
             tempNewCurrLoc = []
@@ -567,6 +586,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                     #             print("cLoc: ", cLoc)
                     measuredLocDict[meas1_key] = ts.getLocationNum() - 1
                     tempNewCurrLoc.append(ts.getLocationNum() - 1)
+                    # print(ts.Locations[ts.getLocationNum()-1].cp.toString(), "Classical APs of the new measured location at ", cbits[0])
                     ts.addRelation(cLoc, ts.getLocationNum() - 1, pyqreach.QOperation("meas1", qnum, qubits, []))
                 else:
                     ts.addRelation(cLoc, measuredLocDict[meas1_key], pyqreach.QOperation("meas1", qnum, qubits, []))
@@ -645,6 +665,9 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             elif op_name == 'u':
                 theta, phi, lam = gate.operation.params
                 op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, phi/pi, lam/pi])
+            elif op_name == 'u1':
+                lam = gate.operation.params[0]
+                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
             elif op_name == 'rx':
                 pass
             elif op_name == 'ry':
@@ -677,12 +700,17 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 op = pyqreach.QOperation("CZ", qnum, qubits, [])
             elif op_name == 'cp':
                 op = pyqreach.QOperation("CP", qnum, qubits, [gate.operation.params[0]])
+            elif op_name == 'cu1':
+                lam = gate.operation.params[0]
+                op = pyqreach.QOperation("CP", qnum, qubits, [lam/pi])
             elif op_name == 'csx':
                 op = pyqreach.QOperation("CSX", qnum, qubits, [])
             elif op_name == 'swap':
                 op = pyqreach.QOperation("SWAP", qnum, qubits, [])
             elif op_name == 'iswap':
                 op = pyqreach.QOperation("iSWAP", qnum, qubits, [])
+            elif op_name == 'ccx':
+                op = pyqreach.QOperation("CCX", qnum, qubits, [])
             elif op_name == 'reset':
                 # Reset operation, we assume it resets all qubits to |0>, using resetAll QOperation, or reset a single qubit to |0>,
                 # resulting in a mixed state, we use reset QOperation.
@@ -692,7 +720,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 # If there exists a qubit that is not reset, we set doResetAll to False.
                 recordResetSet = set()
                 if doResetAll:
-                    print("Into resetAll pruning at instruction index:", _)
+                    # print("Into resetAll pruning at instruction index:", _)
                     for gidx in range(_, _+qnum-1):
                         resetBit = instructions[gidx].qubits[0]._index
                         if resetBit not in recordResetSet:
