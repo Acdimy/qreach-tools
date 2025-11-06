@@ -8,19 +8,21 @@ class Proposition:
         self.content = content
         self.condition = condition
 
-def tsLabelling(ts, op: pyqreach.QOperation, label: str):
-    for loc in range(ts.getLocationNum()):
+def tsLabelling(ts, op: pyqreach.QOperation, label: str, locList: list=None):
+    iterList = range(ts.getLocationNum()) if locList is None else locList
+    for loc in iterList:
         if ts.Locations[loc].satisfy(op):
             ts.setLabel(loc, label)
             # print(f"Location {loc} labelled with {label}")
 
-def tsLabellingDefault(ts, label: str):
-    for loc in range(ts.getLocationNum()):
+def tsLabellingDefault(ts, label: str, locList: list=None):
+    iterList = range(ts.getLocationNum()) if locList is None else locList
+    for loc in iterList:
         # if ts.Locations[loc].satisfyDefault():
         if ts.printDims(loc)[1] > 0:
             ts.setLabel(loc, label)
 
-def tsLabellingClRegList(ts, clRegList: list, label: str):
+def tsLabellingClRegList(ts, clRegList: list, label: str, locList:list=None):
     """
     Label locations in the transition system based on classical register values: |= BigVee clRegList.
     :param ts: Transition system
@@ -28,7 +30,8 @@ def tsLabellingClRegList(ts, clRegList: list, label: str):
     :label: Label to assign to the locations that satisfy the classical register values
     """
     clRegBins = [[int(bit) for bit in clReg] for clReg in clRegList]
-    for loc in range(ts.getLocationNum()):
+    iterList = range(ts.getLocationNum()) if locList is None else locList
+    for loc in iterList:
         # Once one of the clReg in clRegList is satisfied, label the location and break
         for clRegBin in clRegBins:
             # convert clReg to a binary list

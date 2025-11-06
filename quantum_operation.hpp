@@ -1208,7 +1208,7 @@ class QOperation {
          ***/
         assert(!this->type && !other.type);
         if (other.oplist.size() == 0) {
-            // The vector remains unnormalized here!
+            // The vector remains unnormalized here! And without judgement of zero vector!!!
             return *this;
         }
         if (this->oplist.size() == 0) {
@@ -1304,6 +1304,7 @@ class QOperation {
         for (size_t i = 0; i < this->oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
             if (!ivec) continue;
+            if (checkifzero(ivec->content)) continue; // A key optimization!
             for (size_t j = 0; j < other.oplist.size(); j++) {
                 auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                 if (!jgate) continue;
