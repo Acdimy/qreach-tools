@@ -68,7 +68,8 @@ ancBits = ClassicalRegister(1, name='anc')
 circ = QuantumCircuit(qubits, midBits, ancBits)
 theta = 2 * np.arccos(np.sqrt(0.2))
 circ.reset([0, 1, 2])
-for i in range(2):
+k = 1
+for i in range(k):
     with circ.if_test((midBits, 0b00)):
         # circ.ry(theta, 0); circ.ry(theta, 1)
         circ.u(theta, 0, 0, 0)
@@ -94,12 +95,12 @@ for i in range(2):
         circ.h(0)
         circ.measure(0,0)
         circ.measure(1,1)
-        with circ.if_test((midBits, 0b00)):
+        with circ.if_test((midBits, 0b00)): # Change here to simulate a bug
             circ.x(2)
         with circ.if_test((midBits, 0b11)):
             circ.x(2)
         circ.measure(2,2)
-    if i < 1:
+    if i < k-1:
         with circ.if_test((midBits, 0b10)): # The first register is 0, the second is 1
             circ.reset([0, 1, 2])
             circ.measure(0,0)
@@ -140,11 +141,36 @@ for loc in range(ts.getLocationNum()):
     # if the identifier is S12.W.S8, set label 's8'
     if ts.Locations[loc].getIdentifier() == "S7.W.S9":
         ts.setLabel(loc, "s9")
+        
+# Check the prelocation
+# for loc in range(ts.getLocationNum()):
+#     for succ in ts.Locations[loc].postLocations:
+#         if succ == 1247:
+#             print("Predecessor:", loc, ts.Locations[loc].getIdentifier(), ts.getLabels(loc), ts.Locations[loc].cp.toString())
+# 1317 1315 1314 1313 1312 1311 1293(I.M) (1255(valid),1265,1281) 1247
 
 ap_end_time = time()
 print(f"Time taken for atomic proposition labelling: {ap_end_time - ap_start_time:.2f} seconds")
+# print(ts.Locations[1262].getIdentifier(), ts.getLabels(1262), ts.Locations[1262].cp.toString())
+# print(ts.Locations[1269].getIdentifier(), ts.getLabels(1269), ts.Locations[1269].cp.toString())
+# print(ts.Locations[1297].getIdentifier(), ts.getLabels(1297), ts.Locations[1297].cp.toString())
+# print(ts.Locations[1320].getIdentifier(), ts.getLabels(1320), ts.Locations[1320].cp.toString()) # 关键问题
+# print(ts.Locations[1325].getIdentifier(), ts.getLabels(1325), ts.Locations[1325].cp.toString())
+# print(ts.Locations[1332].getIdentifier(), ts.getLabels(1332), ts.Locations[1332].cp.toString())
+# print(ts.Locations[1354].getIdentifier(), ts.getLabels(1354), ts.Locations[1354].cp.toString())
+# print(ts.Locations[1379].getIdentifier(), ts.getLabels(1379), ts.Locations[1379].cp.toString())
+# print(ts.Locations[1389].getIdentifier(), ts.getLabels(1389), ts.Locations[1389].cp.toString())
+# print(ts.Locations[2290].getIdentifier(), ts.getLabels(2290), ts.Locations[2290].cp.toString())
+# print(ts.Locations[2291].getIdentifier(), ts.getLabels(2291))
+# print(ts.Locations[2292].getIdentifier(), ts.getLabels(2292))
+# print(ts.Locations[2294].getIdentifier(), ts.getLabels(2294))
+# print(ts.Locations[2296].getIdentifier(), ts.getLabels(2296))
+# print(ts.Locations[2298].getIdentifier(), ts.getLabels(2298))
+# print(ts.Locations[2300].getIdentifier(), ts.getLabels(2300))
+# print(ts.Locations[2302].getIdentifier(), ts.getLabels(2302))
 
-# visualize_transition_system(ts, 'unit_test')
+
+
 
 # # Output all locations and their identifiers
 # with open('identifiers.txt', 'w') as f:

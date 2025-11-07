@@ -190,17 +190,13 @@ def run_all_experiments(algorithm_name, num_tests=10):
     # exclude output
     keys = [k for k in keys if k != 'output' and k != 'counterexample']
     result_df = pd.DataFrame(result_list, columns=keys)
-    os.makedirs("eval/mutation_results", exist_ok=True)
-    result_df.to_csv(f"eval/mutation_results/{algorithm_name}_results.csv", index=False)
+    # os.makedirs("eval/mutation_results", exist_ok=True)
+    result_df.to_csv(f"eval/mutation_results/qismc/{algorithm_name}_results_new.csv", index=False)
     return result_df
 
 
 if __name__ == "__main__":
-    random.seed(random.randint(0, 2147483647))
-    # pyqreach.initializeTransitionSystem()
-    # print(run_single_experiment("quantum_teleportation", num_tests=1))
-    # result = run_single_experiment("superdense_coding", mutant_file="superdense_coding_m3.py")
-    # print(result['output'])
-    # run_all_experiments("superdense_coding")
-    run_all_experiments("quantum_teleportation", num_tests=64)
+    random.seed(42)
+    run_all_experiments("superdense_coding")
+    # run_all_experiments("quantum_teleportation", num_tests=64)
 

@@ -61,9 +61,9 @@ ap_end_time = time()
 print(f"Time taken for atomic proposition labelling: {ap_end_time - ap_start_time:.2f} seconds")
 
 # Convert the transition system to a dictionary and then to a SMV file
-graph_dic = ts2Dict(ts)
-graph_nx = dict2NX(graph_dic)
-nx2Graph_hierarchical(graph_nx, 'steane_dynamic_qiskit')
+# graph_dic = ts2Dict(ts)
+# graph_nx = dict2NX(graph_dic)
+# nx2Graph_hierarchical(graph_nx, 'steane_dynamic_qiskit_1024')
 # smv_content = dict2SMV(graph_dic, 'AG ((leaf & cls) -> p)')
 # with open('unit_test.smv', 'w') as f:
 #     f.write(smv_content)

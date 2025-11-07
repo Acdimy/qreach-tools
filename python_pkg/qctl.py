@@ -275,16 +275,19 @@ def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='.
         temp_file.write(smv_code)
         temp_file_name = temp_file.name
     try:
-        result = subprocess.run([nusmv_cmd, temp_file_name], capture_output=True, text=True, timeout=60)
+        result = subprocess.run([nusmv_cmd, temp_file_name], capture_output=True, text=True, timeout=240)
         output = result.stdout + result.stderr
     except subprocess.TimeoutExpired:
         output = 'Timeout: NuSMV took too long to respond.'
+        print(output)
         return {'satisfied': None, 'counterexample': None, 'output': output}
     except FileNotFoundError:
         output = f'Error: {nusmv_cmd} not found. Please verify the path or ensure NuSMV is in PATH.'
+        print(output)
         return {'satisfied': None, 'counterexample': None, 'output': output}
     except Exception as e:
         output = f'Error running NuSMV: {str(e)}'
+        print(output)
         return {'satisfied': None, 'counterexample': None, 'output': output}
     finally:
         os.unlink(temp_file_name)
@@ -302,5 +305,6 @@ def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='.
                 counterexample = output[cex_start:cex_end].strip() if cex_end != -1 else output[cex_start:].strip()
         return {'satisfied': satisfied, 'counterexample': counterexample, 'output': output}
     else:
+        print(f"Unexpected NuSMV output:\n{output}")
         return {'satisfied': None, 'counterexample': None, 'output': f'Unexpected output: {output}'}
 
