@@ -49,4 +49,7 @@ opinit = pyqreach.QOperation(["000"])
 ts.setAnnotation([[0, opinit]])
 ts.computingFixedPointPost()
 ts.printSupp(20)
+
+nx2Graph_hierarchical(dict2NX(ts2Dict(ts)), "RUS_graph")
+
 # visualize_transition_system(ts, "RUS_buggy")

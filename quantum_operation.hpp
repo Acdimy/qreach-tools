@@ -1241,6 +1241,10 @@ class QOperation {
             res.qNum = this->qNum;
             return res; // If this is an empty operator, return an empty operator.
         }
+        if (other.isIdentity) {
+            res = *this;
+            return res;
+        }
         if (other.oplist[0]->getType() == false) {
             // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
             // std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;

@@ -36,6 +36,8 @@ namespace CFL_OBDD {
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkPauliYGateTop(unsigned int i, int cflobdd_kind = 1);
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkPauliZGateTop(unsigned int i, int cflobdd_kind = 1);
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkSGateTop(unsigned int i, int cflobdd_kind = 1);
+		// extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkU3GateTop(long int i, double theta, double phi, double lambda, int cflobdd_kind = 1);
+		// extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateTop(long int i, std::vector<double> v, int cflobdd_kind = 1);
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkCNOTInterleavedTop(unsigned int i);
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkExchangeInterleavedTop(unsigned int i); // Representation of exchange matrix
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkCNOTTopNode(unsigned int level, unsigned int n, long int controller, long int controlled, int cflobdd_kind = 1);
@@ -46,6 +48,8 @@ namespace CFL_OBDD {
 
 		extern void MatrixPrintRowMajorTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr n, std::ostream & out);
 		extern void MatrixPrintRowMajorInterleavedTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr n, std::ostream & out);
+		// extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MatrixConjugateTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c);
+		// extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MatrixTransposeTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c);
 
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MatrixMultiplyV4TopNode(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c1, WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c2);
 		extern WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkSwapGateTop(unsigned int level, long int i, long int j, int cflobdd_kind = 1);

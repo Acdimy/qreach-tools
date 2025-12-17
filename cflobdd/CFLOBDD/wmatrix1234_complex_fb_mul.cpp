@@ -85,6 +85,14 @@ namespace CFL_OBDD {
 			return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MatrixMultiplyV4TopNode(m1.root, m2.root));
 		}
 
+		// WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MatrixConjugate(WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL c){
+		// 	return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MatrixConjugateTop(c.root));
+		// }
+
+		// WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MatrixTranspose(WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL c){
+		// 	return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MatrixTransposeTop(c.root));
+		// }
+
         WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkCNOT(unsigned int level, unsigned int n, long int controller, long int controlled, int cflobdd_kind){
 			return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MkCNOTTopNode(level, n, controller, controlled, cflobdd_kind));
 		}
@@ -164,6 +172,19 @@ namespace CFL_OBDD {
 		{
 			return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MkCSwapGateTop(i, c1, x1, x2, cflobdd_kind));
 		}
+
+		// WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkU3Gate(unsigned int i, std::vector<double> v, int cflobdd_kind)
+		// {
+		// 	assert(i == 1);
+		// 	return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MkU3GateTop(i, v[0], v[1], v[2], cflobdd_kind));
+		// }
+
+		// WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkArbitraryGate(unsigned int i, std::vector<double> v, int cflobdd_kind)
+		// {
+		// 	//v1_r, v1_i, v2_r, v2_i, v3_r, v3_i, v4_r, v4_i
+		// 	assert(i == 1);
+		// 	return WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL(MkArbitraryGateTop(i, v, cflobdd_kind));
+		// }
 	}
 }
 

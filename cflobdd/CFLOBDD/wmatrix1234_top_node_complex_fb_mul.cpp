@@ -98,6 +98,31 @@ namespace CFL_OBDD {
 			return v;
 		}
 
+		// WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkU3GateTop(long int i, double theta, double phi, double lambda, int cflobdd_kind)
+		// {
+		// 	WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr v;
+		// 	return v;
+		// }
+
+		// WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkArbitraryGateTop(unsigned int i, std::vector<BIG_COMPLEX_FLOAT> matrix, int cflobdd_kind)
+		// {
+		// 	WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr v;
+		// 	return v;
+		// }
+
+		// WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MatrixConjugateTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c)
+		// {
+		// 	WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr v;
+		// 	return v;
+		// }
+
+		// WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MatrixTransposeTop(WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr c)
+		// {
+		// 	WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr v;
+		// 	return v;
+		// }
+
+
 		WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr MkCNOTInterleavedTop(unsigned int i)
 		{
 			WeightedCFLOBDDTopNodeComplexFloatBoostRefPtr v;

@@ -40,6 +40,8 @@ namespace CFL_OBDD {
 
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MatrixMultiplyV4(WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL m1, WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL m2);
         extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL CreateBalancedFn(int n, std::mt19937 mt);
+		// extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MatrixConjugate(WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL c);
+		// extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MatrixTranspose(WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL c);
 
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkSwapGate(unsigned int i, long int c1, long int c2, int cflobdd_kind = 1);
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkiSwapGate(unsigned int i, long int c1, long int c2, int cflobdd_kind = 1);
@@ -47,6 +49,9 @@ namespace CFL_OBDD {
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkPhaseShiftGate(unsigned int i, double theta, int cflobdd_kind = 1);
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkCZGate(unsigned int i, long int c1, long int c2, double theta, int cflobdd_kind = 1);
 		extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkCSwapGate(unsigned int i, long int c1, long int x1, long int x2, int cflobdd_kind = 1);
+
+		// extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkU3Gate(unsigned int i, std::vector<double> v, int cflobdd_kind = 1);
+		// extern WEIGHTED_CFLOBDD_COMPLEX_FLOAT_BOOST_MUL MkArbitraryGate(unsigned int i, std::vector<double> v, int cflobdd_kind = 1);
 	}
 }
 

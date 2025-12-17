@@ -68,7 +68,7 @@ ancBits = ClassicalRegister(1, name='anc')
 circ = QuantumCircuit(qubits, midBits, ancBits)
 theta = 2 * np.arccos(np.sqrt(0.2))
 circ.reset([0, 1, 2])
-k = 1
+k = 2
 for i in range(k):
     with circ.if_test((midBits, 0b00)):
         # circ.ry(theta, 0); circ.ry(theta, 1)
