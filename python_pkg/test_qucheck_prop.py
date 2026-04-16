@@ -1,3 +1,5 @@
+# This is a test file to implement the same qucheck properties using QisMC
+
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
 from qiskit.quantum_info import Statevector

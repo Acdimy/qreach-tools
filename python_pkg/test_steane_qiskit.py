@@ -1,3 +1,5 @@
+# This is the test file to run Steane code encoding and error correction using QisMC, see the motivating example in the paper.
+
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile

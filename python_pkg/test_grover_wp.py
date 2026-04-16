@@ -1,3 +1,4 @@
+# This is the test file to run the wp verification of Grover's search algorithm using QisMC.
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile

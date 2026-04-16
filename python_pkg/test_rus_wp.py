@@ -1,3 +1,5 @@
+# This is a test file to run some pre-condition verification on RUS circuits using QisMC, not presented in the paper.
+
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile

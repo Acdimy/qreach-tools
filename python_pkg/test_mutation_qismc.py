@@ -1,3 +1,5 @@
+# This is a test file to run mutation testing on QisMC properties for quantum teleportation and superdense coding, compared with the results in qucheck. See the paper.
+
 import importlib.util
 import csv
 import sys

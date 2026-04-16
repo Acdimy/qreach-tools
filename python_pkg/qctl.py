@@ -39,6 +39,35 @@ def tsLabellingClRegList(ts, clRegList: list, label: str, locList:list=None):
                 ts.setLabel(loc, label)
                 break
 
+def BellProposition(num_qubits: int, qubit_indices: list, Bell_idx: int) -> pyqreach.QOperation:
+    """
+    Construct a proposition for Bell state on specified qubits.
+    Bell_idx: 0 for |Φ+>, 1 for |Φ->, 2 for |Ψ+>, 3 for |Ψ->
+    """
+    assert num_qubits == 3 and qubit_indices == [0, 1], "BellProposition currently only supports 2 qubits at indices [0, 1] in a 3-qubit system."
+    if len(qubit_indices) != 2:
+        raise ValueError("BellProposition requires exactly 2 qubits.")
+    if Bell_idx not in {0, 1, 2, 3}:
+        raise ValueError("Bell_idx must be in {0, 1, 2, 3}.")
+    ts_temp = pyqreach.TransitionSystem(False)
+    loc0, loc1, loc2 = pyqreach.Location(num_qubits,0), pyqreach.Location(num_qubits,1), pyqreach.Location(num_qubits,2)
+    ts_temp.addLocation(loc0)
+    ts_temp.addLocation(loc1)
+    ts_temp.addLocation(loc2)
+    ts_temp.addRelation(0, 1, pyqreach.QOperation("H", num_qubits, [qubit_indices[0]], []))
+    ts_temp.addRelation(1, 2, pyqreach.QOperation("CX", num_qubits, [qubit_indices[0], qubit_indices[1]], []))
+    if Bell_idx == 0:
+        ts_temp.setAnnotation([[0, pyqreach.QOperation(["000"])]])
+    elif Bell_idx == 1:
+        ts_temp.setAnnotation([[0, pyqreach.QOperation(["100"])]])
+    elif Bell_idx == 2:
+        ts_temp.setAnnotation([[0, pyqreach.QOperation(["010"])]])
+    elif Bell_idx == 3:
+        ts_temp.setAnnotation([[0, pyqreach.QOperation(["110"])]])
+    ts_temp.computingFixedPointPost()
+    bell_op = ts_temp.Locations[2].lowerBound
+    return bell_op
+
 def labelling(ts: pyqreach.TransitionSystem, propositions: list):
     pass
 

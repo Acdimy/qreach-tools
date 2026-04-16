@@ -1,3 +1,5 @@
+# This is a test file to run DQC_PE and Grover in the paper.
+
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
@@ -187,7 +189,7 @@ def run_type(type_name:str="grover", debug:bool=False, error_injection:bool=Fals
         debug_sat_percent = sum(1 for d in result_dict_list if d["debug_info"]==True) / rep * 100 if debug else "N/A"
         final_result_dict["debug_satisfaction_percent"] = debug_sat_percent
         
-        savefile = f"eval/scale_debug/{type_name}_results_{injection_info}_1106.csv"
+        savefile = f"eval/scale_debug/{type_name}_results_{injection_info}_0218.csv"
         df = pd.DataFrame([final_result_dict])
         try:
             df_existing = pd.read_csv(savefile)

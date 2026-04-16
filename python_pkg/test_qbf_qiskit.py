@@ -1,3 +1,5 @@
+# This is a test file to show the principle of quantum Bernoulli factory using Qiskit
+
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile

@@ -1,3 +1,5 @@
+# This is a test file to verify QBF using QisMC, showing the results in the paper.
+
 import pyqreach
 ### Verifiable quantum secret sharing
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, transpile
@@ -142,6 +144,11 @@ for loc in range(ts.getLocationNum()):
     if ts.Locations[loc].getIdentifier() == "S7.W.S9":
         ts.setLabel(loc, "s9")
         
+opBell1 = BellProposition(3, [0, 1], 2) # Psi+
+opBell2 = BellProposition(3, [0, 1], 1) # Phi-
+tsLabelling(ts, opBell1, "psip")
+tsLabelling(ts, opBell2, "phim")
+
 # Check the prelocation
 # for loc in range(ts.getLocationNum()):
 #     for succ in ts.Locations[loc].postLocations:
@@ -151,24 +158,6 @@ for loc in range(ts.getLocationNum()):
 
 ap_end_time = time()
 print(f"Time taken for atomic proposition labelling: {ap_end_time - ap_start_time:.2f} seconds")
-# print(ts.Locations[1262].getIdentifier(), ts.getLabels(1262), ts.Locations[1262].cp.toString())
-# print(ts.Locations[1269].getIdentifier(), ts.getLabels(1269), ts.Locations[1269].cp.toString())
-# print(ts.Locations[1297].getIdentifier(), ts.getLabels(1297), ts.Locations[1297].cp.toString())
-# print(ts.Locations[1320].getIdentifier(), ts.getLabels(1320), ts.Locations[1320].cp.toString()) # 关键问题
-# print(ts.Locations[1325].getIdentifier(), ts.getLabels(1325), ts.Locations[1325].cp.toString())
-# print(ts.Locations[1332].getIdentifier(), ts.getLabels(1332), ts.Locations[1332].cp.toString())
-# print(ts.Locations[1354].getIdentifier(), ts.getLabels(1354), ts.Locations[1354].cp.toString())
-# print(ts.Locations[1379].getIdentifier(), ts.getLabels(1379), ts.Locations[1379].cp.toString())
-# print(ts.Locations[1389].getIdentifier(), ts.getLabels(1389), ts.Locations[1389].cp.toString())
-# print(ts.Locations[2290].getIdentifier(), ts.getLabels(2290), ts.Locations[2290].cp.toString())
-# print(ts.Locations[2291].getIdentifier(), ts.getLabels(2291))
-# print(ts.Locations[2292].getIdentifier(), ts.getLabels(2292))
-# print(ts.Locations[2294].getIdentifier(), ts.getLabels(2294))
-# print(ts.Locations[2296].getIdentifier(), ts.getLabels(2296))
-# print(ts.Locations[2298].getIdentifier(), ts.getLabels(2298))
-# print(ts.Locations[2300].getIdentifier(), ts.getLabels(2300))
-# print(ts.Locations[2302].getIdentifier(), ts.getLabels(2302))
-
 
 
 
@@ -189,8 +178,9 @@ model_start_time = time()
 # AG ((t & valid) -> ! E [valid U (leaf & ! t)])
 # AG leaf -> !f
 # 同时check多个specs
-result = modelChecking(ts, 'AG ((t & valid) -> ! E [valid U (valid & leaf & ! t)])')
+# result = modelChecking(ts, 'AG ((t & valid) -> ! E [valid U (valid & leaf & ! t)])')
 # result = modelChecking(ts, 'AG leaf -> !f')
+result = modelChecking(ts, 'AG (EF (psip | phim))') # Eventually reach Bell state
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Output: ", result["output"])

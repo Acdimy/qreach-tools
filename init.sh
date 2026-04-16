@@ -1,10 +1,14 @@
+# Compile
 conda activate qmc && cd python_pkg &&\
 alias python=python3\
 export PYTHON_INCLUDE=`python -c "from sysconfig import get_paths as gp; print(gp()[\"include\"])"` \
 export BOOST_PATH="~/stab_dd/boost_1_81_0"
+
+# Seems useless but leave it here for now
 export NUSMV_LIBRARY_PATH="~/stab_dd/NuSMV-2.7.0/share/nusmv"
 export PATH="~/stab_dd/NuSMV-2.7.0-linux64/bin:$PATH"
 
+# Build QReach and pybind11 package
 invoke build-qreach && invoke build-pybind11
 
 python -m case_studies.mutation_test_runner

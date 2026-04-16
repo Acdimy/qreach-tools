@@ -1,3 +1,5 @@
+# This is a test file to run benchpress medium qasm files with error injection, see results in the paper.
+
 from test_parse_qasm import *
 import os
 import shutil
@@ -26,8 +28,7 @@ if __name__ == "__main__":
                 
     pyqreach.initializeTransitionSystem()
     random.seed(42)
-    qasm_files = ["benchmark/benchpress-medium/supported/bv_n14_transpiled.qasm"]
     for qasm_file in qasm_files:
         print(f"Running test for {qasm_file}")
-        run_single_test(qasm_file, "eval/scale_debug/benchpress_medium_inj_1106.csv", debug=True, error_injection=True)
+        run_single_test(qasm_file, "eval/scale_debug/benchpress_medium_inj_0221.csv", debug=True, error_injection=True)
         print("-"*40)
