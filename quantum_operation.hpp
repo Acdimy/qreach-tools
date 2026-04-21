@@ -204,6 +204,9 @@ class QuantumGateTerm : public QuantumTerm {
         }
     }
     bool getType() const override {return true;}
+    bool isEqual(const QuantumGateTerm& other) const {
+        return this->name == other.name && this->index == other.index && this->vars == other.vars && this->qNum == other.qNum;
+    }
     std::unique_ptr<QuantumTerm> clone() const override {
         return std::make_unique<QuantumGateTerm>(*this);
     }
@@ -702,8 +705,14 @@ class QOperation {
         this->normalized = true;
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
-        // Construct a QOperation of quantum gate.
-        // Could merge
+        /*
+        Construct a QOperation of quantum gate.
+        Params:
+            nam: the name of the gate, such as "X", "H", "CX", "U3", "meas0", "reset", etc.
+            qNum: the real qubits of the operation.
+            idx: the indexes of the qubits that the gate acts on.
+            pars: the parameters of the gate, such as the angles of the U3 gate.
+        */
         this->type = true;
         this->realqNum = qNum;
         unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
@@ -808,6 +817,13 @@ class QOperation {
         }
     }
 
+    bool isOperation() const {
+        return type == true && isProj < 0;
+    }
+    bool isProjection() const {
+        return type == false || isProj >= 0;
+    }
+
     QOperation& operator=(const QOperation& other) {
         if (this != &other) {
             type = other.type;
@@ -829,15 +845,40 @@ class QOperation {
     }
     
     std::string getName() const {
+        if(this->oplist.empty()) {
+            return "0";
+        }
+        if(this->isIdentity) {
+            return "I";
+        }
         if (this->type == false) {
-            return "Projective Operation";
+            return this->printFormal(false);
         } else {
             std::string res;
             for (const auto& term : this->oplist) {
                 if (term && term->getType()) {
                     auto* gateTerm = dynamic_cast<QuantumGateTerm*>(term.get());
                     if (gateTerm) {
-                        res += gateTerm->name + " ";
+                        // Append the qubit indexes to the name of the gate, for example, "CX(0,1)", "U3(0,1,2)", etc.
+                        res += gateTerm->name;
+                        // Append gateTerm->index
+                        res += "(";
+                        for (size_t i = 0; i < gateTerm->index.size(); i++) {
+                            res += std::to_string(gateTerm->index[i]);
+                            if (i != gateTerm->index.size() - 1) {
+                                res += ",";
+                            }
+                        }
+                        res += ")";
+                        // Append gateTerm->vars if it is not empty, for example, "U3(0,1,2)[theta,phi,lambda]", "CP(0,1)[theta]", etc.
+                        res += "[";
+                        for (size_t i = 0; i < gateTerm->vars.size(); i++) {
+                            res += std::to_string(gateTerm->vars[i]);
+                            if (i != gateTerm->vars.size() - 1) {
+                                res += ",";
+                            }
+                        }
+                        res += "]";
                     } else {
                         std::cout << "Unknown quantum term type in getName()." << std::endl;
                     }
@@ -845,7 +886,7 @@ class QOperation {
                     std::cout << "Null quantum term in getName()." << std::endl;
                 }
             }
-            return res.empty() ? "Empty Quantum Operation" : res;
+            return res.empty() ? "Emp" : res;
         }
     }
 
@@ -855,6 +896,27 @@ class QOperation {
             return;
         }
         oplist.push_back(std::move(qt));
+    }
+    QOperation add(const QOperation& other) const {
+        assert(this->qNum == other.qNum);
+        // If one of the QOperations is empty, return the other one.
+        if (this->oplist.empty()) {
+            return other;
+        }
+        if (other.oplist.empty()) {
+            return *this;
+        }
+        assert(this->type == other.type && this->type == true);
+        // Just concatenate the oplist, and mark as not normalized.
+        QOperation res = *this;
+        for (const auto& term : other.oplist) {
+            if (term) {
+                res.oplist.push_back(term->clone());
+            } else {
+                res.oplist.push_back(nullptr);
+            }
+        }
+        return res;
     }
     std::vector<std::unique_ptr<QuantumTerm>> fetch(unsigned int begin,unsigned int end) {
         // fetch the oplist from begin to end, using move semantics
@@ -1337,93 +1399,6 @@ class QOperation {
         }
         return res;
     }
-
-    // QOperation operator+(const QOperation& other) const {
-    //     // Still unclear: when is the plus used?
-    //     if (type == true) {
-    //         if (other.type == true) {
-    //             /* gate plus gate */
-    //             /* append gates to the end */
-    //             if (this->oplist.size() > 0 && other.oplist.size() > 0) {
-    //                 assert(this->oplist[0]->getType() == other.oplist[0]->getType());
-    //             }
-    //             std::vector<std::unique_ptr<QuantumTerm>> newlist = this->oplist;
-    //             newlist.insert(newlist.end(), other.oplist.begin(), other.oplist.end());
-    //             QOperation res(true, newlist);
-    //             return res;
-    //         } else {
-    //             /* gate plus cflobdd */
-    //             throw std::runtime_error("Cannot support plus between gates and operators");
-    //         }
-    //     } else {
-    //         if (other.type == true) {
-    //             /* cflobdd plus cflobdd */
-    //             /* disjunction */
-    //             std::vector<std::unique_ptr<QuantumTerm>> newlist = this->oplist;
-    //             newlist.insert(newlist.end(), other.oplist.begin(), other.oplist.end());
-    //             QOperation res(true, newlist, false);
-    //             return res;
-    //         } else {
-    //             /* cflobdd plus gate */
-    //             throw std::runtime_error("Cannot support plus between gates and operators");
-    //         }
-    //     }
-    // }
-    // QOperation operator*(const QOperation& other) const {
-    //     if (type == true) {
-    //         if (other.type == true) {
-    //             /* gate times gate */
-    //             /* cascade */
-    //             // throw std::runtime_error("Logically, it should be supported");
-    //             for (size_t i = 0; i < this->oplist.size(); i++) {
-    //                 auto* gate1 = dynamic_cast<QuantumGateTerm*>(this->oplist[i].get());
-    //                 for (size_t j = 0; i < other.oplist.size(); j++) {
-    //                     CFLOBDD_COMPLEX_BIG newItem;
-    //                     auto* gate2 = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
-    //                     if (this->oplist[0]->getType() == true) {
-    //                         // Assert all type in a operation are consistant
-    //                         // all operators are gates
-    //                         auto res = gate1->cascade(*gate2);
-    //                         if (res.isConcret) {
-    //                             newItem = res.concretize();
-    //                         } else {
-    //                             newItem = res.content;
-    //                         }
-    //                     } else {
-    //                         throw std::runtime_error("Cannot support the cascade of two operators");
-    //                     }
-    //                 }
-                    
-    //             }
-                
-    //         } else {
-    //             /* gate times cflobdd */
-    //             QOperation res;
-    //             for (size_t i = 0; i < other.oplist.size(); i++) {
-    //                 CFLOBDD_COMPLEX_BIG newItem;
-    //                 for (size_t j = 0; j < this->oplist.size(); j++) {
-    //                     if (this->oplist[0]->getType() == true) {
-    //                         // Assert all type in a operation are consistant
-    //                         // all operators are gates
-    //                         auto* gate1 = dynamic_cast<QuantumGateTerm*>(this->oplist[j].get());
-    //                     } else {
-    //                         // all operators are supporting vector of a space
-    //                     }
-                        
-    //                 }
-    //             }
-                
-    //         }
-    //     } else {
-    //         if (other.type == true) {
-    //             /* cflobdd times cflobdd */
-    //             /* conjunction */
-    //         } else {
-    //             /* cflobdd times gate*/
-    //         }
-    //     }
-    // }
-    
     
     int compare(const QOperation& other) const {
         /* Compare the relation of this and other */
@@ -1431,7 +1406,7 @@ class QOperation {
         // std::cout << this->normalized << " " << other.normalized << std::endl;
         assert(this->normalized && other.normalized);
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
-            return -1;
+            return 4;
         }
         if (this->isIdentity && other.isIdentity) {
             return 4; // Both are identity operators
@@ -1495,6 +1470,29 @@ class QOperation {
         return 3;
     }
     bool operator==(const QOperation& other) const {
+        if(this->isOperation() != other.isOperation()) {
+            return false;
+        }
+        if(this->isOperation() && other.isOperation()) {
+            // We assume the order of the gates in oplist is consistent, which is guaranteed by the constructor of QOperation.
+            if (this->oplist.size() != other.oplist.size()) {
+                return false;
+            }
+            if (this->oplist.size() == 0) {
+                return true;
+            }
+            for (size_t i = 0; i < this->oplist.size(); i++) {
+                auto* gate1 = dynamic_cast<QuantumGateTerm*>(this->oplist[i].get());
+                auto* gate2 = dynamic_cast<QuantumGateTerm*>(other.oplist[i].get());
+                if (!gate1 || !gate2) {
+                    return false;
+                }
+                if (!gate1->isEqual(*gate2)) {
+                    return false;
+                }
+            }
+            return true;
+        }
         /* If the support space of this is the subspace of other */
         assert(this->normalized && other.normalized);
         if (this->oplist.size() > 0) {
@@ -1532,11 +1530,16 @@ class QOperation {
         }
     }
 
-    void printFormal() const {
-        std::cout << "Support vectors:" << std::endl;
+    std::string printFormal(bool print=true) const {
+        std::string finalresult;
+        if(print) {
+            std::cout << "Support vectors:" << std::endl;
+        }
         if (this->isIdentity) {
-            std::cout << "Identity operator." << std::endl;
-            return;
+            if(print) {
+                std::cout << "Identity operator." << std::endl;
+            }
+            return "I";
         }
         for (size_t i = 0; i < this->oplist.size(); i++) {
             std::ostringstream oss;
@@ -1574,9 +1577,16 @@ class QOperation {
                     result << "|" << idxStr << ">";
                 }
             }
-            std::cout << result.str() << std::endl;
+            if (print) {
+                std::cout << result.str() << std::endl;
+            }
+            finalresult += result.str() + "\n";
         }
-        
+        // If finalresult is empty, return "0".
+        if (finalresult.empty()) {
+            finalresult = "0";
+        }
+        return finalresult;
     }
 };
 
@@ -1596,12 +1606,13 @@ QOperation CreateIdentityQO(unsigned int qNum) {
     return res;
 }
 
-QOperation CreateZeroQO(unsigned int qNum) {
+QOperation CreateZeroQO(unsigned int qNum, bool optype = false) {
     unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
-    QOperation res(false);
+    QOperation res(optype);
     res.realqNum = qNum;
     res.qNum = logicqNum;
     res.normalized = true;
+    // res.isProj = -1; // No need to set isProj for zero operator.
     return res;
 }
 
