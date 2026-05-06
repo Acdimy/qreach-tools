@@ -1,66 +1,49 @@
 #include <iostream>
 #include <memory>
-#include "transition_system.hpp"
+#include "transition_system_qadd.hpp"
+using namespace qts;
 
 // Test the basic functionality of transition_system
 int main() {
-    TransitionSystem ts;
-    std::vector<std::string> strings =  {std::string("00000000")};
-    QOperation op(strings);
-    QOperation oph(std::string("H"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opi(std::string("I"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opx(std::string("X"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opz(std::string("Z"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opy(std::string("Y"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opm0(std::string("meas0"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    QOperation opm1(std::string("meas1"), 8, std::vector<unsigned int>{0}, std::vector<double>{});
-    Location loc(8,0); // Create a location with 8 qubits
-    Location loc1(8,1);
-    Location loc2(8,2);
-    Location loc3(8,3);
-    Location loc4(8,4);
-    ts.addLocation(loc);
-    ts.addLocation(loc1);
-    ts.addLocation(loc2);
-    ts.addLocation(loc3);
-    ts.addLocation(loc4);
-    ts.setInitLocation(0); // Set the initial location to 0
-    ts.addRelation(0, 1, oph); // Add a self-loop relation with the operation
-    ts.addRelation(1, 2, opm0);
-    ts.addRelation(1, 3, opm1);
-    ts.addRelation(2, 4, opi);
-    ts.addRelation(3, 4, opi); // Add a self-loop relation for location 3
-    ts.addRelation(4, 4, opi);
-    // ts.addRelation(4, 0, opi);
-    ts.setAnnotation({{4, op}}); // Set the annotation for the location
-    ComputingFixedPointPre(ts); // Compute the fixed point of the post-conditions
-    // The result should be zero space!
-    ts.printDims(0);
-    ts.printDims(1);
-    ts.printDims(2);
-    ts.printDims(3);
-    ts.printDims(4);
-    ts.printSupp(0);
-    ts.printSupp(1);
-
-    // QOperation test = CreateIdentityQO(8);
-    // QOperation test2 = CreateZeroQO(8);
-    // std::cout << "Test QOperation: " << test.isIdentity << " " << test.qNum << std::endl;
-    // std::cout << "Test2 QOperation: " << test2.isIdentity << " " << test2.qNum << std::endl;
-
-    // Stage 1: Combinational quantum circuits and protocols. QASM parser
-    // Stage 2: Optimize measurement.
-    // Stage 3: Append while feature.
-    // Stage 4: Measure multi qubits.
-
-    /*
-    A QASM-like program:
-    qreg q[8];
-    creg c[8];
-    H q[0];
-    CX q[0], q[1];
-    measure q[0] -> c[0];
-    */
-
+    initializeTransitionSystem();
+    int qNum = 16;
+    // Create a all-zero string with length qNum
+    std::vector<std::string> terms = {std::string(qNum, '0')};
+    QOperation op(terms);
+    TransitionSystem ts(qNum);
+    int loc0 = ts.addLocation();
+    ts.setAnnotation(loc0, op);
+    int loc1 = ts.addLocation();
+    QOperation oph(std::string("H"), qNum, std::vector<unsigned int>{0}, std::vector<double>{});
+    ts.addRelation(loc0, loc1, oph);
+    std::vector<int> currLoc = {loc1};
+    int totalLocs = 2;
+    for(int i = 0; i <= qNum - 1; i++) {
+        // Apply a measurement on the i-th qubit, and add a relation from loc0 to loc1 with the projective operations meas0 and meas1.
+        QOperation meas0(std::string("meas0"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
+        QOperation meas1(std::string("meas1"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
+        // For each location in currLoc, create two new locations for the two post-locations of the projective measurement.
+        std::vector<int> newLocs;
+        for (int loc : currLoc) {
+            int newLoc0 = ts.addLocation();
+            int newLoc1 = ts.addLocation();
+            ts.addRelation(loc, newLoc0, meas0);
+            ts.addRelation(loc, newLoc1, meas1);
+            newLocs.push_back(newLoc0);
+            newLocs.push_back(newLoc1);
+            totalLocs += 2;
+        }
+        currLoc = newLocs;
+    }
+    // Record time comsumption
+    auto start = std::chrono::high_resolution_clock::now();
+    ts.postConditions();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+    std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
+    std::cout << "Total locations: " << totalLocs << std::endl;
+    // ts.printAnnotation();
+    // ts.printRelation();
+    std::cout << "Complete" << std::endl;
     return 0;
 }

@@ -31,6 +31,11 @@ void initializeTransitionSystem() {
 
 class TransitionSystem {
 public:
+    TransitionSystem() : num_locations(0), num_qubits(0), num_vars(MAX_NUM_VARS) {
+        annotation = make_terminal(CreateZeroQO(num_qubits, false));
+        relation   = make_terminal(CreateZeroQO(num_qubits, true));
+    }
+    
     TransitionSystem(int num_qubits, int max_locations = 0) : num_locations(0), num_qubits(num_qubits) {
         if(max_locations > 0) {
             num_vars = std::ceil(std::log2(max_locations));
@@ -102,13 +107,14 @@ public:
         // Step 1: Apply (mixed)
         QADDNode* tmp = Apply(ApplyOp::APPLY, relation, annotation);
 
-        // Step 2: existential abstraction over x (0..n-1)
+        // Step 2: existential abstraction over source vars x_i (2*i)
         QADDNode* eliminated = exists_vars(tmp);
 
-        // Step 3: rename x' -> x
+        // Step 3: rename target vars x_i' (2*i+1) -> source vars x_i (2*i)
         QADDNode* next = rename_vars(eliminated);
 
-        annotation = Apply(ApplyOp::JOIN, annotation, next);
+        // annotation = Apply(ApplyOp::JOIN, annotation, next);
+        annotation = next;
     }
 
     // =============================
@@ -171,6 +177,9 @@ public:
         return bits;
     }
 
+    int src_var(int bit) const { return 2 * bit; }
+    int dst_var(int bit) const { return 2 * bit + 1; }
+
     // =============================
     // Indicator Builders
     // =============================
@@ -186,13 +195,14 @@ public:
         }
 
         QADDNode* zero = make_terminal(CreateZeroQO(num_qubits));
+        int var = src_var(i);
 
         if (enc[i]) {
-            return make_node(i,
+            return make_node(var,
                 zero,
                 build_state_indicator(i+1, enc, val));
         } else {
-            return make_node(i,
+            return make_node(var,
                 build_state_indicator(i+1, enc, val),
                 zero);
         }
@@ -211,11 +221,12 @@ public:
 
         QADDNode* zero = make_terminal(CreateZeroQO(num_qubits, true));
 
+        int bit_idx = i / 2;
         bool bit;
-        if (i < num_vars) {
-            bit = src[i];
+        if ((i % 2) == 0) {
+            bit = src[bit_idx];
         } else {
-            bit = dst[i - num_vars];
+            bit = dst[bit_idx];
         }
 
         if (bit) {
@@ -254,7 +265,7 @@ public:
 
     QADDNode* exists_vars(QADDNode* node) {
         for (int i = 0; i < num_vars; ++i) {
-            node = exists_var(node, i);
+            node = exists_var(node, src_var(i));
         }
         return node;
     }
@@ -265,7 +276,11 @@ public:
         QADDNode* low = rename_vars(node->low);
         QADDNode* high = rename_vars(node->high);
 
-        return make_node(node->var - num_vars, low, high);
+        int var = node->var;
+        if ((var % 2) == 1) {
+            var = var - 1;
+        }
+        return make_node(var, low, high);
     }
 };
 

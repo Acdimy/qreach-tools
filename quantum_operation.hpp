@@ -818,9 +818,11 @@ class QOperation {
     }
 
     bool isOperation() const {
+        // type == true and isProj == -1
         return type == true && isProj < 0;
     }
     bool isProjection() const {
+        // type == false or isProj >= 0
         return type == false || isProj >= 0;
     }
 
@@ -898,6 +900,7 @@ class QOperation {
         oplist.push_back(std::move(qt));
     }
     QOperation add(const QOperation& other) const {
+        // std::cout << this->getName() << this->qNum << " + " << other.getName() << other.qNum << std::endl;
         assert(this->qNum == other.qNum);
         // If one of the QOperations is empty, return the other one.
         if (this->oplist.empty()) {
@@ -1473,7 +1476,8 @@ class QOperation {
         if(this->isOperation() != other.isOperation()) {
             return false;
         }
-        if(this->isOperation() && other.isOperation()) {
+        // Either both are projective measurements or both are gates.
+        if(this->type && other.type) {
             // We assume the order of the gates in oplist is consistent, which is guaranteed by the constructor of QOperation.
             if (this->oplist.size() != other.oplist.size()) {
                 return false;

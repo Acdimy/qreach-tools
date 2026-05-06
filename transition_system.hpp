@@ -27,6 +27,8 @@ namespace std {
     };
 }
 
+namespace qts_naive {
+
 class Location
 {
 public:
@@ -640,5 +642,6 @@ TransitionSystem fromProgramToTransitionSystem(const std::string& filename, Tran
  * Location: The location of a transition system.
  * It contains the state and the annotation of the location.
  ***/
+}
 
 #endif

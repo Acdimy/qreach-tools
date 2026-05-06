@@ -52,6 +52,11 @@ $(PROJECT): $(OBJECTS)
 #   include $(DEPENDENCIES)
 # endif
 
+MY_HEADERS = quantum_operation.hpp transition_system_qadd.hpp qadd.hpp
+
+test.o: test.cpp $(MY_HEADERS)
+	$(CC) -c $(COMPILE_OPTIONS) -o $@ $<
+
 $(TEST): $(OBJECTS_TEST)
 	$(CC) -o $(TEST) $(OBJECTS_TEST)
 
