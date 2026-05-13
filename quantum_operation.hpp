@@ -757,7 +757,7 @@ class QOperation {
             }
         }
     }
-    QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
+    QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj), realqNum(other.realqNum) {
         // 深拷贝 oplist
         oplist.reserve(other.oplist.size()); // 预分配空间以提高效率
         for (const auto& term : other.oplist) {
@@ -776,6 +776,7 @@ class QOperation {
         }
         assert(other1.qNum == other2.qNum);
         this->qNum = other1.qNum;
+        this->realqNum = other1.realqNum;
         this->type = other1.type;
         this->normalized = false;
         oplist.reserve(other1.oplist.size() + other2.oplist.size());
@@ -794,7 +795,7 @@ class QOperation {
             }
         }
     }
-    QOperation(QOperation&& other) noexcept : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj) {
+    QOperation(QOperation&& other) noexcept : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj), realqNum(other.realqNum) {
         // Move constructor
         // this->ast = std::make_unique<Node>(*other.ast);
         // this->ast = std::move(other.ast);
@@ -804,16 +805,20 @@ class QOperation {
         // Move constructor
         if (!c.empty() && c[0]) {
             qNum = c[0]->qNum;
+            realqNum = c[0]->qNum;
         } else {
             qNum = 0;
+            realqNum = 0;
         }
     }
     QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>>&& c, bool n) : type(t), oplist(std::move(c)), normalized(n) {
         // Move constructor with normalization
         if (!c.empty() && c[0]) {
             qNum = c[0]->qNum;
+            realqNum = c[0]->qNum;
         } else {
             qNum = 0;
+            realqNum = 0;
         }
     }
 
@@ -833,6 +838,7 @@ class QOperation {
             isIdentity = other.isIdentity;
             isProj = other.isProj;
             qNum = other.qNum;
+            realqNum = other.realqNum;
             oplist.clear();
             oplist.reserve(other.oplist.size());
             for (const auto& term : other.oplist) {
@@ -1378,7 +1384,13 @@ class QOperation {
                 auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                 if (!jgate) continue;
                 auto tmp = ivec->applyGate(*jgate, true);
-                res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                // If tmp is non-trivial, we insert it to the res.
+                if (!checkifzero(tmp)) {
+                    res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                } else {
+                    // std::cout << "PostImage: a zero vector is generated." << jgate->name << std::endl;
+                    // this->printFormal();
+                }
                 /* We don't have GramSchmidt in postImage (for some interface of probability), we need to handle the uniqueness */
                 // SingleVecTerm postVec(tmp);
                 // if (res.oplist.size() == 0) {
@@ -1398,6 +1410,15 @@ class QOperation {
             res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
             // res.normalized = true;
         } else {
+            // normalize the single vector if there is only one vector.
+            if (res.oplist.size() == 1) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(res.oplist[0].get());
+                if (!ivec) {
+                    std::cout << "Strange nullptr" << std::endl;
+                } else {
+                    ivec->normalizeInline();
+                }
+            }
             res.normalized = true;
         }
         return res;
@@ -1449,6 +1470,7 @@ class QOperation {
             if (!ivec) continue;
             // Check if every single vector in this can be totally projected onto other
             SingleVecTerm tmp = other.projectIn(*ivec);
+            // Assume that the orthogonal basis is normalized, then the projectIn function will not change the amplitude.
             auto tmpdot = tmp.dot(tmp); // TODO: A more efficient way to justify the difference?
             if (abs(tmpdot.real()-1) < 1e-8 && abs(tmpdot.imag()) < 1e-8) {
                 // this is a subspace of other

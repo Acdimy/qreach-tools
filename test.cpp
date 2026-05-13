@@ -35,15 +35,20 @@ int main() {
         }
         currLoc = newLocs;
     }
+    std::cout << "Num of locations: " << totalLocs << std::endl;
+    // std::cout << "Num of nodes in annotation: " << ts.annotation->nodeCount() << std::endl;
+    // std::cout << "Num of nodes in relation: " << ts.relation->nodeCount() << std::endl;
     // Record time comsumption
     auto start = std::chrono::high_resolution_clock::now();
+    // ts.postOneStep();
     ts.postConditions();
+    // ts.printAnnotationTerminals("annotation_terminals.txt");
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
     std::cout << "Total locations: " << totalLocs << std::endl;
-    // ts.printAnnotation();
-    // ts.printRelation();
+    ts.printAnnotation();
+    ts.printRelation();
     std::cout << "Complete" << std::endl;
     return 0;
 }

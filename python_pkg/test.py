@@ -10,21 +10,18 @@ from parse_qiskit import *
 from qctl import *
 from circ_utils import *
 
-qc = QuantumCircuit(3, 2)
-qc.h(2)
-qc.measure(2, 0)
-qc.h(2)
-qc.measure(2, 1)
-
+qc = QuantumCircuit(16, 16)
 qc.h(0)
-qc.cx(0, 1)
-with qc.if_test((0, 1)): # b1 == 1
-    qc.z(0)
-with qc.if_test((1, 1)): # b2 == 1
-    qc.x(0)
-qc.cx(0, 1)
-qc.h(0)
+for i in range(12):
+    qc.measure(i, i)
 
-ts1 = pyqreach.TransitionSystem()
+ts1 = pyqreach.initializeTransitionSystem()
 ts2 = pyqreach.TransitionSystem(False)
-resultList = parse_qiskit_cir(qc, 3, ts2)
+resultList = parse_qiskit_cir(qc, 16, ts2)
+opinit = pyqreach.QOperation(["0000000000000000"])
+ts2.setAnnotation([[0, opinit]])
+ts2.computingFixedPointPost()
+ts2.printSupp(20)
+
+
+nx2Graph_hierarchical(dict2NX(ts2Dict(ts2)), "test_graph")

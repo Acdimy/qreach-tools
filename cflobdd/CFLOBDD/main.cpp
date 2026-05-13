@@ -24,34 +24,34 @@
 //    SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
-#include <cstdio>
-#include <iostream>
-#include <fstream>
-#include <string>
-#include "tests_cfl.h"
-#include <iomanip>
-#define _CRTDBG_MAP_ALLOC
-#include <cstdlib>
+// #include <cstdio>
+// #include <iostream>
+// #include <fstream>
+// #include <string>
+// #include "tests_cfl.h"
+// #include <iomanip>
+// #define _CRTDBG_MAP_ALLOC
+// #include <cstdlib>
 
-static long seed_value = 27;
+// static long seed_value = 27;
 
-int main(int argc, char * argv[])
-{
+// int main(int argc, char * argv[])
+// {
 
-	// Supply a default argument for when invoking from Windows (e.g., for debugging)
-	if (argc == 1) {
-		std::string default_string = "And";
-		CFL_OBDD::CFLTests::runTests(default_string.c_str());
-	}
-	else {
-		if (argc == 3){
-			CFL_OBDD::CFLTests::runTests(argv[1], atoi(argv[2]));
-        }
-        else if (argc == 4) {
-            CFL_OBDD::CFLTests::runTests(argv[1], atoi(argv[2]), atoi(argv[3]));
-        }
-		else{
-			CFL_OBDD::CFLTests::runTests(argv[1]);
-		}
-	}
-}
+// 	// Supply a default argument for when invoking from Windows (e.g., for debugging)
+// 	if (argc == 1) {
+// 		std::string default_string = "And";
+// 		CFL_OBDD::CFLTests::runTests(default_string.c_str());
+// 	}
+// 	else {
+// 		if (argc == 3){
+// 			CFL_OBDD::CFLTests::runTests(argv[1], atoi(argv[2]));
+//         }
+//         else if (argc == 4) {
+//             CFL_OBDD::CFLTests::runTests(argv[1], atoi(argv[2]), atoi(argv[3]));
+//         }
+// 		else{
+// 			CFL_OBDD::CFLTests::runTests(argv[1]);
+// 		}
+// 	}
+// }

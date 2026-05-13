@@ -4,6 +4,8 @@
 #include <stdexcept>
 #include <functional>
 #include <fstream>
+#include <iostream>
+#include <unordered_set>
 
 #include "quantum_operation.hpp"
 
@@ -106,6 +108,14 @@ struct ApplyKeyHash {
 };
 
 static std::unordered_map<ApplyKey, QADDNode*, ApplyKeyHash> computeTable;
+
+inline void clear_compute_table() {
+    computeTable.clear();
+}
+
+inline size_t compute_table_size() {
+    return computeTable.size();
+}
 
 // =======================
 // Terminal Unique Table
@@ -219,6 +229,19 @@ inline QADDNode* Apply(ApplyOp op, QADDNode* u1, QADDNode* u2) {
     return res;
 }
 
+// =======================
+// Utility for QOperation
+// =======================
+
+inline int get_dimension(const QOperation& op) {
+    assert(op.type == false);
+    if (op.isIdentity) {
+        return (1 << op.realqNum);
+    }
+    // Assume that a projection is represented by orthogonal vectors.
+    return op.oplist.size();
+}
+
 
 void printQADD(QADDNode* node, const std::string& filename) {
     // Generate a DOT file for visualization
@@ -253,6 +276,84 @@ void printQADD(QADDNode* node, const std::string& filename) {
 
     outFile.close();
     std::cout << "DOT file complete: " << filename << std::endl;
+}
+
+// Debug helper: dump terminal QOperation fields grouped by getName().
+// If firstLocationMap is provided, it also prints the first location id that
+// reaches each terminal node.
+inline void debug_print_terminals(
+    QADDNode* root,
+    const std::string& outFilename = "terminals.txt",
+    const std::unordered_map<QADDNode*, int>* firstLocationMap = nullptr)
+{
+    if (!root) return;
+
+    std::unordered_map<std::string, std::vector<QADDNode*>> termMap;
+    std::unordered_set<QADDNode*> visited;
+
+    std::function<void(QADDNode*)> dfs = [&](QADDNode* n) {
+        if (!n) return;
+        if (visited.find(n) != visited.end()) return;
+        visited.insert(n);
+
+        if (is_terminal(n)) {
+            termMap[n->val.getName()].push_back(n);
+            return;
+        }
+
+        dfs(n->low);
+        dfs(n->high);
+    };
+
+    dfs(root);
+
+    std::ofstream ofs(outFilename);
+    if (!ofs.is_open()) {
+        std::cerr << "Cannot open terminal dump file: " << outFilename << std::endl;
+        return;
+    }
+
+    auto dump_qoperation = [&](std::ostream& os, const QOperation& op) {
+        os << "    getName: " << op.getName() << "\n";
+        os << "    type: " << (op.type ? "gate/super-op" : "projection") << "\n";
+        os << "    normalized: " << (op.normalized ? "true" : "false") << "\n";
+        os << "    isIdentity: " << (op.isIdentity ? "true" : "false") << "\n";
+        os << "    isProj: " << op.isProj << "\n";
+        os << "    qNum: " << op.qNum << "\n";
+        os << "    realqNum: " << op.realqNum << "\n";
+        os << "    oplist.size: " << op.oplist.size() << "\n";
+    };
+
+    for (const auto& p : termMap) {
+        const std::string& name = p.first;
+        const auto& nodes = p.second;
+
+        ofs << "Name group: \"" << name << "\"  count=" << nodes.size() << "\n";
+        QADDNode* ref = nodes.empty() ? nullptr : nodes.front();
+        for (size_t i = 0; i < nodes.size(); ++i) {
+            QADDNode* np = nodes[i];
+            ofs << "  terminal[" << i << "] ptr=" << np << "\n";
+            if (firstLocationMap) {
+                auto lit = firstLocationMap->find(np);
+                if (lit != firstLocationMap->end()) {
+                    ofs << "    first_location_id: " << lit->second << "\n";
+                } else {
+                    ofs << "    first_location_id: -1\n";
+                }
+            }
+            dump_qoperation(ofs, np->val);
+            if (ref && np != ref) {
+                ofs << "    same_as_first_by_operator_eq: "
+                    << (np->val.compare(ref->val)) << "\n";
+            } else {
+                ofs << "    same_as_first_by_operator_eq: true\n";
+            }
+            ofs << "\n";
+        }
+    }
+
+    ofs.close();
+    std::cout << "Terminal dump written to " << outFilename << std::endl;
 }
 
 } // namespace qadd

@@ -4,6 +4,11 @@
 #include <vector>
 #include <cmath>
 #include <cassert>
+#include <algorithm>
+#include <unordered_map>
+#include <unordered_set>
+#include <iostream>
+#include <cstdint>
 
 #include "qadd.hpp"
 #include "quantum_operation.hpp"
@@ -17,7 +22,7 @@ using namespace qadd;
 // TransitionSystem (QADD-based)
 // ========================================
 
-int MAX_NUM_VARS = 20; // Maximum number of bits for location encoding
+int MAX_NUM_VARS = 10; // Maximum number of bits for location encoding
 
 void initializeTransitionSystem() {
     CFLOBDDNodeHandle::InitNoDistinctionTable();
@@ -55,6 +60,7 @@ public:
         update_num_vars();
 
         encodings.push_back(encode(id));
+        post_locations.emplace_back();
         return id;
     }
 
@@ -68,6 +74,8 @@ public:
         QADDNode* indicator = build_state_indicator(0, encodings[loc], val);
 
         annotation = Apply(ApplyOp::JOIN, annotation, indicator);
+        append_unique(initAnnotationID, loc);
+        append_unique(livingAnnotationID, loc);
     }
 
     // =============================
@@ -84,6 +92,36 @@ public:
                                      op);
 
         relation = Apply(ApplyOp::ADD, relation, indicator);
+        append_unique(post_locations[src], dst);
+    }
+
+    std::vector<int> getPostIDs(const std::vector<int>& ids) const {
+        std::unordered_set<int> uniq;
+        std::vector<int> postids;
+
+        for (int id : ids) {
+            assert(id >= 0 && id < num_locations);
+            for (int dst : post_locations[id]) {
+                if (uniq.insert(dst).second) {
+                    postids.push_back(dst);
+                }
+            }
+        }
+        return postids;
+    }
+
+    // Extract a delta P-DD containing only the annotations for the given locations.
+    QADDNode* extract_delta(const std::vector<int>& ids) {
+        QADDNode* delta = make_terminal(CreateZeroQO(num_qubits, false));
+        for (int id : ids) {
+            assert(id >= 0 && id < num_locations);
+            QADDNode* term = get_location_terminal(annotation, id);
+            QOperation val = term->val; // copy terminal QOperation
+            QADDNode* indicator = build_state_indicator(0, encodings[id], val);
+            delta = Apply(ApplyOp::JOIN, delta, indicator);
+            clear_compute_table();
+        }
+        return delta;
     }
 
     // =============================
@@ -102,10 +140,12 @@ public:
     // =============================
     // Model Checking
     // =============================
-    void postConditions()
-    {
+    void postOneStep() {
         // Step 1: Apply (mixed)
         QADDNode* tmp = Apply(ApplyOp::APPLY, relation, annotation);
+
+        // APPLY cache can be dropped before existential elimination.
+        clear_compute_table();
 
         // Step 2: existential abstraction over source vars x_i (2*i)
         QADDNode* eliminated = exists_vars(tmp);
@@ -113,8 +153,82 @@ public:
         // Step 3: rename target vars x_i' (2*i+1) -> source vars x_i (2*i)
         QADDNode* next = rename_vars(eliminated);
 
-        // annotation = Apply(ApplyOp::JOIN, annotation, next);
-        annotation = next;
+        clear_compute_table();
+        annotation = Apply(ApplyOp::JOIN, annotation, next);
+
+        // Apply cache is temporary; clearing it avoids unbounded growth across iterations.
+        clear_compute_table();
+    }
+
+    // Perform one step but only for a delta P-DD built from `ids`.
+    void postOneStepDelta(const std::vector<int>& ids) {
+        if (ids.empty()) return;
+
+        QADDNode* delta = extract_delta(ids);
+
+        // Step 1: Apply relation to delta
+        QADDNode* tmp = Apply(ApplyOp::APPLY, relation, delta);
+        clear_compute_table();
+
+        // Step 2: existential abstraction over source vars x_i (2*i)
+        QADDNode* eliminated = exists_vars(tmp);
+        clear_compute_table();
+
+        // Step 3: rename target vars x_i' (2*i+1) -> source vars x_i (2*i)
+        QADDNode* next = rename_vars(eliminated);
+        clear_compute_table();
+
+        // Join incremental next into global annotation
+        annotation = Apply(ApplyOp::JOIN, annotation, next);
+        clear_compute_table();
+    }
+
+    void postConditions()
+    {
+        // Reachability closure with dimension-based stopping criterion.
+        // Each round only checks successors of the last updated locations.
+        int MAX_ITER = (1 << num_qubits) * 2; // upper bound of iterations to prevent infinite loop
+        int iter = 0;
+        std::cout << MAX_ITER << " maximum iterations allowed. " << num_locations << " " << num_qubits << std::endl;
+        if (livingAnnotationID.empty()) {
+            livingAnnotationID = initAnnotationID;
+        }
+
+        while (true) {
+            if (iter++ > MAX_ITER) {
+                std::cerr << "Warning: postConditions reached maximum iterations. Possible non-convergence." << std::endl;
+                break;
+            }
+
+            if (livingAnnotationID.empty()) {
+                break;
+            }
+
+            std::vector<int> postids = getPostIDs(livingAnnotationID);
+            if (postids.empty()) {
+                livingAnnotationID.clear();
+                break;
+            }
+
+            std::unordered_map<int, int> old_dims = collect_dimensions(annotation, postids);
+
+            // Only process the delta built from currently living locations
+            postOneStepDelta(livingAnnotationID);
+
+            std::unordered_map<int, int> new_dims = collect_dimensions(annotation, postids);
+            std::vector<int> new_living;
+
+            for (int id : postids) {
+                if (new_dims[id] > old_dims[id]) {
+                    new_living.push_back(id);
+                }
+            }
+
+            livingAnnotationID = std::move(new_living);
+            if (livingAnnotationID.empty()) {
+                break;
+            }
+        }
     }
 
     // =============================
@@ -141,6 +255,17 @@ public:
         printQADD(relation, filename);
     }
 
+    void printAnnotationTerminals(const std::string& filename = "annotation_terminals.txt") const {
+        std::unordered_map<QADDNode*, int> firstLocationMap;
+        for (int loc = 0; loc < num_locations; ++loc) {
+            QADDNode* term = get_location_terminal(annotation, loc);
+            if (firstLocationMap.find(term) == firstLocationMap.end()) {
+                firstLocationMap[term] = loc;
+            }
+        }
+        debug_print_terminals(annotation, filename, &firstLocationMap);
+    }
+
 public:
 
     // =============================
@@ -157,6 +282,10 @@ public:
 
     QADDNode* annotation;
     QADDNode* relation;
+
+    std::vector<int> initAnnotationID;
+    std::vector<int> livingAnnotationID;
+    std::vector<std::vector<int>> post_locations;
 
     // =============================
     // Encoding Helpers
@@ -179,6 +308,12 @@ public:
 
     int src_var(int bit) const { return 2 * bit; }
     int dst_var(int bit) const { return 2 * bit + 1; }
+
+    void append_unique(std::vector<int>& vec, int id) {
+        if (std::find(vec.begin(), vec.end(), id) == vec.end()) {
+            vec.push_back(id);
+        }
+    }
 
     // =============================
     // Indicator Builders
@@ -243,44 +378,148 @@ public:
     // =============================
     // Model Checking Helpers
     // =============================
-        QADDNode* restrict_var(QADDNode* node, int var, bool value) {
-        if (is_terminal(node)) return node;
+    QADDNode* get_location_terminal(QADDNode* node, int loc) const {
+        assert(loc >= 0 && loc < num_locations);
 
-        if (node->var == var) {
-            return value ? node->high : node->low;
+        QADDNode* cur = node;
+        const std::vector<bool>& enc = encodings[loc];
+
+        while (!is_terminal(cur)) {
+            int bit_idx = cur->var / 2;
+            assert(bit_idx >= 0 && bit_idx < num_vars);
+            bool bit = enc[bit_idx];
+            cur = bit ? cur->high : cur->low;
+        }
+        return cur;
+    }
+
+    std::unordered_map<int, int> collect_dimensions(QADDNode* node, const std::vector<int>& ids) const {
+        std::unordered_map<int, int> dims;
+        dims.reserve(ids.size());
+
+        for (int id : ids) {
+            QADDNode* terminal = get_location_terminal(node, id);
+            dims[id] = get_dimension(terminal->val);
+        }
+        return dims;
+    }
+
+    QADDNode* restrict_var_impl(
+        QADDNode* node,
+        int var,
+        bool value,
+        std::unordered_map<QADDNode*, QADDNode*>& memo)
+    {
+        auto it = memo.find(node);
+        if (it != memo.end()) {
+            return it->second;
         }
 
-        QADDNode* low = restrict_var(node->low, var, value);
-        QADDNode* high = restrict_var(node->high, var, value);
+        if (is_terminal(node)) return node;
 
-        return make_node(node->var, low, high);
+        // Variable ordering property: if current variable already exceeds target,
+        // the target variable cannot appear in this subtree.
+        if (node->var > var) {
+            memo[node] = node;
+            return node;
+        }
+
+        if (node->var == var) {
+            QADDNode* res = value ? node->high : node->low;
+            memo[node] = res;
+            return res;
+        }
+
+        QADDNode* low = restrict_var_impl(node->low, var, value, memo);
+        QADDNode* high = restrict_var_impl(node->high, var, value, memo);
+
+        QADDNode* res = make_node(node->var, low, high);
+        memo[node] = res;
+        return res;
+    }
+
+    QADDNode* restrict_var(QADDNode* node, int var, bool value) {
+        std::unordered_map<QADDNode*, QADDNode*> memo;
+        return restrict_var_impl(node, var, value, memo);
+    }
+
+    QADDNode* exists_var_impl(
+        QADDNode* node,
+        int var,
+        std::unordered_map<QADDNode*, QADDNode*>& memo)
+    {
+        auto it = memo.find(node);
+        if (it != memo.end()) {
+            return it->second;
+        }
+
+        if (is_terminal(node)) {
+            memo[node] = node;
+            return node;
+        }
+
+        if (node->var > var) {
+            memo[node] = node;
+            return node;
+        }
+
+        QADDNode* res = nullptr;
+        if (node->var == var) {
+            // Ordered DD: target variable cannot reappear below this node.
+            res = Apply(ApplyOp::JOIN, node->low, node->high);
+        } else {
+            QADDNode* low = exists_var_impl(node->low, var, memo);
+            QADDNode* high = exists_var_impl(node->high, var, memo);
+            res = make_node(node->var, low, high);
+        }
+
+        memo[node] = res;
+        return res;
     }
 
     QADDNode* exists_var(QADDNode* node, int var) {
-        QADDNode* f0 = restrict_var(node, var, false);
-        QADDNode* f1 = restrict_var(node, var, true);
-
-        return Apply(ApplyOp::JOIN, f0, f1);
+        std::unordered_map<QADDNode*, QADDNode*> memo;
+        return exists_var_impl(node, var, memo);
     }
 
     QADDNode* exists_vars(QADDNode* node) {
         for (int i = 0; i < num_vars; ++i) {
             node = exists_var(node, src_var(i));
+            clear_compute_table();
         }
         return node;
     }
 
-    QADDNode* rename_vars(QADDNode* node) {
-        if (is_terminal(node)) return node;
+    QADDNode* rename_vars_impl(
+        QADDNode* node,
+        std::unordered_map<QADDNode*, QADDNode*>& memo)
+    {
+        auto it = memo.find(node);
+        if (it != memo.end()) {
+            return it->second;
+        }
 
-        QADDNode* low = rename_vars(node->low);
-        QADDNode* high = rename_vars(node->high);
+        if (is_terminal(node)) {
+            memo[node] = node;
+            return node;
+        }
+
+        QADDNode* low = rename_vars_impl(node->low, memo);
+        QADDNode* high = rename_vars_impl(node->high, memo);
 
         int var = node->var;
         if ((var % 2) == 1) {
             var = var - 1;
         }
-        return make_node(var, low, high);
+
+        QADDNode* res = make_node(var, low, high);
+        memo[node] = res;
+        return res;
+    }
+
+    QADDNode* rename_vars(QADDNode* node) {
+        std::unordered_map<QADDNode*, QADDNode*> memo;
+        return rename_vars_impl(node, memo);
     }
 };
 
