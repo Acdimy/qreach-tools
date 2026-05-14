@@ -1429,6 +1429,7 @@ class QOperation {
         /* 0: this is included in other; 1: other is included in this; 2: exclude; 3: intersect but not include; 4: equality*/
         // std::cout << this->normalized << " " << other.normalized << std::endl;
         assert(this->normalized && other.normalized);
+        assert(this->qNum == other.qNum);
         if (this->oplist.size() == 0 && other.oplist.size() == 0) {
             return 4;
         }
@@ -1464,33 +1465,24 @@ class QOperation {
             return 1; // Any non zero operator is a super-space of the empty operator.
         }
         // In case this is support-vector like subspace
-        int inside_cnt = 0;
-        for (size_t i = 0; i < this->oplist.size(); i++) {
-            auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
-            if (!ivec) continue;
-            // Check if every single vector in this can be totally projected onto other
-            SingleVecTerm tmp = other.projectIn(*ivec);
-            // Assume that the orthogonal basis is normalized, then the projectIn function will not change the amplitude.
-            auto tmpdot = tmp.dot(tmp); // TODO: A more efficient way to justify the difference?
-            if (abs(tmpdot.real()-1) < 1e-8 && abs(tmpdot.imag()) < 1e-8) {
-                // this is a subspace of other
-                if (i == static_cast<int>(this->oplist.size())-1) {
-                    inside_cnt++;
-                }
-            }
+        // Compute the disjunction of this and other, if the result dimension is:
+        // 1. the same as both, then this is equal to other, return 4;
+        // 2. the same as other, then this is included in other, return 0;
+        // 3. the same as this, then other is included in this, return 1;
+        // 4. the same as the sum of the dimensions of this and other, then this is disjoint with other, return 2;
+        // 5. otherwise, this is intersecting with other but not included, return 3.
+        QOperation disj = this->disjunction(other);
+        if (disj.oplist.size() == this->oplist.size() && disj.oplist.size() == other.oplist.size()) {
+            return 4;
         }
-        if (inside_cnt == this->oplist.size()) {
-            if (this->oplist.size() == other.oplist.size()) {
-                return 4;
-            } else {
-                return 0;
-            }
+        if (disj.oplist.size() == other.oplist.size()) {
+            return 0;
         }
-        if (inside_cnt == 0) {
-            return 2;
-        }
-        if (inside_cnt == other.oplist.size()) {
+        if (disj.oplist.size() == this->oplist.size()) {
             return 1;
+        }
+        if (disj.oplist.size() == this->oplist.size() + other.oplist.size()) {
+            return 2;
         }
         return 3;
     }
