@@ -22,7 +22,7 @@ using namespace qadd;
 // TransitionSystem (QADD-based)
 // ========================================
 
-int MAX_NUM_VARS = 10; // Maximum number of bits for location encoding
+int MAX_NUM_VARS = 20; // Maximum number of bits for location encoding
 
 void initializeTransitionSystem() {
     CFLOBDDNodeHandle::InitNoDistinctionTable();
@@ -56,8 +56,8 @@ public:
     // =============================
 
     int addLocation() {
+        ensure_location_capacity(num_locations);
         int id = num_locations++;
-        update_num_vars();
 
         encodings.push_back(encode(id));
         post_locations.emplace_back();
@@ -241,6 +241,9 @@ public:
     int getNumVars() const { return num_vars; }
     int getNumLocations() const { return num_locations; }
     int getNumQubits() const { return num_qubits; }
+    size_t getAnnotationNodeCount() const { return count_nodes(annotation); }
+    size_t getRelationNodeCount() const { return count_nodes(relation); }
+    size_t getTotalUniqueNodeCount() const { return total_unique_node_count(); }
 
     // =============================
     // Visualization
@@ -291,10 +294,15 @@ public:
     // Encoding Helpers
     // =============================
 
-    void update_num_vars() {
-        int needed = std::ceil(std::log2(std::max(1, num_locations)));
-        if (needed > num_vars) {
-            num_vars = needed;
+    void ensure_location_capacity(int next_id) const {
+        if (num_vars >= static_cast<int>(sizeof(uint64_t) * 8)) {
+            return;
+        }
+
+        const uint64_t capacity = uint64_t{1} << num_vars;
+        if (static_cast<uint64_t>(next_id) >= capacity) {
+            throw std::runtime_error(
+                "TransitionSystem location capacity exceeded; construct with a larger max_locations bound.");
         }
     }
 

@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <unordered_set>
+#include <vector>
 
 #include "quantum_operation.hpp"
 
@@ -240,6 +241,34 @@ inline int get_dimension(const QOperation& op) {
     }
     // Assume that a projection is represented by orthogonal vectors.
     return op.oplist.size();
+}
+
+inline size_t count_nodes(QADDNode* root) {
+    if (!root) return 0;
+
+    std::unordered_set<QADDNode*> visited;
+    std::vector<QADDNode*> worklist{root};
+
+    while (!worklist.empty()) {
+        QADDNode* node = worklist.back();
+        worklist.pop_back();
+
+        if (!node || visited.find(node) != visited.end()) {
+            continue;
+        }
+
+        visited.insert(node);
+        if (!is_terminal(node)) {
+            worklist.push_back(node->low);
+            worklist.push_back(node->high);
+        }
+    }
+
+    return visited.size();
+}
+
+inline size_t total_unique_node_count() {
+    return uniqueTable.size() + terminalTable.size();
 }
 
 

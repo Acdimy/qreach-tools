@@ -6,11 +6,12 @@ using namespace qts;
 // Test the basic functionality of transition_system
 int main() {
     initializeTransitionSystem();
-    int qNum = 16;
+    int qNum = 8;
+    int maxLocations = 1 << (qNum + 1);
     // Create a all-zero string with length qNum
     std::vector<std::string> terms = {std::string(qNum, '0')};
     QOperation op(terms);
-    TransitionSystem ts(qNum);
+    TransitionSystem ts(qNum, maxLocations);
     int loc0 = ts.addLocation();
     ts.setAnnotation(loc0, op);
     int loc1 = ts.addLocation();
@@ -47,6 +48,9 @@ int main() {
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
     std::cout << "Total locations: " << totalLocs << std::endl;
+    std::cout << "Annotation node count: " << ts.getAnnotationNodeCount() << std::endl;
+    std::cout << "Relation node count: " << ts.getRelationNodeCount() << std::endl;
+    std::cout << "Total unique QADD nodes: " << ts.getTotalUniqueNodeCount() << std::endl;
     ts.printAnnotation();
     ts.printRelation();
     std::cout << "Complete" << std::endl;
