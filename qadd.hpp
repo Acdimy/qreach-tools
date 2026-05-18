@@ -267,6 +267,129 @@ inline size_t count_nodes(QADDNode* root) {
     return visited.size();
 }
 
+inline std::unordered_set<QADDNode*> collect_reachable_nodes(const std::vector<QADDNode*>& roots) {
+    std::unordered_set<QADDNode*> visited;
+    std::vector<QADDNode*> worklist;
+    worklist.reserve(roots.size());
+    for (QADDNode* root : roots) {
+        if (root) {
+            worklist.push_back(root);
+        }
+    }
+
+    while (!worklist.empty()) {
+        QADDNode* node = worklist.back();
+        worklist.pop_back();
+
+        if (!node || visited.find(node) != visited.end()) {
+            continue;
+        }
+
+        visited.insert(node);
+        if (!is_terminal(node)) {
+            worklist.push_back(node->low);
+            worklist.push_back(node->high);
+        }
+    }
+
+    return visited;
+}
+
+inline size_t count_terminals(QADDNode* root) {
+    if (!root) return 0;
+
+    size_t terminals = 0;
+    std::unordered_set<QADDNode*> visited;
+    std::vector<QADDNode*> worklist{root};
+
+    while (!worklist.empty()) {
+        QADDNode* node = worklist.back();
+        worklist.pop_back();
+
+        if (!node || visited.find(node) != visited.end()) {
+            continue;
+        }
+
+        visited.insert(node);
+        if (is_terminal(node)) {
+            ++terminals;
+        } else {
+            worklist.push_back(node->low);
+            worklist.push_back(node->high);
+        }
+    }
+
+    return terminals;
+}
+
+struct QADDTableStats {
+    size_t internal_nodes = 0;
+    size_t terminal_nodes = 0;
+    size_t compute_entries = 0;
+
+    size_t total_nodes() const {
+        return internal_nodes + terminal_nodes;
+    }
+};
+
+inline QADDTableStats get_table_stats() {
+    return QADDTableStats{
+        uniqueTable.size(),
+        terminalTable.size(),
+        computeTable.size(),
+    };
+}
+
+struct QADDSweepResult {
+    size_t reclaimed_internal_nodes = 0;
+    size_t reclaimed_terminal_nodes = 0;
+    size_t kept_internal_nodes = 0;
+    size_t kept_terminal_nodes = 0;
+
+    size_t reclaimed_total_nodes() const {
+        return reclaimed_internal_nodes + reclaimed_terminal_nodes;
+    }
+};
+
+inline QADDSweepResult sweep_unreachable_tables(const std::vector<QADDNode*>& roots) {
+    clear_compute_table();
+    const std::unordered_set<QADDNode*> reachable = collect_reachable_nodes(roots);
+
+    std::unordered_map<NodeKey, QADDNode*, NodeKeyHash> newUniqueTable;
+    std::unordered_map<TerminalKey, QADDNode*, TerminalKeyHash> newTerminalTable;
+
+    newUniqueTable.reserve(std::min(reachable.size(), uniqueTable.size()));
+    newTerminalTable.reserve(std::min(reachable.size(), terminalTable.size()));
+
+    QADDSweepResult result;
+
+    for (auto& entry : uniqueTable) {
+        QADDNode* node = entry.second;
+        if (reachable.find(node) != reachable.end()) {
+            newUniqueTable.emplace(NodeKey{node->var, node->low, node->high}, node);
+            ++result.kept_internal_nodes;
+        } else {
+            delete node;
+            ++result.reclaimed_internal_nodes;
+        }
+    }
+
+    for (auto& entry : terminalTable) {
+        QADDNode* node = entry.second;
+        if (reachable.find(node) != reachable.end()) {
+            newTerminalTable.emplace(TerminalKey{node->val}, node);
+            ++result.kept_terminal_nodes;
+        } else {
+            delete node;
+            ++result.reclaimed_terminal_nodes;
+        }
+    }
+
+    uniqueTable.swap(newUniqueTable);
+    terminalTable.swap(newTerminalTable);
+    return result;
+}
+
 inline size_t total_unique_node_count() {
     return uniqueTable.size() + terminalTable.size();
 }

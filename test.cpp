@@ -6,7 +6,7 @@ using namespace qts;
 // Test the basic functionality of transition_system
 int main() {
     initializeTransitionSystem();
-    int qNum = 8;
+    int qNum = 16;
     int maxLocations = 1 << (qNum + 1);
     // Create a all-zero string with length qNum
     std::vector<std::string> terms = {std::string(qNum, '0')};

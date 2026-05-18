@@ -36,6 +36,33 @@ void initializeTransitionSystem() {
 
 class TransitionSystem {
 public:
+    struct PostConditionIterationStats {
+        int iter = 0;
+        size_t living_frontier = 0;
+        size_t post_frontier = 0;
+        size_t delta_nodes = 0;
+        size_t delta_terminals = 0;
+        size_t annotation_nodes = 0;
+        size_t annotation_terminals = 0;
+        size_t relation_nodes = 0;
+        size_t relation_terminals = 0;
+        size_t internal_table_nodes = 0;
+        size_t terminal_table_nodes = 0;
+        size_t compute_entries = 0;
+        size_t reclaimed_nodes = 0;
+    };
+
+    struct PostConditionPeakStats {
+        size_t living_frontier = 0;
+        size_t post_frontier = 0;
+        size_t delta_nodes = 0;
+        size_t annotation_nodes = 0;
+        size_t annotation_terminals = 0;
+        size_t internal_table_nodes = 0;
+        size_t terminal_table_nodes = 0;
+        size_t total_table_nodes = 0;
+    };
+
     TransitionSystem() : num_locations(0), num_qubits(0), num_vars(MAX_NUM_VARS) {
         annotation = make_terminal(CreateZeroQO(num_qubits, false));
         relation   = make_terminal(CreateZeroQO(num_qubits, true));
@@ -161,8 +188,8 @@ public:
     }
 
     // Perform one step but only for a delta P-DD built from `ids`.
-    void postOneStepDelta(const std::vector<int>& ids) {
-        if (ids.empty()) return;
+    QADDNode* postOneStepDelta(const std::vector<int>& ids) {
+        if (ids.empty()) return nullptr;
 
         QADDNode* delta = extract_delta(ids);
 
@@ -181,6 +208,8 @@ public:
         // Join incremental next into global annotation
         annotation = Apply(ApplyOp::JOIN, annotation, next);
         clear_compute_table();
+
+        return delta;
     }
 
     void postConditions()
@@ -189,6 +218,8 @@ public:
         // Each round only checks successors of the last updated locations.
         int MAX_ITER = (1 << num_qubits) * 2; // upper bound of iterations to prevent infinite loop
         int iter = 0;
+        peak_post_stats = PostConditionPeakStats{};
+        last_compaction_reclaimed_nodes = 0;
         std::cout << MAX_ITER << " maximum iterations allowed. " << num_locations << " " << num_qubits << std::endl;
         if (livingAnnotationID.empty()) {
             livingAnnotationID = initAnnotationID;
@@ -210,10 +241,31 @@ public:
                 break;
             }
 
+            PostConditionIterationStats iterationStats;
+            iterationStats.iter = iter;
+            iterationStats.living_frontier = livingAnnotationID.size();
+            iterationStats.post_frontier = postids.size();
+            iterationStats.relation_nodes = count_nodes(relation);
+            iterationStats.relation_terminals = count_terminals(relation);
+
             std::unordered_map<int, int> old_dims = collect_dimensions(annotation, postids);
 
             // Only process the delta built from currently living locations
-            postOneStepDelta(livingAnnotationID);
+            QADDNode* delta = postOneStepDelta(livingAnnotationID);
+            iterationStats.delta_nodes = count_nodes(delta);
+            iterationStats.delta_terminals = count_terminals(delta);
+
+            maybe_compact_tables();
+
+            iterationStats.annotation_nodes = count_nodes(annotation);
+            iterationStats.annotation_terminals = count_terminals(annotation);
+            QADDTableStats tableStats = get_table_stats();
+            iterationStats.internal_table_nodes = tableStats.internal_nodes;
+            iterationStats.terminal_table_nodes = tableStats.terminal_nodes;
+            iterationStats.compute_entries = tableStats.compute_entries;
+            iterationStats.reclaimed_nodes = last_compaction_reclaimed_nodes;
+            update_peak_stats(iterationStats);
+            print_iteration_stats(iterationStats);
 
             std::unordered_map<int, int> new_dims = collect_dimensions(annotation, postids);
             std::vector<int> new_living;
@@ -229,6 +281,8 @@ public:
                 break;
             }
         }
+
+        print_peak_stats();
     }
 
     // =============================
@@ -244,6 +298,8 @@ public:
     size_t getAnnotationNodeCount() const { return count_nodes(annotation); }
     size_t getRelationNodeCount() const { return count_nodes(relation); }
     size_t getTotalUniqueNodeCount() const { return total_unique_node_count(); }
+    size_t getInternalTableNodeCount() const { return get_table_stats().internal_nodes; }
+    size_t getTerminalTableNodeCount() const { return get_table_stats().terminal_nodes; }
 
     // =============================
     // Visualization
@@ -289,6 +345,8 @@ public:
     std::vector<int> initAnnotationID;
     std::vector<int> livingAnnotationID;
     std::vector<std::vector<int>> post_locations;
+    PostConditionPeakStats peak_post_stats;
+    size_t last_compaction_reclaimed_nodes = 0;
 
     // =============================
     // Encoding Helpers
@@ -321,6 +379,71 @@ public:
         if (std::find(vec.begin(), vec.end(), id) == vec.end()) {
             vec.push_back(id);
         }
+    }
+
+    void update_peak_stats(const PostConditionIterationStats& stats) {
+        peak_post_stats.living_frontier = std::max(peak_post_stats.living_frontier, stats.living_frontier);
+        peak_post_stats.post_frontier = std::max(peak_post_stats.post_frontier, stats.post_frontier);
+        peak_post_stats.delta_nodes = std::max(peak_post_stats.delta_nodes, stats.delta_nodes);
+        peak_post_stats.annotation_nodes = std::max(peak_post_stats.annotation_nodes, stats.annotation_nodes);
+        peak_post_stats.annotation_terminals = std::max(peak_post_stats.annotation_terminals, stats.annotation_terminals);
+        peak_post_stats.internal_table_nodes = std::max(peak_post_stats.internal_table_nodes, stats.internal_table_nodes);
+        peak_post_stats.terminal_table_nodes = std::max(peak_post_stats.terminal_table_nodes, stats.terminal_table_nodes);
+        peak_post_stats.total_table_nodes = std::max(
+            peak_post_stats.total_table_nodes,
+            stats.internal_table_nodes + stats.terminal_table_nodes);
+    }
+
+    void print_iteration_stats(const PostConditionIterationStats& stats) const {
+        std::cout << "[post iter " << stats.iter << "]"
+                  << " frontier=" << stats.living_frontier
+                  << " post=" << stats.post_frontier
+                  << " delta_nodes=" << stats.delta_nodes
+                  << " delta_terms=" << stats.delta_terminals
+                  << " annotation_nodes=" << stats.annotation_nodes
+                  << " annotation_terms=" << stats.annotation_terminals
+                  << " relation_nodes=" << stats.relation_nodes
+                  << " relation_terms=" << stats.relation_terminals
+                  << " table_internal=" << stats.internal_table_nodes
+                  << " table_terminal=" << stats.terminal_table_nodes
+                  << " table_total=" << (stats.internal_table_nodes + stats.terminal_table_nodes)
+                  << " compute=" << stats.compute_entries;
+        if (stats.reclaimed_nodes > 0) {
+            std::cout << " reclaimed=" << stats.reclaimed_nodes;
+        }
+        std::cout << std::endl;
+    }
+
+    void print_peak_stats() const {
+        std::cout << "[post peak]"
+                  << " frontier=" << peak_post_stats.living_frontier
+                  << " post=" << peak_post_stats.post_frontier
+                  << " delta_nodes=" << peak_post_stats.delta_nodes
+                  << " annotation_nodes=" << peak_post_stats.annotation_nodes
+                  << " annotation_terms=" << peak_post_stats.annotation_terminals
+                  << " table_internal=" << peak_post_stats.internal_table_nodes
+                  << " table_terminal=" << peak_post_stats.terminal_table_nodes
+                  << " table_total=" << peak_post_stats.total_table_nodes
+                  << std::endl;
+    }
+
+    void maybe_compact_tables() {
+        last_compaction_reclaimed_nodes = 0;
+
+        const size_t live_root_nodes = count_nodes(annotation) + count_nodes(relation);
+        QADDTableStats stats = get_table_stats();
+        const size_t total_table_nodes = stats.total_nodes();
+
+        if (live_root_nodes == 0) {
+            return;
+        }
+
+        if (total_table_nodes <= live_root_nodes * 4) {
+            return;
+        }
+
+        QADDSweepResult sweep = sweep_unreachable_tables({annotation, relation});
+        last_compaction_reclaimed_nodes = sweep.reclaimed_total_nodes();
     }
 
     // =============================
