@@ -20,3 +20,4 @@ g++ -g -O3 -std=c++20 -w -I. -I$BOOST_PATH -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD
 dot -Tpng annotation.dot -o annotation_diagram.png
 dot -Tpng relation.dot -o relation_diagram.png
 
+export QOP_PROFILE=1 QOP_PROFILE_TRACE=1 && ./test_qreach

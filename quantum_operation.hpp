@@ -10,6 +10,7 @@
 #include <memory>
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <optional>
 #include <cmath>
 #include <iomanip>
@@ -149,6 +150,293 @@ std::string toLower(const std::string& input) {
     return result;
 }
 
+namespace qoprof {
+
+struct Stats {
+    size_t qoperation_default_ctor = 0;
+    size_t qoperation_basis_ctor = 0;
+    size_t qoperation_amplitude_ctor = 0;
+    size_t qoperation_gate_ctor = 0;
+    size_t qoperation_copy_ctor = 0;
+    size_t qoperation_merge_ctor = 0;
+    size_t qoperation_move_ctor = 0;
+    size_t qoperation_bool_ctor = 0;
+    size_t qoperation_vector_ctor = 0;
+    size_t qoperation_vector_norm_ctor = 0;
+    size_t qoperation_copy_assign = 0;
+    size_t qoperation_dtor = 0;
+    size_t qoperation_alive = 0;
+    size_t qoperation_peak_alive = 0;
+    size_t qoperation_live_terms = 0;
+    size_t qoperation_peak_live_terms = 0;
+
+    size_t quantum_gate_term_clones = 0;
+    size_t single_vec_term_clones = 0;
+
+    size_t append_calls = 0;
+    size_t append_terms = 0;
+    size_t add_calls = 0;
+    size_t add_terms_cloned = 0;
+    size_t fetch_calls = 0;
+    size_t fetch_terms_cloned = 0;
+    size_t gen_proj_meas_space_calls = 0;
+    size_t gen_proj_generated_terms = 0;
+
+    size_t gram_schmidt_calls = 0;
+    size_t gram_schmidt_total_input_terms = 0;
+    size_t gram_schmidt_total_output_terms = 0;
+    size_t gram_schmidt_peak_input_terms = 0;
+    size_t gram_schmidt_peak_output_terms = 0;
+
+    size_t minus_calls = 0;
+    size_t conjunction_calls = 0;
+    size_t conjunction_simp_calls = 0;
+    size_t disjunction_calls = 0;
+    size_t preimage_calls = 0;
+    size_t postimage_calls = 0;
+    size_t postimage_total_input_terms = 0;
+    size_t postimage_total_gate_terms = 0;
+    size_t postimage_total_raw_terms = 0;
+    size_t postimage_total_final_terms = 0;
+    size_t postimage_peak_input_terms = 0;
+    size_t postimage_peak_gate_terms = 0;
+    size_t postimage_peak_raw_terms = 0;
+    size_t postimage_peak_final_terms = 0;
+};
+
+inline bool enabled() {
+    static const bool enabled_flag = []() {
+        const char* value = std::getenv("QOP_PROFILE");
+        return value && std::string(value) != "0";
+    }();
+    return enabled_flag;
+}
+
+inline bool trace_enabled() {
+    static const bool trace_flag = []() {
+        const char* value = std::getenv("QOP_PROFILE_TRACE");
+        return value && std::string(value) != "0";
+    }();
+    return trace_flag;
+}
+
+inline Stats& stats() {
+    static Stats value;
+    return value;
+}
+
+inline void on_qoperation_create(size_t terms, size_t* counter) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++(*counter);
+    ++s.qoperation_alive;
+    s.qoperation_peak_alive = std::max(s.qoperation_peak_alive, s.qoperation_alive);
+    s.qoperation_live_terms += terms;
+    s.qoperation_peak_live_terms = std::max(s.qoperation_peak_live_terms, s.qoperation_live_terms);
+}
+
+inline void on_qoperation_move_create(size_t terms) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++s.qoperation_move_ctor;
+    ++s.qoperation_alive;
+    s.qoperation_peak_alive = std::max(s.qoperation_peak_alive, s.qoperation_alive);
+    s.qoperation_peak_live_terms = std::max(s.qoperation_peak_live_terms, s.qoperation_live_terms);
+    (void)terms;
+}
+
+inline void on_qoperation_destroy(size_t terms) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++s.qoperation_dtor;
+    if (s.qoperation_alive > 0) {
+        --s.qoperation_alive;
+    }
+    if (s.qoperation_live_terms >= terms) {
+        s.qoperation_live_terms -= terms;
+    } else {
+        s.qoperation_live_terms = 0;
+    }
+}
+
+inline void on_qoperation_copy_assign(size_t old_terms, size_t new_terms) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++s.qoperation_copy_assign;
+    if (new_terms >= old_terms) {
+        s.qoperation_live_terms += (new_terms - old_terms);
+    } else {
+        s.qoperation_live_terms -= (old_terms - new_terms);
+    }
+    s.qoperation_peak_live_terms = std::max(s.qoperation_peak_live_terms, s.qoperation_live_terms);
+}
+
+inline void on_quantum_gate_clone() {
+    if (!enabled()) return;
+    ++stats().quantum_gate_term_clones;
+}
+
+inline void on_single_vec_clone() {
+    if (!enabled()) return;
+    ++stats().single_vec_term_clones;
+}
+
+inline void on_append() {
+    if (!enabled()) return;
+    ++stats().append_calls;
+    ++stats().append_terms;
+}
+
+inline void on_add(size_t cloned_terms) {
+    if (!enabled()) return;
+    ++stats().add_calls;
+    stats().add_terms_cloned += cloned_terms;
+}
+
+inline void on_fetch(size_t cloned_terms) {
+    if (!enabled()) return;
+    ++stats().fetch_calls;
+    stats().fetch_terms_cloned += cloned_terms;
+}
+
+inline void on_gen_proj_meas_space(size_t generated_terms) {
+    if (!enabled()) return;
+    ++stats().gen_proj_meas_space_calls;
+    stats().gen_proj_generated_terms += generated_terms;
+}
+
+inline void on_gram_schmidt(size_t input_terms, size_t output_terms) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++s.gram_schmidt_calls;
+    s.gram_schmidt_total_input_terms += input_terms;
+    s.gram_schmidt_total_output_terms += output_terms;
+    s.gram_schmidt_peak_input_terms = std::max(s.gram_schmidt_peak_input_terms, input_terms);
+    s.gram_schmidt_peak_output_terms = std::max(s.gram_schmidt_peak_output_terms, output_terms);
+    if (trace_enabled()) {
+        std::cout << "[qoprof-trace] gramschmidt input=" << input_terms
+                  << " output=" << output_terms
+                  << " peak_input=" << s.gram_schmidt_peak_input_terms
+                  << " peak_output=" << s.gram_schmidt_peak_output_terms
+                  << std::endl;
+    }
+}
+
+inline void on_minus_call() {
+    if (!enabled()) return;
+    ++stats().minus_calls;
+}
+
+inline void on_conjunction_call() {
+    if (!enabled()) return;
+    ++stats().conjunction_calls;
+}
+
+inline void on_conjunction_simp_call() {
+    if (!enabled()) return;
+    ++stats().conjunction_simp_calls;
+}
+
+inline void on_disjunction_call() {
+    if (!enabled()) return;
+    ++stats().disjunction_calls;
+}
+
+inline void on_preimage_call() {
+    if (!enabled()) return;
+    ++stats().preimage_calls;
+}
+
+inline void on_postimage_call(size_t input_terms, size_t gate_terms, size_t raw_terms, size_t final_terms) {
+    if (!enabled()) return;
+    Stats& s = stats();
+    ++s.postimage_calls;
+    s.postimage_total_input_terms += input_terms;
+    s.postimage_total_gate_terms += gate_terms;
+    s.postimage_total_raw_terms += raw_terms;
+    s.postimage_total_final_terms += final_terms;
+    s.postimage_peak_input_terms = std::max(s.postimage_peak_input_terms, input_terms);
+    s.postimage_peak_gate_terms = std::max(s.postimage_peak_gate_terms, gate_terms);
+    s.postimage_peak_raw_terms = std::max(s.postimage_peak_raw_terms, raw_terms);
+    s.postimage_peak_final_terms = std::max(s.postimage_peak_final_terms, final_terms);
+    if (trace_enabled()) {
+        std::cout << "[qoprof-trace] postimage input_terms=" << input_terms
+                  << " gate_terms=" << gate_terms
+                  << " raw_terms=" << raw_terms
+                  << " final_terms=" << final_terms
+                  << " peak_raw=" << s.postimage_peak_raw_terms
+                  << " peak_final=" << s.postimage_peak_final_terms
+                  << " calls=" << s.postimage_calls
+                  << std::endl;
+    }
+}
+
+inline void print_summary(std::ostream& os = std::cout) {
+    const Stats& s = stats();
+    os << "[qoprof] qoperation_default_ctor=" << s.qoperation_default_ctor
+       << " basis_ctor=" << s.qoperation_basis_ctor
+       << " amplitude_ctor=" << s.qoperation_amplitude_ctor
+       << " gate_ctor=" << s.qoperation_gate_ctor
+       << " copy_ctor=" << s.qoperation_copy_ctor
+       << " merge_ctor=" << s.qoperation_merge_ctor
+       << " move_ctor=" << s.qoperation_move_ctor
+       << " bool_ctor=" << s.qoperation_bool_ctor
+       << " vector_ctor=" << s.qoperation_vector_ctor
+       << " vector_norm_ctor=" << s.qoperation_vector_norm_ctor
+       << " copy_assign=" << s.qoperation_copy_assign
+       << " dtor=" << s.qoperation_dtor
+       << " alive_peak=" << s.qoperation_peak_alive
+       << " live_terms_peak=" << s.qoperation_peak_live_terms
+       << std::endl;
+
+    os << "[qoprof] gate_clones=" << s.quantum_gate_term_clones
+       << " vec_clones=" << s.single_vec_term_clones
+       << " append_calls=" << s.append_calls
+       << " append_terms=" << s.append_terms
+       << " add_calls=" << s.add_calls
+       << " add_terms_cloned=" << s.add_terms_cloned
+       << " fetch_calls=" << s.fetch_calls
+       << " fetch_terms_cloned=" << s.fetch_terms_cloned
+       << " gen_proj_calls=" << s.gen_proj_meas_space_calls
+       << " gen_proj_terms=" << s.gen_proj_generated_terms
+       << std::endl;
+
+    os << "[qoprof] gramschmidt_calls=" << s.gram_schmidt_calls
+       << " gramschmidt_input_total=" << s.gram_schmidt_total_input_terms
+       << " gramschmidt_output_total=" << s.gram_schmidt_total_output_terms
+       << " gramschmidt_input_peak=" << s.gram_schmidt_peak_input_terms
+       << " gramschmidt_output_peak=" << s.gram_schmidt_peak_output_terms
+       << std::endl;
+
+    os << "[qoprof] minus_calls=" << s.minus_calls
+       << " conjunction_calls=" << s.conjunction_calls
+       << " conjunction_simp_calls=" << s.conjunction_simp_calls
+       << " disjunction_calls=" << s.disjunction_calls
+       << " preimage_calls=" << s.preimage_calls
+       << " postimage_calls=" << s.postimage_calls
+       << " postimage_input_total=" << s.postimage_total_input_terms
+       << " postimage_gate_total=" << s.postimage_total_gate_terms
+       << " postimage_raw_total=" << s.postimage_total_raw_terms
+       << " postimage_final_total=" << s.postimage_total_final_terms
+       << " postimage_input_peak=" << s.postimage_peak_input_terms
+       << " postimage_gate_peak=" << s.postimage_peak_gate_terms
+       << " postimage_raw_peak=" << s.postimage_peak_raw_terms
+       << " postimage_final_peak=" << s.postimage_peak_final_terms
+       << std::endl;
+}
+
+struct Reporter {
+    ~Reporter() {
+        if (enabled()) {
+            print_summary();
+        }
+    }
+};
+
+inline Reporter reporter;
+
+} // namespace qoprof
+
 class PauliString {
     unsigned int length;
     bool sign;
@@ -208,6 +496,7 @@ class QuantumGateTerm : public QuantumTerm {
         return this->name == other.name && this->index == other.index && this->vars == other.vars && this->qNum == other.qNum;
     }
     std::unique_ptr<QuantumTerm> clone() const override {
+        qoprof::on_quantum_gate_clone();
         return std::make_unique<QuantumGateTerm>(*this);
     }
 
@@ -539,6 +828,7 @@ class SingleVecTerm : public QuantumTerm {
     }
     bool getType() const override {return false;}
     std::unique_ptr<QuantumTerm> clone() const override {
+        qoprof::on_single_vec_clone();
         return std::make_unique<SingleVecTerm>(*this);
     }
 
@@ -662,7 +952,7 @@ class QOperation {
     // std::unique_ptr<Node> ast = nullptr;
     public:
     /* The type must be specified */
-    QOperation() : type(0) {}
+    QOperation() : type(0) { qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_default_ctor); }
     QOperation(std::vector<std::string> strings) {
         // Construct a QOperation of basic vectors.
         assert(strings.size() > 0);
@@ -678,6 +968,7 @@ class QOperation {
             oplist.push_back(std::make_unique<SingleVecTerm>(term));
         }
         this->normalized = true;
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_basis_ctor);
     }
     QOperation(std::vector<double> amps, unsigned int qubits) {
         // Construct a QOperation of arbitrary amplitude vectors.
@@ -703,6 +994,7 @@ class QOperation {
         SingleVecTerm term(newamps, this->qNum);
         oplist.push_back(std::make_unique<SingleVecTerm>(term));
         this->normalized = true;
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_amplitude_ctor);
     }
     QOperation(std::string nam, unsigned int qNum, std::vector<unsigned int> idx, std::vector<double> pars=std::vector<double>{}) {
         /*
@@ -756,6 +1048,7 @@ class QOperation {
                 isIdentity = false;
             }
         }
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_gate_ctor);
     }
     QOperation(const QOperation& other) : type(other.type), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj), realqNum(other.realqNum) {
         // 深拷贝 oplist
@@ -768,6 +1061,7 @@ class QOperation {
             }
         }
         // this->ast = std::make_unique<Node>(*other.ast);
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_copy_ctor);
     }
     QOperation(const QOperation& other1, const QOperation& other2) {
         assert(other1.type == other2.type);
@@ -794,13 +1088,15 @@ class QOperation {
                 oplist.push_back(nullptr);
             }
         }
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_merge_ctor);
     }
     QOperation(QOperation&& other) noexcept : type(other.type), oplist(std::move(other.oplist)), normalized(other.normalized), qNum(other.qNum), isIdentity(other.isIdentity), isProj(other.isProj), realqNum(other.realqNum) {
         // Move constructor
         // this->ast = std::make_unique<Node>(*other.ast);
         // this->ast = std::move(other.ast);
+        qoprof::on_qoperation_move_create(oplist.size());
     }
-    QOperation(bool t) : type(t) {}
+    QOperation(bool t) : type(t) { qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_bool_ctor); }
     QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>>&& c) : type(t), oplist(std::move(c)), normalized(false) {
         // Move constructor
         if (!c.empty() && c[0]) {
@@ -810,6 +1106,7 @@ class QOperation {
             qNum = 0;
             realqNum = 0;
         }
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_vector_ctor);
     }
     QOperation(bool t, std::vector<std::unique_ptr<QuantumTerm>>&& c, bool n) : type(t), oplist(std::move(c)), normalized(n) {
         // Move constructor with normalization
@@ -820,6 +1117,10 @@ class QOperation {
             qNum = 0;
             realqNum = 0;
         }
+        qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_vector_norm_ctor);
+    }
+    ~QOperation() {
+        qoprof::on_qoperation_destroy(oplist.size());
     }
 
     bool isOperation() const {
@@ -833,6 +1134,7 @@ class QOperation {
 
     QOperation& operator=(const QOperation& other) {
         if (this != &other) {
+            const size_t old_terms = oplist.size();
             type = other.type;
             normalized = other.normalized;
             isIdentity = other.isIdentity;
@@ -848,6 +1150,7 @@ class QOperation {
                     oplist.push_back(nullptr);
                 }
             }
+            qoprof::on_qoperation_copy_assign(old_terms, oplist.size());
         }
         return *this;
     }
@@ -903,6 +1206,7 @@ class QOperation {
             std::cout << "Append a wrong type of quantum term.";
             return;
         }
+        qoprof::on_append();
         oplist.push_back(std::move(qt));
     }
     QOperation add(const QOperation& other) const {
@@ -918,13 +1222,16 @@ class QOperation {
         assert(this->type == other.type && this->type == true);
         // Just concatenate the oplist, and mark as not normalized.
         QOperation res = *this;
+        size_t cloned_terms = 0;
         for (const auto& term : other.oplist) {
             if (term) {
                 res.oplist.push_back(term->clone());
+                ++cloned_terms;
             } else {
                 res.oplist.push_back(nullptr);
             }
         }
+        qoprof::on_add(cloned_terms);
         return res;
     }
     std::vector<std::unique_ptr<QuantumTerm>> fetch(unsigned int begin,unsigned int end) {
@@ -932,13 +1239,16 @@ class QOperation {
         assert(end < static_cast<int>(this->oplist.size()));
         std::vector<std::unique_ptr<QuantumTerm>> res;
         res.reserve(end - begin + 1);
+        size_t cloned_terms = 0;
         for (size_t i = begin; i <= end; i++) {
             if (this->oplist[i] == nullptr) {
                 res.push_back(nullptr);
             } else {
                 res.push_back(this->oplist[i]->clone()); // Use clone to ensure deep copy
+                ++cloned_terms;
             }
         }
+        qoprof::on_fetch(cloned_terms);
         return res;
     }
 
@@ -959,6 +1269,7 @@ class QOperation {
     }
 
     void genProjMeasSpace() {
+        qoprof::on_gen_proj_meas_space(this->qNum > 0 ? std::pow(2, this->qNum - 1) : 0);
         assert(this->isProj >= 0);
         if (this->oplist.size() > 1) {
             std::cout << "Already generated measure support vectors." << std::endl;
@@ -1029,7 +1340,9 @@ class QOperation {
         // TODO: If the size is 1
         assert(this->type == false);
         assert(end < static_cast<int>(this->oplist.size()));
+        const size_t input_terms = this->oplist.size();
         if (this->oplist.size() == 0) {
+            qoprof::on_gram_schmidt(input_terms, input_terms);
             return;
         }
         std::vector<std::unique_ptr<QuantumTerm>> orthogonalBasis;
@@ -1054,9 +1367,11 @@ class QOperation {
         this->oplist.erase(this->oplist.begin() + begin + orthogonalBasis.size(), this->oplist.begin() + end + 1);
         // this->oplist = std::move(orthogonalBasis);
         this->normalized = true;
+        qoprof::on_gram_schmidt(input_terms, this->oplist.size());
     }
 
     QOperation minus(const QOperation& other) const {
+        qoprof::on_minus_call();
         // Return a set of basis vectors that are in this but not in other.
         if (other.isProj < 0) {
             int dimOther = -1;
@@ -1150,6 +1465,7 @@ class QOperation {
         return *this;
     }
     QOperation conjunction(const QOperation& other) const {
+        qoprof::on_conjunction_call();
         /*** To do the conjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
@@ -1202,6 +1518,7 @@ class QOperation {
     }
 
     QOperation conjunction_simp(const QOperation& other) const {
+        qoprof::on_conjunction_simp_call();
         /*
         * In two cases this function is invoked:
         * 1. when computing the preImage of a projective operator, using to compute the Sasaki-hook;
@@ -1271,6 +1588,7 @@ class QOperation {
     }
 
     QOperation disjunction(const QOperation& other) const {
+        qoprof::on_disjunction_call();
         /*** To do the disjunction:
          * 1. preserve the abstract semantic tree;
          * 2. widening function;
@@ -1302,6 +1620,7 @@ class QOperation {
     }
 
     QOperation preImage(const QOperation& other) {
+        qoprof::on_preimage_call();
         /* The pre-image of a quantum operator */
         assert(this->type == false && other.type == true);
         QOperation res(false);
@@ -1373,6 +1692,8 @@ class QOperation {
     }
     
     QOperation postImage(const QOperation& other) const {
+        const size_t input_terms = this->oplist.size();
+        const size_t gate_terms = other.oplist.size();
         /* The post-image of a quantum operator */
         assert(this->type == false && other.type == true);
         QOperation res;
@@ -1405,6 +1726,7 @@ class QOperation {
         }
         // res.normalized = true;
         res.qNum = this->qNum;
+        const size_t raw_terms = res.oplist.size();
         // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
         if (res.oplist.size() > 1) {
             res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
@@ -1421,6 +1743,7 @@ class QOperation {
             }
             res.normalized = true;
         }
+        qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
         return res;
     }
     

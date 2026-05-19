@@ -300,6 +300,31 @@ public:
     size_t getTotalUniqueNodeCount() const { return total_unique_node_count(); }
     size_t getInternalTableNodeCount() const { return get_table_stats().internal_nodes; }
     size_t getTerminalTableNodeCount() const { return get_table_stats().terminal_nodes; }
+    int getLocationDimension(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return get_dimension(get_location_terminal(annotation, loc)->val);
+    }
+    bool locationHasNonZeroAnnotation(int loc) const {
+        return getLocationDimension(loc) > 0;
+    }
+    std::vector<int> filterReachableLocations(const std::vector<int>& ids) const {
+        std::vector<int> reachable;
+        reachable.reserve(ids.size());
+        for (int id : ids) {
+            if (locationHasNonZeroAnnotation(id)) {
+                reachable.push_back(id);
+            }
+        }
+        return reachable;
+    }
+    void setLivingFrontier(const std::vector<int>& ids) {
+        livingAnnotationID.clear();
+        livingAnnotationID.reserve(ids.size());
+        for (int id : ids) {
+            assert(id >= 0 && id < num_locations);
+            append_unique(livingAnnotationID, id);
+        }
+    }
 
     // =============================
     // Visualization

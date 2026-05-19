@@ -31,3 +31,5 @@ test_qreach
 /NuSMV-2.7.0-linux64/
 
 *.dot
+
+*.pdf

@@ -8,6 +8,7 @@ int main() {
     initializeTransitionSystem();
     int qNum = 16;
     int maxLocations = 1 << (qNum + 1);
+    auto start = std::chrono::high_resolution_clock::now();
     // Create a all-zero string with length qNum
     std::vector<std::string> terms = {std::string(qNum, '0')};
     QOperation op(terms);
@@ -17,9 +18,16 @@ int main() {
     int loc1 = ts.addLocation();
     QOperation oph(std::string("H"), qNum, std::vector<unsigned int>{0}, std::vector<double>{});
     ts.addRelation(loc0, loc1, oph);
-    std::vector<int> currLoc = {loc1};
+
+    ts.postOneStepDelta({loc0});
+
+    std::vector<int> currLoc = ts.filterReachableLocations({loc1});
     int totalLocs = 2;
     for(int i = 0; i <= qNum - 1; i++) {
+        if (currLoc.empty()) {
+            break;
+        }
+
         // Apply a measurement on the i-th qubit, and add a relation from loc0 to loc1 with the projective operations meas0 and meas1.
         QOperation meas0(std::string("meas0"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
         QOperation meas1(std::string("meas1"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
@@ -34,17 +42,15 @@ int main() {
             newLocs.push_back(newLoc1);
             totalLocs += 2;
         }
-        currLoc = newLocs;
+
+        ts.postOneStepDelta(currLoc);
+        currLoc = ts.filterReachableLocations(newLocs);
     }
+    auto end = std::chrono::high_resolution_clock::now();
     std::cout << "Num of locations: " << totalLocs << std::endl;
     // std::cout << "Num of nodes in annotation: " << ts.annotation->nodeCount() << std::endl;
     // std::cout << "Num of nodes in relation: " << ts.relation->nodeCount() << std::endl;
-    // Record time comsumption
-    auto start = std::chrono::high_resolution_clock::now();
-    // ts.postOneStep();
-    ts.postConditions();
     // ts.printAnnotationTerminals("annotation_terminals.txt");
-    auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
     std::cout << "Total locations: " << totalLocs << std::endl;
