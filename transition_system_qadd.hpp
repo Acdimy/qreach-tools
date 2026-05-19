@@ -63,9 +63,21 @@ public:
         size_t total_table_nodes = 0;
     };
 
+private:
+    QADDNode* zero_annotation_terminal = nullptr;
+    QADDNode* zero_relation_terminal = nullptr;
+
+    void initialize_zero_terminals() {
+        zero_annotation_terminal = make_terminal(CreateZeroQO(num_qubits, false));
+        zero_relation_terminal = make_terminal(CreateZeroQO(num_qubits, true));
+    }
+
+public:
+
     TransitionSystem() : num_locations(0), num_qubits(0), num_vars(MAX_NUM_VARS) {
-        annotation = make_terminal(CreateZeroQO(num_qubits, false));
-        relation   = make_terminal(CreateZeroQO(num_qubits, true));
+        initialize_zero_terminals();
+        annotation = zero_annotation_terminal;
+        relation = zero_relation_terminal;
     }
     
     TransitionSystem(int num_qubits, int max_locations = 0) : num_locations(0), num_qubits(num_qubits) {
@@ -74,8 +86,9 @@ public:
         } else {
             num_vars = MAX_NUM_VARS;
         }
-        annotation = make_terminal(CreateZeroQO(num_qubits, false));
-        relation   = make_terminal(CreateZeroQO(num_qubits, true));
+        initialize_zero_terminals();
+        annotation = zero_annotation_terminal;
+        relation = zero_relation_terminal;
     }
 
     // =============================
@@ -139,11 +152,11 @@ public:
 
     // Extract a delta P-DD containing only the annotations for the given locations.
     QADDNode* extract_delta(const std::vector<int>& ids) {
-        QADDNode* delta = make_terminal(CreateZeroQO(num_qubits, false));
+        QADDNode* delta = zero_annotation_terminal;
         for (int id : ids) {
             assert(id >= 0 && id < num_locations);
             QADDNode* term = get_location_terminal(annotation, id);
-            QOperation val = term->val; // copy terminal QOperation
+            const QOperation& val = term->val;
             QADDNode* indicator = build_state_indicator(0, encodings[id], val);
             delta = Apply(ApplyOp::JOIN, delta, indicator);
             clear_compute_table();
@@ -485,17 +498,16 @@ public:
             return make_terminal(val);
         }
 
-        QADDNode* zero = make_terminal(CreateZeroQO(num_qubits));
         int var = src_var(i);
 
         if (enc[i]) {
             return make_node(var,
-                zero,
+                zero_annotation_terminal,
                 build_state_indicator(i+1, enc, val));
         } else {
             return make_node(var,
                 build_state_indicator(i+1, enc, val),
-                zero);
+                zero_annotation_terminal);
         }
     }
 
@@ -510,8 +522,6 @@ public:
             return make_terminal(val);
         }
 
-        QADDNode* zero = make_terminal(CreateZeroQO(num_qubits, true));
-
         int bit_idx = i / 2;
         bool bit;
         if ((i % 2) == 0) {
@@ -522,12 +532,12 @@ public:
 
         if (bit) {
             return make_node(i,
-                zero,
+                zero_relation_terminal,
                 build_relation_indicator(i+1, src, dst, val));
         } else {
             return make_node(i,
                 build_relation_indicator(i+1, src, dst, val),
-                zero);
+                zero_relation_terminal);
         }
     }
 

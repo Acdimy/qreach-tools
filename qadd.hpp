@@ -178,19 +178,27 @@ inline QADDNode* apply_terminal(ApplyOp op, QADDNode* a, QADDNode* b) {
 
     switch (op) {
         case ApplyOp::ADD:
+            if (A.isZeroValue()) return b;
+            if (B.isZeroValue()) return a;
             return make_terminal(A.add(B));
 
         // case ApplyOp::COMPOSE:
         //     return make_terminal(A.compose(B));
 
         case ApplyOp::JOIN:
+            if (A.isZeroSubspace()) return b;
+            if (B.isZeroSubspace()) return a;
             return make_terminal(A.disjunction(B));
 
         case ApplyOp::MEET:
+            if (A.isZeroSubspace()) return a;
+            if (B.isZeroSubspace()) return b;
             return make_terminal(A.conjunction_simp(B));
 
         case ApplyOp::APPLY:
             // 语义：B.postImage(A)
+            if (A.isZeroOperator()) return make_terminal(CreateZeroQO(B.realqNum > 0 ? B.realqNum : B.qNum, false));
+            if (B.isZeroSubspace()) return b;
             return make_terminal(B.postImage(A));
 
         default:

@@ -1123,6 +1123,47 @@ class QOperation {
         qoprof::on_qoperation_destroy(oplist.size());
     }
 
+    bool isZeroValue() const {
+        return !isIdentity && oplist.empty();
+    }
+
+    bool isZeroSubspace() const {
+        return !type && isZeroValue();
+    }
+
+    bool isZeroOperator() const {
+        return type && isZeroValue();
+    }
+
+    const SingleVecTerm* singletonVectorTerm() const {
+        if (type || isIdentity || !normalized || oplist.size() != 1) {
+            return nullptr;
+        }
+        return dynamic_cast<const SingleVecTerm*>(oplist[0].get());
+    }
+
+    bool singletonSameSpan(const QOperation& other) const {
+        const SingleVecTerm* lhs = singletonVectorTerm();
+        const SingleVecTerm* rhs = other.singletonVectorTerm();
+        if (!lhs || !rhs) {
+            return false;
+        }
+        BIG_COMPLEX_FLOAT overlap = lhs->dot(*rhs);
+        double overlap_norm = std::sqrt(double(overlap.real() * overlap.real() + overlap.imag() * overlap.imag()));
+        return std::abs(overlap_norm - 1.0) < 1e-8;
+    }
+
+    bool singletonOrthogonalTo(const QOperation& other) const {
+        const SingleVecTerm* lhs = singletonVectorTerm();
+        const SingleVecTerm* rhs = other.singletonVectorTerm();
+        if (!lhs || !rhs) {
+            return false;
+        }
+        BIG_COMPLEX_FLOAT overlap = lhs->dot(*rhs);
+        double overlap_norm = std::sqrt(double(overlap.real() * overlap.real() + overlap.imag() * overlap.imag()));
+        return overlap_norm < 1e-8;
+    }
+
     bool isOperation() const {
         // type == true and isProj == -1
         return type == true && isProj < 0;
@@ -1611,6 +1652,15 @@ class QOperation {
             res.isIdentity = true;
             return res;
         }
+        if (this->singletonSameSpan(other)) {
+            return *this;
+        }
+        if (this->singletonOrthogonalTo(other)) {
+            QOperation res(*this, other);
+            res.normalized = true;
+            res.qNum = this->qNum;
+            return res;
+        }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
         // std::cout << "Disjunction: " << res.oplist.size() << std::endl;
@@ -1787,6 +1837,12 @@ class QOperation {
         } else {
             return 1; // Any non zero operator is a super-space of the empty operator.
         }
+        if (this->singletonSameSpan(other)) {
+            return 4;
+        }
+        if (this->singletonOrthogonalTo(other)) {
+            return 2;
+        }
         // In case this is support-vector like subspace
         // Compute the disjunction of this and other, if the result dimension is:
         // 1. the same as both, then this is equal to other, return 4;
@@ -1844,6 +1900,9 @@ class QOperation {
         }
         if (this->oplist.size() != other.oplist.size()) {
             return false;
+        }
+        if (this->singletonSameSpan(other)) {
+            return true;
         }
         if (this->compare(other) == 4) {
             return true;

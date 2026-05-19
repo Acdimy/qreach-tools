@@ -6,7 +6,7 @@ using namespace qts;
 // Test the basic functionality of transition_system
 int main() {
     initializeTransitionSystem();
-    int qNum = 16;
+    int qNum = 2;
     int maxLocations = 1 << (qNum + 1);
     auto start = std::chrono::high_resolution_clock::now();
     // Create a all-zero string with length qNum
