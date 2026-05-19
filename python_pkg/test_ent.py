@@ -24,8 +24,11 @@ circ.cx(2,3)
 
 circ.cx(0,2)
 circ.cx(1,3)
-ts = parse_qiskit(circ)
-measList = applyFinalMeasurement(ts, 'ZZ', [2,3], 4)
+circ.measure(2,2)
+circ.measure(3,3)
+
+ts = pyqreach.TransitionSystem()
+measList = parse_qiskit_cir(circ, 4, ts)
 
 # Set annotations
 # op00 = pyqreach.QOperation(["0000"])
