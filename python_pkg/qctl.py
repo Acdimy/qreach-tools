@@ -8,10 +8,38 @@ class Proposition:
         self.content = content
         self.condition = condition
 
+
+def _is_symbolic_ts(ts) -> bool:
+    return hasattr(ts, "getLocationIDs") and hasattr(ts, "getLocationAnnotation")
+
+
+def _get_location_ids(ts):
+    if _is_symbolic_ts(ts):
+        return ts.getLocationIDs()
+    return [loc.idx for loc in ts.Locations]
+
+
+def _get_post_locations(ts, loc):
+    if _is_symbolic_ts(ts):
+        return ts.getPostLocations(loc)
+    return list(ts.Locations[loc].postLocations)
+
+
+def _satisfy_quantum(ts, loc, op):
+    if _is_symbolic_ts(ts):
+        return ts.satisfy(loc, op)
+    return ts.Locations[loc].satisfy(op)
+
+
+def _satisfy_bit(ts, loc, idxs, vals):
+    if _is_symbolic_ts(ts):
+        return ts.satisfyBit(loc, idxs, vals)
+    return ts.Locations[loc].satisfyBit(idxs, vals)
+
 def tsLabelling(ts, op: pyqreach.QOperation, label: str, locList: list=None):
     iterList = range(ts.getLocationNum()) if locList is None else locList
     for loc in iterList:
-        if ts.Locations[loc].satisfy(op):
+        if _satisfy_quantum(ts, loc, op):
             ts.setLabel(loc, label)
             # print(f"Location {loc} labelled with {label}")
 
@@ -35,7 +63,7 @@ def tsLabellingClRegList(ts, clRegList: list, label: str, locList:list=None):
         # Once one of the clReg in clRegList is satisfied, label the location and break
         for clRegBin in clRegBins:
             # convert clReg to a binary list
-            if len(ts.Locations[loc].satisfyBit(list(range(len(clRegBin))), clRegBin)) != 0:
+            if len(_satisfy_bit(ts, loc, list(range(len(clRegBin))), clRegBin)) != 0:
                 ts.setLabel(loc, label)
                 break
 
@@ -123,14 +151,19 @@ def ts2Dict(ts: pyqreach.TransitionSystem) -> dict:
         dict: Dictionary representation of the transition system.
     """
     labelDict = {}
-    for loc in ts.Locations:
-        loclabels = ts.getLabels(loc.idx)
+    loc_ids = _get_location_ids(ts)
+    for loc in loc_ids:
+        loclabels = ts.getLabels(loc)
         # print(f"Location {loc.idx} labels: {loclabels}")
-        labelDict[str(loc.idx)] = loclabels if loclabels else []
+        labelDict[str(loc)] = loclabels if loclabels else []
     ts_dict = {
-        'locationsTuple': [(loc.idx, ts.printDims(loc.idx)[1]>0) for loc in ts.Locations],
-        'locations': [str(loc.idx) for loc in ts.Locations],
-        'relations': {f"{rel[0]}->{rel[1]}": ts.getRelationName(rel[0], rel[1]) for rel, op in ts.relations.items()},
+        'locationsTuple': [(loc, ts.printDims(loc)[1]>0) for loc in loc_ids],
+        'locations': [str(loc) for loc in loc_ids],
+        'relations': {
+            f"{src}->{dst}": ts.getRelationName(src, dst)
+            for src in loc_ids
+            for dst in _get_post_locations(ts, src)
+        },
         'init_location': str(ts.getInitLocation()),
         'num_locations': str(ts.getLocationNum()),
         'labels': labelDict
