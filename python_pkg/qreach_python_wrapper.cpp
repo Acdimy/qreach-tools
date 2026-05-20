@@ -15,6 +15,8 @@ PYBIND11_MODULE(pyqreach, m) {
         .def(py::init<std::vector<std::string>>())
         .def(py::init<std::vector<double>, unsigned int>())
         .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>())
+        .def("getName", &QOperation::getName, "getName")
+        .def("printFormal", &QOperation::printFormal, py::arg("print") = true, "printFormal")
         .def_readonly("type", &QOperation::type)
         .def_readonly("normalized", &QOperation::normalized)
         .def_readonly("qNum", &QOperation::qNum)
@@ -26,8 +28,18 @@ PYBIND11_MODULE(pyqreach, m) {
 
     py::class_<ClassicalProposition>(m, "ClassicalProposition")
         .def(py::init<>())
+        .def(py::init<unsigned int>())
+        .def(py::init<unsigned int, std::vector<std::string>>())
+        .def("addTerm", &ClassicalProposition::addTerm, "addTerm")
+        .def("removeTerm", &ClassicalProposition::removeTerm, "removeTerm")
+        .def("setValue", &ClassicalProposition::setValue, "setValue")
+        .def("find", &ClassicalProposition::find, "find")
+        .def("satisfyBit", &ClassicalProposition::satisfyBit, "satisfyBit")
+        .def("unsatisfyBit", &ClassicalProposition::unsatisfyBit, "unsatisfyBit")
         .def("toString", &ClassicalProposition::toString, "toString")
         .def("print", &ClassicalProposition::print, "print")
+        .def("termNum", [](const ClassicalProposition& cp) { return static_cast<int>(cp.terms.size()); }, "termNum")
+        .def_readonly("n", &ClassicalProposition::n)
         .def_readonly("terms", &ClassicalProposition::terms);
 
     py::class_<qts_naive::Location>(m, "Location")
@@ -57,6 +69,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readonly("postLocations", &qts_naive::Location::postLocations);
 
     m.def("initializeTransitionSystem", &qts_naive::initializeTransitionSystem, "initializeTransitionSystem");
+    m.def("initializeSymTransitionSystem", &qts::initializeTransitionSystem, "initializeSymTransitionSystem");
 
     py::class_<qts_naive::TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
@@ -88,10 +101,54 @@ PYBIND11_MODULE(pyqreach, m) {
 
     py::class_<qts::TransitionSystem>(m, "SymTS")
         .def(py::init<>())
-        .def(py::init<int, int>())
-        .def("addLocation", &qts::TransitionSystem::addLocation, "addLocation")
+           .def(py::init<int, int>(), py::arg("num_qubits"), py::arg("max_locations") = 0)
+           .def("addLocation",
+               [](qts::TransitionSystem& ts,
+                 const ClassicalProposition& cp,
+                 const std::string& identifier) {
+                  return ts.addLocation(cp, identifier);
+               },
+               py::arg("cp") = ClassicalProposition(),
+               py::arg("identifier") = "")
         .def("addRelation", &qts::TransitionSystem::addRelation, "addRelation")
-        .def("setAnnotation", &qts::TransitionSystem::setAnnotation, "setAnnotation")
-        .def("postConditions", &qts::TransitionSystem::postConditions, "postConditions");
+           .def("setAnnotation",
+               py::overload_cast<int, const QOperation&>(&qts::TransitionSystem::setAnnotation),
+               "setAnnotation")
+           .def("setAnnotation",
+               [](qts::TransitionSystem& ts, const std::vector<std::tuple<int, QOperation>>& annotations) {
+                  ts.setAnnotation(annotations);
+               },
+               "setAnnotation")
+           .def("appendClassicalAP", &qts::TransitionSystem::appendClassicalAP, "appendClassicalAP")
+           .def("copyClassicalAP", &qts::TransitionSystem::copyClassicalAP, "copyClassicalAP")
+           .def("setClassicalValue", &qts::TransitionSystem::setClassicalValue, "setClassicalValue")
+           .def("find", &qts::TransitionSystem::find, "find")
+           .def("satisfyBit", &qts::TransitionSystem::satisfyBit, "satisfyBit")
+           .def("unsatisfyBit", &qts::TransitionSystem::unsatisfyBit, "unsatisfyBit")
+           .def("termNum", &qts::TransitionSystem::termNum, "termNum")
+           .def("getClassicalProposition", &qts::TransitionSystem::getClassicalProposition, "getClassicalProposition")
+           .def("setClassicalProposition", &qts::TransitionSystem::setClassicalProposition, "setClassicalProposition")
+           .def("setIdentifier", &qts::TransitionSystem::setIdentifier, "setIdentifier")
+           .def("getIdentifier", &qts::TransitionSystem::getIdentifier, "getIdentifier")
+           .def("setLabel", &qts::TransitionSystem::setLabel, "setLabel")
+           .def("getLabels", &qts::TransitionSystem::getLabels, "getLabels")
+           .def("setInitLocation", &qts::TransitionSystem::setInitLocation, "setInitLocation")
+           .def("getInitLocation", &qts::TransitionSystem::getInitLocation, "getInitLocation")
+           .def("getLocationNum", &qts::TransitionSystem::getLocationNum, "getLocationNum")
+           .def("getLocationIDs", &qts::TransitionSystem::getLocationIDs, "getLocationIDs")
+           .def("getPostLocations", &qts::TransitionSystem::getPostLocations, "getPostLocations")
+           .def("getRelationName", &qts::TransitionSystem::getRelationName, "getRelationName")
+           .def("getLocationAnnotation", &qts::TransitionSystem::getLocationAnnotation, "getLocationAnnotation")
+           .def("getLocationDimension", &qts::TransitionSystem::getLocationDimension, "getLocationDimension")
+           .def("locationHasNonZeroAnnotation", &qts::TransitionSystem::locationHasNonZeroAnnotation, "locationHasNonZeroAnnotation")
+           .def("filterReachableLocations", &qts::TransitionSystem::filterReachableLocations, "filterReachableLocations")
+           .def("printDims", &qts::TransitionSystem::printDims, "printDims")
+           .def("satisfy", &qts::TransitionSystem::satisfy, "satisfy")
+           .def("isLeafLoc", &qts::TransitionSystem::isLeafLoc, "isLeafLoc")
+           .def("getAnnotationNodeCount", &qts::TransitionSystem::getAnnotationNodeCount, "getAnnotationNodeCount")
+           .def("getRelationNodeCount", &qts::TransitionSystem::getRelationNodeCount, "getRelationNodeCount")
+           .def("getTotalUniqueNodeCount", &qts::TransitionSystem::getTotalUniqueNodeCount, "getTotalUniqueNodeCount")
+           .def("postConditions", &qts::TransitionSystem::postConditions, "postConditions")
+           .def("computingFixedPointPost", &qts::TransitionSystem::postConditions, "computingFixedPointPost");
     
 }
