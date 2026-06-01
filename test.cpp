@@ -6,28 +6,19 @@ using namespace qts;
 // Test the basic functionality of transition_system
 int main() {
     initializeTransitionSystem();
-    int qNum = 2;
-    int maxLocations = 1 << (qNum + 1);
-    auto start = std::chrono::high_resolution_clock::now();
+    int qNum = 4;
     // Create a all-zero string with length qNum
     std::vector<std::string> terms = {std::string(qNum, '0')};
     QOperation op(terms);
-    TransitionSystem ts(qNum, maxLocations);
+    TransitionSystem ts(qNum);
     int loc0 = ts.addLocation();
     ts.setAnnotation(loc0, op);
     int loc1 = ts.addLocation();
     QOperation oph(std::string("H"), qNum, std::vector<unsigned int>{0}, std::vector<double>{});
     ts.addRelation(loc0, loc1, oph);
-
-    ts.postOneStepDelta({loc0});
-
-    std::vector<int> currLoc = ts.filterReachableLocations({loc1});
+    std::vector<int> currLoc = {loc1};
     int totalLocs = 2;
     for(int i = 0; i <= qNum - 1; i++) {
-        if (currLoc.empty()) {
-            break;
-        }
-
         // Apply a measurement on the i-th qubit, and add a relation from loc0 to loc1 with the projective operations meas0 and meas1.
         QOperation meas0(std::string("meas0"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
         QOperation meas1(std::string("meas1"), qNum, std::vector<unsigned int>{static_cast<unsigned int>(i)}, std::vector<double>{});
@@ -42,21 +33,17 @@ int main() {
             newLocs.push_back(newLoc1);
             totalLocs += 2;
         }
-
-        ts.postOneStepDelta(currLoc);
-        currLoc = ts.filterReachableLocations(newLocs);
+        currLoc = newLocs;
     }
+    // Record time comsumption
+    auto start = std::chrono::high_resolution_clock::now();
+    // ts.postOneStep();
+    ts.postConditions();
+    debug_print_terminals(ts.getAnnotation(), "annotation_terminals.txt");
     auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Num of locations: " << totalLocs << std::endl;
-    // std::cout << "Num of nodes in annotation: " << ts.annotation->nodeCount() << std::endl;
-    // std::cout << "Num of nodes in relation: " << ts.relation->nodeCount() << std::endl;
-    // ts.printAnnotationTerminals("annotation_terminals.txt");
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
     std::cout << "Total locations: " << totalLocs << std::endl;
-    std::cout << "Annotation node count: " << ts.getAnnotationNodeCount() << std::endl;
-    std::cout << "Relation node count: " << ts.getRelationNodeCount() << std::endl;
-    std::cout << "Total unique QADD nodes: " << ts.getTotalUniqueNodeCount() << std::endl;
     ts.printAnnotation();
     ts.printRelation();
     std::cout << "Complete" << std::endl;

@@ -62,19 +62,48 @@ def summarize_symbolic(ts, end_locs):
 
 def compare_results(naive_ts, naive_end_locs, sym_ts, sym_end_locs):
     print("=== Diff Check ===")
-    if naive_end_locs != sym_end_locs:
-        print("end location ids differ:", naive_end_locs, sym_end_locs)
-    else:
-        print("end location ids match:", naive_end_locs)
-
-    for naive_loc, sym_loc in zip(naive_end_locs, sym_end_locs):
+    naive_summary = {}
+    for naive_loc in naive_end_locs:
         naive_cp = naive_ts.Locations[naive_loc].cp.toString()
+        naive_summary[naive_cp] = {
+            "loc": naive_loc,
+            "identifier": naive_ts.Locations[naive_loc].getIdentifier(),
+            "support": naive_ts.Locations[naive_loc].lowerBound.printFormal(False),
+            "labels": sorted(naive_ts.getLabels(naive_loc)),
+            "lower_dim": naive_ts.printDims(naive_loc)[1],
+        }
+
+    sym_summary = {}
+    for sym_loc in sym_end_locs:
         sym_cp = sym_ts.getClassicalProposition(sym_loc).toString()
-        naive_id = naive_ts.Locations[naive_loc].getIdentifier()
-        sym_id = sym_ts.getIdentifier(sym_loc)
-        naive_support = naive_ts.Locations[naive_loc].lowerBound.printFormal(False)
-        sym_support = sym_ts.getLocationAnnotation(sym_loc).printFormal(False)
-        print(f"loc {naive_loc}/{sym_loc}: cp_match={naive_cp == sym_cp}, id_match={naive_id == sym_id}, support_match={naive_support == sym_support}")
+        sym_summary[sym_cp] = {
+            "loc": sym_loc,
+            "identifier": sym_ts.getIdentifier(sym_loc),
+            "support": sym_ts.getLocationAnnotation(sym_loc).printFormal(False),
+            "labels": sorted(sym_ts.getLabels(sym_loc)),
+            "lower_dim": sym_ts.printDims(sym_loc)[1],
+        }
+
+    print("naive cp keys:", sorted(naive_summary.keys()))
+    print("sym cp keys:", sorted(sym_summary.keys()))
+    assert sorted(naive_summary.keys()) == sorted(sym_summary.keys()), "Classical proposition partitions differ between naive TS and SymTS"
+
+    for cp_key in sorted(naive_summary.keys()):
+        naive_info = naive_summary[cp_key]
+        sym_info = sym_summary[cp_key]
+        identifier_match = naive_info["identifier"] == sym_info["identifier"]
+        support_match = naive_info["support"] == sym_info["support"]
+        labels_match = naive_info["labels"] == sym_info["labels"]
+        lower_dim_match = naive_info["lower_dim"] == sym_info["lower_dim"]
+        print(
+            f"cp={cp_key}: naive_loc={naive_info['loc']} sym_loc={sym_info['loc']} "
+            f"id_match={identifier_match} support_match={support_match} "
+            f"labels_match={labels_match} lower_dim_match={lower_dim_match}"
+        )
+        assert identifier_match, f"Identifier mismatch for cp={cp_key}"
+        assert support_match, f"Support mismatch for cp={cp_key}"
+        assert labels_match, f"Label mismatch for cp={cp_key}"
+        assert lower_dim_match, f"Reachable dimension mismatch for cp={cp_key}"
 
 
 def main():
@@ -87,6 +116,7 @@ def main():
     summarize_naive(naive_ts, naive_end_locs)
     summarize_symbolic(sym_ts, sym_end_locs)
     compare_results(naive_ts, naive_end_locs, sym_ts, sym_end_locs)
+    print("Minimal SymTS check passed.")
 
 
 if __name__ == "__main__":

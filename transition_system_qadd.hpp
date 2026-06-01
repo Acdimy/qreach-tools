@@ -36,48 +36,9 @@ void initializeTransitionSystem() {
 
 class TransitionSystem {
 public:
-    struct PostConditionIterationStats {
-        int iter = 0;
-        size_t living_frontier = 0;
-        size_t post_frontier = 0;
-        size_t delta_nodes = 0;
-        size_t delta_terminals = 0;
-        size_t annotation_nodes = 0;
-        size_t annotation_terminals = 0;
-        size_t relation_nodes = 0;
-        size_t relation_terminals = 0;
-        size_t internal_table_nodes = 0;
-        size_t terminal_table_nodes = 0;
-        size_t compute_entries = 0;
-        size_t reclaimed_nodes = 0;
-    };
-
-    struct PostConditionPeakStats {
-        size_t living_frontier = 0;
-        size_t post_frontier = 0;
-        size_t delta_nodes = 0;
-        size_t annotation_nodes = 0;
-        size_t annotation_terminals = 0;
-        size_t internal_table_nodes = 0;
-        size_t terminal_table_nodes = 0;
-        size_t total_table_nodes = 0;
-    };
-
-private:
-    QADDNode* zero_annotation_terminal = nullptr;
-    QADDNode* zero_relation_terminal = nullptr;
-
-    void initialize_zero_terminals() {
-        zero_annotation_terminal = make_terminal(CreateZeroQO(num_qubits, false));
-        zero_relation_terminal = make_terminal(CreateZeroQO(num_qubits, true));
-    }
-
-public:
-
     TransitionSystem() : num_locations(0), num_qubits(0), num_vars(MAX_NUM_VARS) {
-        initialize_zero_terminals();
-        annotation = zero_annotation_terminal;
-        relation = zero_relation_terminal;
+        annotation = make_terminal(CreateZeroQO(num_qubits, false));
+        relation   = make_terminal(CreateZeroQO(num_qubits, true));
     }
     
     TransitionSystem(int num_qubits, int max_locations = 0) : num_locations(0), num_qubits(num_qubits) {
@@ -86,9 +47,8 @@ public:
         } else {
             num_vars = MAX_NUM_VARS;
         }
-        initialize_zero_terminals();
-        annotation = zero_annotation_terminal;
-        relation = zero_relation_terminal;
+        annotation = make_terminal(CreateZeroQO(num_qubits, false));
+        relation   = make_terminal(CreateZeroQO(num_qubits, true));
     }
 
     // =============================
@@ -96,12 +56,40 @@ public:
     // =============================
 
     int addLocation() {
-        ensure_location_capacity(num_locations);
+        return addLocation(ClassicalProposition(), "");
+    }
+
+    int addLocation(const ClassicalProposition& proposition, const std::string& identifier = "") {
         int id = num_locations++;
 
+        bool grew = update_num_vars();
+        if (grew) {
+            extend_existing_encodings();
+        }
+
         encodings.push_back(encode(id));
+        cp.push_back(proposition);
+        identifiers.push_back(identifier);
+        labels.emplace_back();
         post_locations.emplace_back();
         return id;
+    }
+
+    void setInitLocation(int loc) {
+        assert(loc >= 0 && loc < num_locations);
+        init_location = loc;
+    }
+
+    int getInitLocation() const {
+        return init_location;
+    }
+
+    std::vector<int> getLocationIDs() const {
+        std::vector<int> ids(num_locations);
+        for (int id = 0; id < num_locations; ++id) {
+            ids[id] = id;
+        }
+        return ids;
     }
 
     // =============================
@@ -152,11 +140,11 @@ public:
 
     // Extract a delta P-DD containing only the annotations for the given locations.
     QADDNode* extract_delta(const std::vector<int>& ids) {
-        QADDNode* delta = zero_annotation_terminal;
+        QADDNode* delta = make_terminal(CreateZeroQO(num_qubits, false));
         for (int id : ids) {
             assert(id >= 0 && id < num_locations);
             QADDNode* term = get_location_terminal(annotation, id);
-            const QOperation& val = term->val;
+            QOperation val = term->val; // copy terminal QOperation
             QADDNode* indicator = build_state_indicator(0, encodings[id], val);
             delta = Apply(ApplyOp::JOIN, delta, indicator);
             clear_compute_table();
@@ -175,6 +163,59 @@ public:
     std::vector<std::string> unsatisfyBit(int loc, std::vector<unsigned int> indexs, std::vector<bool> values) {
         assert(loc < num_locations);
         return cp[loc].unsatisfyBit(indexs, values);
+    }
+
+    void appendClassicalAP(int loc, const std::string& ap) {
+        assert(loc >= 0 && loc < num_locations);
+        cp[loc].addTerm(ap);
+    }
+
+    void setClassicalValue(int loc, unsigned int index, bool value) {
+        assert(loc >= 0 && loc < num_locations);
+        cp[loc].setValue(index, value);
+    }
+
+    bool find(int loc, const std::string& ap) const {
+        assert(loc >= 0 && loc < num_locations);
+        return cp[loc].find(ap);
+    }
+
+    int termNum(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return static_cast<int>(cp[loc].terms.size());
+    }
+
+    ClassicalProposition getClassicalProposition(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return cp[loc];
+    }
+
+    void setClassicalProposition(int loc, const ClassicalProposition& proposition) {
+        assert(loc >= 0 && loc < num_locations);
+        cp[loc] = proposition;
+    }
+
+    void setIdentifier(int loc, const std::string& identifier) {
+        assert(loc >= 0 && loc < num_locations);
+        identifiers[loc] = identifier;
+    }
+
+    std::string getIdentifier(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return identifiers[loc];
+    }
+
+    void setLabel(int loc, const std::string& label) {
+        assert(loc >= 0 && loc < num_locations);
+        auto& loc_labels = labels[loc];
+        if (std::find(loc_labels.begin(), loc_labels.end(), label) == loc_labels.end()) {
+            loc_labels.push_back(label);
+        }
+    }
+
+    std::vector<std::string> getLabels(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return labels[loc];
     }
 
     // =============================
@@ -201,8 +242,8 @@ public:
     }
 
     // Perform one step but only for a delta P-DD built from `ids`.
-    QADDNode* postOneStepDelta(const std::vector<int>& ids) {
-        if (ids.empty()) return nullptr;
+    void postOneStepDelta(const std::vector<int>& ids) {
+        if (ids.empty()) return;
 
         QADDNode* delta = extract_delta(ids);
 
@@ -221,8 +262,6 @@ public:
         // Join incremental next into global annotation
         annotation = Apply(ApplyOp::JOIN, annotation, next);
         clear_compute_table();
-
-        return delta;
     }
 
     void postConditions()
@@ -231,8 +270,6 @@ public:
         // Each round only checks successors of the last updated locations.
         int MAX_ITER = (1 << num_qubits) * 2; // upper bound of iterations to prevent infinite loop
         int iter = 0;
-        peak_post_stats = PostConditionPeakStats{};
-        last_compaction_reclaimed_nodes = 0;
         std::cout << MAX_ITER << " maximum iterations allowed. " << num_locations << " " << num_qubits << std::endl;
         if (livingAnnotationID.empty()) {
             livingAnnotationID = initAnnotationID;
@@ -254,31 +291,10 @@ public:
                 break;
             }
 
-            PostConditionIterationStats iterationStats;
-            iterationStats.iter = iter;
-            iterationStats.living_frontier = livingAnnotationID.size();
-            iterationStats.post_frontier = postids.size();
-            iterationStats.relation_nodes = count_nodes(relation);
-            iterationStats.relation_terminals = count_terminals(relation);
-
             std::unordered_map<int, int> old_dims = collect_dimensions(annotation, postids);
 
             // Only process the delta built from currently living locations
-            QADDNode* delta = postOneStepDelta(livingAnnotationID);
-            iterationStats.delta_nodes = count_nodes(delta);
-            iterationStats.delta_terminals = count_terminals(delta);
-
-            maybe_compact_tables();
-
-            iterationStats.annotation_nodes = count_nodes(annotation);
-            iterationStats.annotation_terminals = count_terminals(annotation);
-            QADDTableStats tableStats = get_table_stats();
-            iterationStats.internal_table_nodes = tableStats.internal_nodes;
-            iterationStats.terminal_table_nodes = tableStats.terminal_nodes;
-            iterationStats.compute_entries = tableStats.compute_entries;
-            iterationStats.reclaimed_nodes = last_compaction_reclaimed_nodes;
-            update_peak_stats(iterationStats);
-            print_iteration_stats(iterationStats);
+            postOneStepDelta(livingAnnotationID);
 
             std::unordered_map<int, int> new_dims = collect_dimensions(annotation, postids);
             std::vector<int> new_living;
@@ -294,8 +310,6 @@ public:
                 break;
             }
         }
-
-        print_peak_stats();
     }
 
     // =============================
@@ -305,39 +319,69 @@ public:
     QADDNode* getAnnotation() const { return annotation; }
     QADDNode* getRelation() const { return relation; }
 
-    int getNumVars() const { return num_vars; }
-    int getNumLocations() const { return num_locations; }
-    int getNumQubits() const { return num_qubits; }
-    size_t getAnnotationNodeCount() const { return count_nodes(annotation); }
-    size_t getRelationNodeCount() const { return count_nodes(relation); }
-    size_t getTotalUniqueNodeCount() const { return total_unique_node_count(); }
-    size_t getInternalTableNodeCount() const { return get_table_stats().internal_nodes; }
-    size_t getTerminalTableNodeCount() const { return get_table_stats().terminal_nodes; }
+    QOperation getLocationAnnotation(int loc) const {
+        return get_location_terminal(annotation, loc)->val;
+    }
+
     int getLocationDimension(int loc) const {
-        assert(loc >= 0 && loc < num_locations);
-        return get_dimension(get_location_terminal(annotation, loc)->val);
+        return get_dimension(getLocationAnnotation(loc));
     }
+
     bool locationHasNonZeroAnnotation(int loc) const {
-        return getLocationDimension(loc) > 0;
+        QOperation value = getLocationAnnotation(loc);
+        if (value.isIdentity) {
+            return true;
+        }
+        return get_dimension(value) > 0;
     }
-    std::vector<int> filterReachableLocations(const std::vector<int>& ids) const {
+
+    std::pair<int, int> printDims(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        int dim = getLocationDimension(loc);
+        return std::make_pair(dim, dim);
+    }
+
+    std::vector<int> getPostLocations(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return post_locations[loc];
+    }
+
+    std::string getRelationName(int src, int dst) const {
+        assert(src >= 0 && src < num_locations);
+        assert(dst >= 0 && dst < num_locations);
+        return get_relation_terminal(src, dst)->val.getName();
+    }
+
+    std::vector<int> filterReachableLocations() const {
         std::vector<int> reachable;
-        reachable.reserve(ids.size());
-        for (int id : ids) {
-            if (locationHasNonZeroAnnotation(id)) {
-                reachable.push_back(id);
+        for (int loc = 0; loc < num_locations; ++loc) {
+            if (locationHasNonZeroAnnotation(loc)) {
+                reachable.push_back(loc);
             }
         }
         return reachable;
     }
-    void setLivingFrontier(const std::vector<int>& ids) {
-        livingAnnotationID.clear();
-        livingAnnotationID.reserve(ids.size());
-        for (int id : ids) {
-            assert(id >= 0 && id < num_locations);
-            append_unique(livingAnnotationID, id);
-        }
+
+    bool satisfy(int loc, const QOperation& spec) const {
+        assert(loc >= 0 && loc < num_locations);
+        const QOperation actual = getLocationAnnotation(loc);
+        const int relation = actual.compare(spec);
+        return relation == 0 || relation == 4;
     }
+
+    bool isLeafLoc(int loc) const {
+        assert(loc >= 0 && loc < num_locations);
+        return post_locations[loc].empty() ||
+               (post_locations[loc].size() == 1 && post_locations[loc][0] == loc);
+    }
+
+    int getNumVars() const { return num_vars; }
+    int getNumLocations() const { return num_locations; }
+    int getNumQubits() const { return num_qubits; }
+
+    size_t getAnnotationNodeCount() const { return count_nodes(annotation); }
+    size_t getRelationNodeCount() const { return count_nodes(relation); }
+    size_t getTotalUniqueNodeCount() const { return uniqueTable.size() + terminalTable.size(); }
 
     // =============================
     // Visualization
@@ -352,17 +396,6 @@ public:
         printQADD(relation, filename);
     }
 
-    void printAnnotationTerminals(const std::string& filename = "annotation_terminals.txt") const {
-        std::unordered_map<QADDNode*, int> firstLocationMap;
-        for (int loc = 0; loc < num_locations; ++loc) {
-            QADDNode* term = get_location_terminal(annotation, loc);
-            if (firstLocationMap.find(term) == firstLocationMap.end()) {
-                firstLocationMap[term] = loc;
-            }
-        }
-        debug_print_terminals(annotation, filename, &firstLocationMap);
-    }
-
 public:
 
     // =============================
@@ -372,10 +405,13 @@ public:
     int num_vars;          // number of bits
     int num_locations;
     int num_qubits;        // number of qubits in the quantum operations
+    int init_location = -1;
 
     std::vector<std::vector<bool>> encodings;
 
     std::vector<ClassicalProposition> cp;
+    std::vector<std::string> identifiers;
+    std::vector<std::vector<std::string>> labels;
 
     QADDNode* annotation;
     QADDNode* relation;
@@ -383,22 +419,23 @@ public:
     std::vector<int> initAnnotationID;
     std::vector<int> livingAnnotationID;
     std::vector<std::vector<int>> post_locations;
-    PostConditionPeakStats peak_post_stats;
-    size_t last_compaction_reclaimed_nodes = 0;
 
     // =============================
     // Encoding Helpers
     // =============================
 
-    void ensure_location_capacity(int next_id) const {
-        if (num_vars >= static_cast<int>(sizeof(uint64_t) * 8)) {
-            return;
+    bool update_num_vars() {
+        int needed = std::ceil(std::log2(std::max(1, num_locations)));
+        if (needed > num_vars) {
+            num_vars = needed;
+            return true;
         }
+        return false;
+    }
 
-        const uint64_t capacity = uint64_t{1} << num_vars;
-        if (static_cast<uint64_t>(next_id) >= capacity) {
-            throw std::runtime_error(
-                "TransitionSystem location capacity exceeded; construct with a larger max_locations bound.");
+    void extend_existing_encodings() {
+        for (auto& bits : encodings) {
+            bits.resize(num_vars, false);
         }
     }
 
@@ -419,71 +456,6 @@ public:
         }
     }
 
-    void update_peak_stats(const PostConditionIterationStats& stats) {
-        peak_post_stats.living_frontier = std::max(peak_post_stats.living_frontier, stats.living_frontier);
-        peak_post_stats.post_frontier = std::max(peak_post_stats.post_frontier, stats.post_frontier);
-        peak_post_stats.delta_nodes = std::max(peak_post_stats.delta_nodes, stats.delta_nodes);
-        peak_post_stats.annotation_nodes = std::max(peak_post_stats.annotation_nodes, stats.annotation_nodes);
-        peak_post_stats.annotation_terminals = std::max(peak_post_stats.annotation_terminals, stats.annotation_terminals);
-        peak_post_stats.internal_table_nodes = std::max(peak_post_stats.internal_table_nodes, stats.internal_table_nodes);
-        peak_post_stats.terminal_table_nodes = std::max(peak_post_stats.terminal_table_nodes, stats.terminal_table_nodes);
-        peak_post_stats.total_table_nodes = std::max(
-            peak_post_stats.total_table_nodes,
-            stats.internal_table_nodes + stats.terminal_table_nodes);
-    }
-
-    void print_iteration_stats(const PostConditionIterationStats& stats) const {
-        std::cout << "[post iter " << stats.iter << "]"
-                  << " frontier=" << stats.living_frontier
-                  << " post=" << stats.post_frontier
-                  << " delta_nodes=" << stats.delta_nodes
-                  << " delta_terms=" << stats.delta_terminals
-                  << " annotation_nodes=" << stats.annotation_nodes
-                  << " annotation_terms=" << stats.annotation_terminals
-                  << " relation_nodes=" << stats.relation_nodes
-                  << " relation_terms=" << stats.relation_terminals
-                  << " table_internal=" << stats.internal_table_nodes
-                  << " table_terminal=" << stats.terminal_table_nodes
-                  << " table_total=" << (stats.internal_table_nodes + stats.terminal_table_nodes)
-                  << " compute=" << stats.compute_entries;
-        if (stats.reclaimed_nodes > 0) {
-            std::cout << " reclaimed=" << stats.reclaimed_nodes;
-        }
-        std::cout << std::endl;
-    }
-
-    void print_peak_stats() const {
-        std::cout << "[post peak]"
-                  << " frontier=" << peak_post_stats.living_frontier
-                  << " post=" << peak_post_stats.post_frontier
-                  << " delta_nodes=" << peak_post_stats.delta_nodes
-                  << " annotation_nodes=" << peak_post_stats.annotation_nodes
-                  << " annotation_terms=" << peak_post_stats.annotation_terminals
-                  << " table_internal=" << peak_post_stats.internal_table_nodes
-                  << " table_terminal=" << peak_post_stats.terminal_table_nodes
-                  << " table_total=" << peak_post_stats.total_table_nodes
-                  << std::endl;
-    }
-
-    void maybe_compact_tables() {
-        last_compaction_reclaimed_nodes = 0;
-
-        const size_t live_root_nodes = count_nodes(annotation) + count_nodes(relation);
-        QADDTableStats stats = get_table_stats();
-        const size_t total_table_nodes = stats.total_nodes();
-
-        if (live_root_nodes == 0) {
-            return;
-        }
-
-        if (total_table_nodes <= live_root_nodes * 4) {
-            return;
-        }
-
-        QADDSweepResult sweep = sweep_unreachable_tables({annotation, relation});
-        last_compaction_reclaimed_nodes = sweep.reclaimed_total_nodes();
-    }
-
     // =============================
     // Indicator Builders
     // =============================
@@ -498,16 +470,17 @@ public:
             return make_terminal(val);
         }
 
+        QADDNode* zero = make_terminal(CreateZeroQO(num_qubits));
         int var = src_var(i);
 
         if (enc[i]) {
             return make_node(var,
-                zero_annotation_terminal,
+                zero,
                 build_state_indicator(i+1, enc, val));
         } else {
             return make_node(var,
                 build_state_indicator(i+1, enc, val),
-                zero_annotation_terminal);
+                zero);
         }
     }
 
@@ -522,6 +495,8 @@ public:
             return make_terminal(val);
         }
 
+        QADDNode* zero = make_terminal(CreateZeroQO(num_qubits, true));
+
         int bit_idx = i / 2;
         bool bit;
         if ((i % 2) == 0) {
@@ -532,12 +507,12 @@ public:
 
         if (bit) {
             return make_node(i,
-                zero_relation_terminal,
+                zero,
                 build_relation_indicator(i+1, src, dst, val));
         } else {
             return make_node(i,
                 build_relation_indicator(i+1, src, dst, val),
-                zero_relation_terminal);
+                zero);
         }
     }
 
@@ -557,6 +532,40 @@ public:
             cur = bit ? cur->high : cur->low;
         }
         return cur;
+    }
+
+    QADDNode* get_relation_terminal(int src, int dst) const {
+        assert(src >= 0 && src < num_locations);
+        assert(dst >= 0 && dst < num_locations);
+
+        QADDNode* cur = relation;
+        const std::vector<bool>& src_enc = encodings[src];
+        const std::vector<bool>& dst_enc = encodings[dst];
+
+        while (!is_terminal(cur)) {
+            int bit_idx = cur->var / 2;
+            assert(bit_idx >= 0 && bit_idx < num_vars);
+            bool bit = (cur->var % 2 == 0) ? src_enc[bit_idx] : dst_enc[bit_idx];
+            cur = bit ? cur->high : cur->low;
+        }
+        return cur;
+    }
+
+    size_t count_nodes(QADDNode* root) const {
+        if (!root) return 0;
+
+        std::unordered_set<QADDNode*> visited;
+        std::vector<QADDNode*> stack{root};
+        while (!stack.empty()) {
+            QADDNode* node = stack.back();
+            stack.pop_back();
+            if (!visited.insert(node).second || is_terminal(node)) {
+                continue;
+            }
+            stack.push_back(node->low);
+            stack.push_back(node->high);
+        }
+        return visited.size();
     }
 
     std::unordered_map<int, int> collect_dimensions(QADDNode* node, const std::vector<int>& ids) const {

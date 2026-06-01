@@ -102,52 +102,46 @@ PYBIND11_MODULE(pyqreach, m) {
     py::class_<qts::TransitionSystem>(m, "SymTS")
         .def(py::init<>())
            .def(py::init<int, int>(), py::arg("num_qubits"), py::arg("max_locations") = 0)
-           .def("addLocation",
-               [](qts::TransitionSystem& ts,
-                 const ClassicalProposition& cp,
-                 const std::string& identifier) {
-                  return ts.addLocation(cp, identifier);
-               },
-               py::arg("cp") = ClassicalProposition(),
-               py::arg("identifier") = "")
+              .def("addLocation",
+                    [](qts::TransitionSystem& ts,
+                      const ClassicalProposition& cp,
+                      const std::string& identifier) {
+                          return ts.addLocation(cp, identifier);
+                    },
+                    py::arg("cp") = ClassicalProposition(),
+                    py::arg("identifier") = "")
         .def("addRelation", &qts::TransitionSystem::addRelation, "addRelation")
            .def("setAnnotation",
                py::overload_cast<int, const QOperation&>(&qts::TransitionSystem::setAnnotation),
                "setAnnotation")
-           .def("setAnnotation",
-               [](qts::TransitionSystem& ts, const std::vector<std::tuple<int, QOperation>>& annotations) {
-                  ts.setAnnotation(annotations);
-               },
-               "setAnnotation")
-           .def("appendClassicalAP", &qts::TransitionSystem::appendClassicalAP, "appendClassicalAP")
-           .def("copyClassicalAP", &qts::TransitionSystem::copyClassicalAP, "copyClassicalAP")
-           .def("setClassicalValue", &qts::TransitionSystem::setClassicalValue, "setClassicalValue")
-           .def("find", &qts::TransitionSystem::find, "find")
-           .def("satisfyBit", &qts::TransitionSystem::satisfyBit, "satisfyBit")
-           .def("unsatisfyBit", &qts::TransitionSystem::unsatisfyBit, "unsatisfyBit")
-           .def("termNum", &qts::TransitionSystem::termNum, "termNum")
-           .def("getClassicalProposition", &qts::TransitionSystem::getClassicalProposition, "getClassicalProposition")
-           .def("setClassicalProposition", &qts::TransitionSystem::setClassicalProposition, "setClassicalProposition")
-           .def("setIdentifier", &qts::TransitionSystem::setIdentifier, "setIdentifier")
-           .def("getIdentifier", &qts::TransitionSystem::getIdentifier, "getIdentifier")
-           .def("setLabel", &qts::TransitionSystem::setLabel, "setLabel")
-           .def("getLabels", &qts::TransitionSystem::getLabels, "getLabels")
-           .def("setInitLocation", &qts::TransitionSystem::setInitLocation, "setInitLocation")
-           .def("getInitLocation", &qts::TransitionSystem::getInitLocation, "getInitLocation")
-           .def("getLocationNum", &qts::TransitionSystem::getLocationNum, "getLocationNum")
-           .def("getLocationIDs", &qts::TransitionSystem::getLocationIDs, "getLocationIDs")
-           .def("getPostLocations", &qts::TransitionSystem::getPostLocations, "getPostLocations")
-           .def("getRelationName", &qts::TransitionSystem::getRelationName, "getRelationName")
-           .def("getLocationAnnotation", &qts::TransitionSystem::getLocationAnnotation, "getLocationAnnotation")
-           .def("getLocationDimension", &qts::TransitionSystem::getLocationDimension, "getLocationDimension")
-           .def("locationHasNonZeroAnnotation", &qts::TransitionSystem::locationHasNonZeroAnnotation, "locationHasNonZeroAnnotation")
-           .def("filterReachableLocations", &qts::TransitionSystem::filterReachableLocations, "filterReachableLocations")
-           .def("printDims", &qts::TransitionSystem::printDims, "printDims")
-           .def("satisfy", &qts::TransitionSystem::satisfy, "satisfy")
-           .def("isLeafLoc", &qts::TransitionSystem::isLeafLoc, "isLeafLoc")
-           .def("getAnnotationNodeCount", &qts::TransitionSystem::getAnnotationNodeCount, "getAnnotationNodeCount")
-           .def("getRelationNodeCount", &qts::TransitionSystem::getRelationNodeCount, "getRelationNodeCount")
-           .def("getTotalUniqueNodeCount", &qts::TransitionSystem::getTotalUniqueNodeCount, "getTotalUniqueNodeCount")
+              .def("appendClassicalAP", &qts::TransitionSystem::appendClassicalAP, "appendClassicalAP")
+              .def("setClassicalValue", &qts::TransitionSystem::setClassicalValue, "setClassicalValue")
+              .def("find", &qts::TransitionSystem::find, "find")
+              .def("satisfyBit", &qts::TransitionSystem::satisfyBit, "satisfyBit")
+              .def("unsatisfyBit", &qts::TransitionSystem::unsatisfyBit, "unsatisfyBit")
+              .def("termNum", &qts::TransitionSystem::termNum, "termNum")
+              .def("getClassicalProposition", &qts::TransitionSystem::getClassicalProposition, "getClassicalProposition")
+              .def("setClassicalProposition", &qts::TransitionSystem::setClassicalProposition, "setClassicalProposition")
+              .def("setIdentifier", &qts::TransitionSystem::setIdentifier, "setIdentifier")
+              .def("getIdentifier", &qts::TransitionSystem::getIdentifier, "getIdentifier")
+              .def("setLabel", &qts::TransitionSystem::setLabel, "setLabel")
+              .def("getLabels", &qts::TransitionSystem::getLabels, "getLabels")
+              .def("setInitLocation", &qts::TransitionSystem::setInitLocation, "setInitLocation")
+              .def("getInitLocation", &qts::TransitionSystem::getInitLocation, "getInitLocation")
+              .def("getLocationNum", &qts::TransitionSystem::getNumLocations, "getLocationNum")
+              .def("getLocationIDs", &qts::TransitionSystem::getLocationIDs, "getLocationIDs")
+              .def("getPostLocations", &qts::TransitionSystem::getPostLocations, "getPostLocations")
+              .def("getRelationName", &qts::TransitionSystem::getRelationName, "getRelationName")
+              .def("getLocationAnnotation", &qts::TransitionSystem::getLocationAnnotation, "getLocationAnnotation")
+              .def("getLocationDimension", &qts::TransitionSystem::getLocationDimension, "getLocationDimension")
+              .def("locationHasNonZeroAnnotation", &qts::TransitionSystem::locationHasNonZeroAnnotation, "locationHasNonZeroAnnotation")
+              .def("filterReachableLocations", &qts::TransitionSystem::filterReachableLocations, "filterReachableLocations")
+              .def("printDims", &qts::TransitionSystem::printDims, "printDims")
+              .def("satisfy", &qts::TransitionSystem::satisfy, "satisfy")
+              .def("isLeafLoc", &qts::TransitionSystem::isLeafLoc, "isLeafLoc")
+              .def("getAnnotationNodeCount", &qts::TransitionSystem::getAnnotationNodeCount, "getAnnotationNodeCount")
+              .def("getRelationNodeCount", &qts::TransitionSystem::getRelationNodeCount, "getRelationNodeCount")
+              .def("getTotalUniqueNodeCount", &qts::TransitionSystem::getTotalUniqueNodeCount, "getTotalUniqueNodeCount")
            .def("postConditions", &qts::TransitionSystem::postConditions, "postConditions")
            .def("computingFixedPointPost", &qts::TransitionSystem::postConditions, "computingFixedPointPost");
     
