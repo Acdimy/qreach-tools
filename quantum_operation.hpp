@@ -1866,6 +1866,12 @@ class QOperation {
         return 3;
     }
     bool operator==(const QOperation& other) const {
+        if (this->qNum != other.qNum ||
+            this->realqNum != other.realqNum ||
+            this->isIdentity != other.isIdentity ||
+            this->isProj != other.isProj) {
+            return false;
+        }
         if(this->isOperation() != other.isOperation()) {
             return false;
         }

@@ -86,6 +86,7 @@ enum class ApplyOp {
     COMPOSE,
     JOIN,
     MEET,
+    DIFF,
     APPLY
 };
 
@@ -187,6 +188,23 @@ inline QADDNode* apply_terminal(ApplyOp op, QADDNode* a, QADDNode* b) {
 
         case ApplyOp::MEET:
             return make_terminal(A.conjunction_simp(B));
+
+        case ApplyOp::DIFF: {
+            if (A.isZeroSubspace()) {
+                return make_terminal(CreateZeroQO(A.realqNum, false));
+            }
+            if (B.isZeroSubspace()) {
+                return make_terminal(A);
+            }
+            if (A.normalized && B.normalized && A.compare(B) == 4) {
+                return make_terminal(CreateZeroQO(A.realqNum, false));
+            }
+            QOperation diff = A.minus(B);
+            if (diff.isZeroSubspace() && !diff.normalized) {
+                diff = CreateZeroQO(A.realqNum, false);
+            }
+            return make_terminal(diff);
+        }
 
         case ApplyOp::APPLY:
             // 语义：B.postImage(A)

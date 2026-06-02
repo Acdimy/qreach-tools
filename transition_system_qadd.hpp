@@ -9,6 +9,8 @@
 #include <unordered_set>
 #include <iostream>
 #include <cstdint>
+#include <chrono>
+#include <cstdlib>
 
 #include "qadd.hpp"
 #include "quantum_operation.hpp"
@@ -17,6 +19,73 @@
 namespace qts {
 
 using namespace qadd;
+
+namespace tsprof {
+
+struct Stats {
+    size_t post_conditions_calls = 0;
+    size_t post_iterations = 0;
+    size_t max_living_count = 0;
+    size_t max_post_count = 0;
+    double extract_delta_ms = 0.0;
+    double apply_ms = 0.0;
+    double exists_ms = 0.0;
+    double rename_ms = 0.0;
+    double join_ms = 0.0;
+    double dim_before_ms = 0.0;
+    double dim_after_ms = 0.0;
+    double get_post_ids_ms = 0.0;
+};
+
+inline bool enabled() {
+    static const bool enabled_flag = []() {
+        const char* value = std::getenv("TS_PROFILE");
+        return value && std::string(value) != "0";
+    }();
+    return enabled_flag;
+}
+
+inline Stats& stats() {
+    static Stats value;
+    return value;
+}
+
+inline double elapsed_ms(std::chrono::steady_clock::time_point start,
+                         std::chrono::steady_clock::time_point end) {
+    return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+}
+
+inline void print_summary(std::ostream& os = std::cout) {
+    if (!enabled()) return;
+    const Stats& s = stats();
+    os << "[tsprof] post_conditions_calls=" << s.post_conditions_calls
+       << " post_iterations=" << s.post_iterations
+       << " max_living=" << s.max_living_count
+       << " max_postids=" << s.max_post_count
+       << std::endl;
+    os << "[tsprof] get_post_ids_ms=" << s.get_post_ids_ms
+       << " dim_before_ms=" << s.dim_before_ms
+       << " extract_delta_ms=" << s.extract_delta_ms
+       << " apply_ms=" << s.apply_ms
+       << " exists_ms=" << s.exists_ms
+       << " rename_ms=" << s.rename_ms
+       << " join_ms=" << s.join_ms
+       << " dim_after_ms=" << s.dim_after_ms
+       << std::endl;
+}
+
+inline int iteration_limit_override() {
+    static const int value = []() {
+        const char* raw = std::getenv("TS_MAX_POST_ITER");
+        if (!raw || std::string(raw).empty()) {
+            return -1;
+        }
+        return std::atoi(raw);
+    }();
+    return value;
+}
+
+} // namespace tsprof
 
 // ========================================
 // TransitionSystem (QADD-based)
@@ -252,71 +321,137 @@ public:
     void postOneStepDelta(const std::vector<int>& ids) {
         if (ids.empty()) return;
 
+        const bool profile = tsprof::enabled();
+        auto step_start = std::chrono::steady_clock::now();
         QADDNode* delta = extract_delta(ids);
+        if (profile) {
+            auto after_extract = std::chrono::steady_clock::now();
+            tsprof::stats().extract_delta_ms += tsprof::elapsed_ms(step_start, after_extract);
+            step_start = after_extract;
+        }
 
         // Step 1: Apply relation to delta
         QADDNode* tmp = Apply(ApplyOp::APPLY, relation, delta);
+        if (profile) {
+            auto after_apply = std::chrono::steady_clock::now();
+            tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
+            step_start = after_apply;
+        }
         clear_compute_table();
 
         // Step 2: existential abstraction over source vars x_i (2*i)
         QADDNode* eliminated = exists_vars(tmp);
+        if (profile) {
+            auto after_exists = std::chrono::steady_clock::now();
+            tsprof::stats().exists_ms += tsprof::elapsed_ms(step_start, after_exists);
+            step_start = after_exists;
+        }
         clear_compute_table();
 
         // Step 3: rename target vars x_i' (2*i+1) -> source vars x_i (2*i)
         QADDNode* next = rename_vars(eliminated);
+        if (profile) {
+            auto after_rename = std::chrono::steady_clock::now();
+            tsprof::stats().rename_ms += tsprof::elapsed_ms(step_start, after_rename);
+            step_start = after_rename;
+        }
         clear_compute_table();
 
         // Join incremental next into global annotation
         annotation = Apply(ApplyOp::JOIN, annotation, next);
+        if (profile) {
+            auto after_join = std::chrono::steady_clock::now();
+            tsprof::stats().join_ms += tsprof::elapsed_ms(step_start, after_join);
+        }
         clear_compute_table();
+    }
+
+    QADDNode* compute_symbolic_post(QADDNode* delta) {
+        const bool profile = tsprof::enabled();
+        auto step_start = std::chrono::steady_clock::now();
+
+        QADDNode* tmp = Apply(ApplyOp::APPLY, relation, delta);
+        if (profile) {
+            auto after_apply = std::chrono::steady_clock::now();
+            tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
+            step_start = after_apply;
+        }
+        clear_compute_table();
+
+        QADDNode* eliminated = exists_vars(tmp);
+        if (profile) {
+            auto after_exists = std::chrono::steady_clock::now();
+            tsprof::stats().exists_ms += tsprof::elapsed_ms(step_start, after_exists);
+            step_start = after_exists;
+        }
+        clear_compute_table();
+
+        QADDNode* next = rename_vars(eliminated);
+        if (profile) {
+            auto after_rename = std::chrono::steady_clock::now();
+            tsprof::stats().rename_ms += tsprof::elapsed_ms(step_start, after_rename);
+        }
+        clear_compute_table();
+        return next;
+    }
+
+    bool is_zero_delta(QADDNode* node) const {
+        return is_terminal(node) && !node->val.isIdentity && get_dimension(node->val) == 0;
     }
 
     void postConditions()
     {
-        // Reachability closure with dimension-based stopping criterion.
-        // Each round only checks successors of the last updated locations.
         int MAX_ITER = (1 << num_qubits) * 2; // upper bound of iterations to prevent infinite loop
         int iter = 0;
         std::cout << MAX_ITER << " maximum iterations allowed. " << num_locations << " " << num_qubits << std::endl;
-        if (livingAnnotationID.empty()) {
-            livingAnnotationID = initAnnotationID;
+        if (tsprof::enabled()) {
+            ++tsprof::stats().post_conditions_calls;
         }
+
+        QADDNode* delta = annotation;
 
         while (true) {
             if (iter++ > MAX_ITER) {
                 std::cerr << "Warning: postConditions reached maximum iterations. Possible non-convergence." << std::endl;
                 break;
             }
-
-            if (livingAnnotationID.empty()) {
+            if (tsprof::iteration_limit_override() >= 0 && iter > tsprof::iteration_limit_override()) {
+                std::cerr << "Warning: postConditions stopped early due to TS_MAX_POST_ITER="
+                          << tsprof::iteration_limit_override() << std::endl;
                 break;
             }
 
-            std::vector<int> postids = getPostIDs(livingAnnotationID);
-            if (postids.empty()) {
-                livingAnnotationID.clear();
+            if (is_zero_delta(delta)) {
                 break;
             }
 
-            std::vector<int> old_dims = collect_dimensions(annotation, postids);
-
-            // Only process the delta built from currently living locations
-            postOneStepDelta(livingAnnotationID);
-
-            std::vector<int> new_dims = collect_dimensions(annotation, postids);
-            std::vector<int> new_living;
-
-            for (size_t i = 0; i < postids.size(); ++i) {
-                if (new_dims[i] > old_dims[i]) {
-                    new_living.push_back(postids[i]);
-                }
+            if (tsprof::enabled()) {
+                ++tsprof::stats().post_iterations;
             }
 
-            livingAnnotationID = std::move(new_living);
-            if (livingAnnotationID.empty()) {
-                break;
+            QADDNode* old_annotation = annotation;
+            QADDNode* next = compute_symbolic_post(delta);
+
+            auto stage_start = std::chrono::steady_clock::now();
+            QADDNode* joined = Apply(ApplyOp::JOIN, annotation, next);
+            if (tsprof::enabled()) {
+                auto stage_end = std::chrono::steady_clock::now();
+                tsprof::stats().join_ms += tsprof::elapsed_ms(stage_start, stage_end);
+                stage_start = stage_end;
             }
+
+            QADDNode* new_delta = Apply(ApplyOp::DIFF, next, old_annotation);
+            if (tsprof::enabled()) {
+                auto stage_end = std::chrono::steady_clock::now();
+                tsprof::stats().extract_delta_ms += tsprof::elapsed_ms(stage_start, stage_end);
+            }
+            clear_compute_table();
+
+            annotation = joined;
+            delta = new_delta;
         }
+
+        tsprof::print_summary();
     }
 
     // =============================
