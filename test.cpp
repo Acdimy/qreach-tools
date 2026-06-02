@@ -1,12 +1,24 @@
 #include <iostream>
 #include <memory>
+#include <cstdlib>
+#include <chrono>
 #include "transition_system_qadd.hpp"
 using namespace qts;
 
 // Test the basic functionality of transition_system
-int main() {
+int main(int argc, char** argv) {
     initializeTransitionSystem();
-    int qNum = 4;
+    int qNum = 16;
+    bool emitDebugArtifacts = false;
+
+    if (argc >= 2) {
+        qNum = std::atoi(argv[1]);
+    }
+    if (argc >= 3) {
+        emitDebugArtifacts = std::atoi(argv[2]) != 0;
+    }
+
+    auto build_start = std::chrono::high_resolution_clock::now();
     // Create a all-zero string with length qNum
     std::vector<std::string> terms = {std::string(qNum, '0')};
     QOperation op(terms);
@@ -35,17 +47,32 @@ int main() {
         }
         currLoc = newLocs;
     }
+    auto build_end = std::chrono::high_resolution_clock::now();
+
+    auto build_duration = std::chrono::duration_cast<std::chrono::milliseconds>(build_end - build_start);
+    std::cout << "Build time: " << build_duration.count() << " ms" << std::endl;
+    std::cout << "Total locations: " << totalLocs << std::endl;
+    std::cout << "Annotation nodes before post: " << ts.getAnnotationNodeCount() << std::endl;
+    std::cout << "Relation nodes before post: " << ts.getRelationNodeCount() << std::endl;
+    std::cout << "Unique table size before post: " << ts.getTotalUniqueNodeCount() << std::endl;
+
     // Record time comsumption
     auto start = std::chrono::high_resolution_clock::now();
     // ts.postOneStep();
     ts.postConditions();
-    debug_print_terminals(ts.getAnnotation(), "annotation_terminals.txt");
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
     std::cout << "Time consumed: " << duration.count() << " ms" << std::endl;
-    std::cout << "Total locations: " << totalLocs << std::endl;
-    ts.printAnnotation();
-    ts.printRelation();
+    std::cout << "Annotation nodes after post: " << ts.getAnnotationNodeCount() << std::endl;
+    std::cout << "Relation nodes after post: " << ts.getRelationNodeCount() << std::endl;
+    std::cout << "Unique table size after post: " << ts.getTotalUniqueNodeCount() << std::endl;
+
+    if (emitDebugArtifacts) {
+        debug_print_terminals(ts.getAnnotation(), "annotation_terminals.txt");
+        ts.printAnnotation();
+        ts.printRelation();
+    }
+
     std::cout << "Complete" << std::endl;
     return 0;
 }

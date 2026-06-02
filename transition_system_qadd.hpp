@@ -72,6 +72,7 @@ public:
         identifiers.push_back(identifier);
         labels.emplace_back();
         post_locations.emplace_back();
+        post_marks.push_back(0);
         return id;
     }
 
@@ -123,14 +124,21 @@ public:
         append_unique(post_locations[src], dst);
     }
 
-    std::vector<int> getPostIDs(const std::vector<int>& ids) const {
-        std::unordered_set<int> uniq;
+    std::vector<int> getPostIDs(const std::vector<int>& ids) {
         std::vector<int> postids;
+        postids.reserve(ids.size() * 2);
+
+        ++post_mark_epoch;
+        if (post_mark_epoch == 0) {
+            std::fill(post_marks.begin(), post_marks.end(), 0);
+            post_mark_epoch = 1;
+        }
 
         for (int id : ids) {
             assert(id >= 0 && id < num_locations);
             for (int dst : post_locations[id]) {
-                if (uniq.insert(dst).second) {
+                if (post_marks[dst] != post_mark_epoch) {
+                    post_marks[dst] = post_mark_epoch;
                     postids.push_back(dst);
                 }
             }
@@ -147,7 +155,6 @@ public:
             QOperation val = term->val; // copy terminal QOperation
             QADDNode* indicator = build_state_indicator(0, encodings[id], val);
             delta = Apply(ApplyOp::JOIN, delta, indicator);
-            clear_compute_table();
         }
         return delta;
     }
@@ -291,17 +298,17 @@ public:
                 break;
             }
 
-            std::unordered_map<int, int> old_dims = collect_dimensions(annotation, postids);
+            std::vector<int> old_dims = collect_dimensions(annotation, postids);
 
             // Only process the delta built from currently living locations
             postOneStepDelta(livingAnnotationID);
 
-            std::unordered_map<int, int> new_dims = collect_dimensions(annotation, postids);
+            std::vector<int> new_dims = collect_dimensions(annotation, postids);
             std::vector<int> new_living;
 
-            for (int id : postids) {
-                if (new_dims[id] > old_dims[id]) {
-                    new_living.push_back(id);
+            for (size_t i = 0; i < postids.size(); ++i) {
+                if (new_dims[i] > old_dims[i]) {
+                    new_living.push_back(postids[i]);
                 }
             }
 
@@ -419,6 +426,8 @@ public:
     std::vector<int> initAnnotationID;
     std::vector<int> livingAnnotationID;
     std::vector<std::vector<int>> post_locations;
+    std::vector<unsigned int> post_marks;
+    unsigned int post_mark_epoch = 0;
 
     // =============================
     // Encoding Helpers
@@ -568,13 +577,13 @@ public:
         return visited.size();
     }
 
-    std::unordered_map<int, int> collect_dimensions(QADDNode* node, const std::vector<int>& ids) const {
-        std::unordered_map<int, int> dims;
+    std::vector<int> collect_dimensions(QADDNode* node, const std::vector<int>& ids) const {
+        std::vector<int> dims;
         dims.reserve(ids.size());
 
         for (int id : ids) {
             QADDNode* terminal = get_location_terminal(node, id);
-            dims[id] = get_dimension(terminal->val);
+            dims.push_back(get_dimension(terminal->val));
         }
         return dims;
     }
@@ -660,7 +669,6 @@ public:
     QADDNode* exists_vars(QADDNode* node) {
         for (int i = 0; i < num_vars; ++i) {
             node = exists_var(node, src_var(i));
-            clear_compute_table();
         }
         return node;
     }

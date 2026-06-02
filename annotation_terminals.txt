@@ -1,0 +1,54 @@
+Name group: "(0.70711,0)|00000000> + (0.70711,0)|10000000>
+"  count=1
+  terminal[0] ptr=0x55ff0424c6d0
+    getName: (0.70711,0)|00000000> + (0.70711,0)|10000000>
+
+    type: projection
+    normalized: true
+    isIdentity: false
+    isProj: -1
+    qNum: 8
+    realqNum: 0
+    oplist.size: 1
+    same_as_first_by_operator_eq: true
+
+Name group: "(1,0)|10000000>
+"  count=1
+  terminal[0] ptr=0x55ff0505a6f0
+    getName: (1,0)|10000000>
+
+    type: projection
+    normalized: true
+    isIdentity: false
+    isProj: -1
+    qNum: 8
+    realqNum: 0
+    oplist.size: 1
+    same_as_first_by_operator_eq: true
+
+Name group: "0"  count=1
+  terminal[0] ptr=0x55ff04007df0
+    getName: 0
+    type: projection
+    normalized: true
+    isIdentity: false
+    isProj: -1
+    qNum: 8
+    realqNum: 8
+    oplist.size: 0
+    same_as_first_by_operator_eq: true
+
+Name group: "(1,0)|00000000>
+"  count=1
+  terminal[0] ptr=0x55ff04083df0
+    getName: (1,0)|00000000>
+
+    type: projection
+    normalized: true
+    isIdentity: false
+    isProj: -1
+    qNum: 8
+    realqNum: 8
+    oplist.size: 1
+    same_as_first_by_operator_eq: true
+
