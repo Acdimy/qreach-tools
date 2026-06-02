@@ -92,7 +92,7 @@ def _unsatisfy_bit(ts, loc: int, clbits_idx: list, clbits_vals: list) -> list:
 
 
 def _equal_ap(ts, loc_a: int, loc_b: int) -> bool:
-    return _get_cp(ts, loc_a) == _get_cp(ts, loc_b)
+    return _get_cp_string(ts, loc_a) == _get_cp_string(ts, loc_b)
 
 
 def _get_identifier(ts, loc: int) -> str:
@@ -370,12 +370,11 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
         exitList.append(exit_loc)
     # update exitList by grouping by classical APs (Default abstractLevel is 1)
     grouped = groupby_classical_aps(ts, exitList)
+    merged_exit_list = list(exitList)
     for key, locs in grouped.items():
         if len(locs) > 1:
-            # 1027 DEBUG!!!
-            exitList = merge_locations(ts, exitList, locs, identifier+"W.M")
-        else:
-            exitList.append(locs[0])
+            merged_exit_list = merge_locations(ts, merged_exit_list, locs, identifier+"W.M")
+    exitList = merged_exit_list
     # print("Exit locations after while loop:", exitList)
     return exitList
 
@@ -467,12 +466,11 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             if abstractLevel == 1:
                 # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
                 grouped = groupby_classical_aps(ts, tempNewCurrLoc)
-                tempNewCurrLoc = []
+                merged_curr_locs = list(currLoc)
                 for key, locs in grouped.items():
                     if len(locs) > 1:
-                        currLoc = merge_locations(ts, currLoc, locs, identifier+"I.M")
-                    else:
-                        currLoc.append(locs[0])
+                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"I.M")
+                currLoc = merged_curr_locs
             else:
                 raise ValueError("Unsupported merge level for if_else operation.")
         elif op_name == 'while_loop':
@@ -490,12 +488,11 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             if abstractLevel == 1:
                 # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
                 grouped = groupby_classical_aps(ts, outLoopLocs)
-                # print("Grouped locations by classical APs:", grouped)
+                merged_curr_locs = list(currLoc)
                 for key, locs in grouped.items():
                     if len(locs) > 1:
-                        currLoc = merge_locations(ts, currLoc, locs, identifier+"W.M")
-                    else:
-                        currLoc.append(locs[0])
+                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"W.M")
+                currLoc = merged_curr_locs
             else:
                 raise ValueError("Unsupported merge level for while_loop operation.")
         elif op_name == 'for_loop':
@@ -514,12 +511,11 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             if abstractLevel == 1:
                 # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
                 grouped = groupby_classical_aps(ts, outLoopLocs)
-                # print("Grouped locations by classical APs:", grouped)
+                merged_curr_locs = list(currLoc)
                 for key, locs in grouped.items():
                     if len(locs) > 1:
-                        currLoc = merge_locations(ts, currLoc, locs, identifier+"F.M")
-                    else:
-                        currLoc.append(locs[0])
+                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"F.M")
+                currLoc = merged_curr_locs
             else:
                 raise ValueError("Unsupported merge level for for_loop operation.")
         elif op_name == 'switch_case':
@@ -558,11 +554,11 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             if abstractLevel == 1:
                 # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
                 grouped = groupby_classical_aps(ts, tempNewCurrLoc)
+                merged_curr_locs = list(currLoc)
                 for key, locs in grouped.items():
                     if len(locs) > 1:
-                        currLoc = merge_locations(ts, currLoc, locs, identifier+"C.M")
-                    else:
-                        currLoc.append(locs[0])
+                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"C.M")
+                currLoc = merged_curr_locs
             else:
                 raise ValueError("Unsupported merge level for switch_case operation.")
                 
@@ -805,6 +801,59 @@ def build_sym_ts_from_qiskit(qc: QuantumCircuit, qnum: int | None = None, max_lo
     ts = pyqreach.SymTS(qnum, max_locations)
     end_locs = parse_qiskit_cir_sym(qc, qnum, ts, identifier=identifier, abstractLevel=abstractLevel)
     return ts, end_locs
+
+def applyFinalMeasurement(ts: pyqreach.TransitionSystem, PauliString: str, qlist: list, qnum: int, entryNode=-1) -> list:
+    """
+    Apply a final measurement to the transition system.
+    
+    Args:
+        ts (pyqreach.TransitionSystem): The transition system to modify.
+        PauliString (str): The Pauli string representing the measurement.
+        Each Pauli is a local measurement on a qubit.
+        qlist (list): List of locations to apply the measurement to.
+    """
+    currLocNum = ts.getLocationNum()
+    nontrivialPauli = 0
+    numMeasuredQubits = sum(1 for p in PauliString if p != 'I')
+    indexInPauli = [i for i, p in enumerate(PauliString) if p != 'I']
+    totalNewLocation = 2**(numMeasuredQubits + 1) - 2
+    # for pauli in PauliString:
+    #     if pauli != 'I':
+    #         nontrivialPauli += 1
+    #         if pauli == 'X':
+    #             for i in range(2**(nontrivialPauli - 1)):
+    #                 loc = pyqreach.Location(qnum, 0)
+    #                 ts.addLocation(loc)
+    for i in range(totalNewLocation):
+        loc = pyqreach.Location(qnum, 0)
+        ts.addLocation(loc)
+    for layer in range(numMeasuredQubits): # traverse each parent layer
+        currLayerSize = 2**(layer)
+        parentStart = currLocNum - 1 + 2**layer - 1
+        childLayerStart = currLocNum - 1 + 2**(layer+1) - 1
+        pauliIndex = indexInPauli[layer]
+        pauli = PauliString[pauliIndex]
+        qubit = qlist[pauliIndex]
+        for p in range(currLayerSize):  # traverse each parent node
+            if pauli == 'X':
+                oph = pyqreach.QOperation("H", qnum, [qubit], [])
+                ts.addLocation(pyqreach.Location(qnum, 0))  # add a new location for Hadamard
+                tmpHloc = ts.getLocationNum() - 1
+                ts.addRelation(parentStart + p, tmpHloc, oph)
+            for outcomeBit in [0, 1]:
+                parentLoc = parentStart + p
+                childLoc = childLayerStart + 2*p
+                if pauli == 'Z':
+                    measOp = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                    ts.addRelation(parentLoc, childLoc + outcomeBit, measOp)
+                elif pauli == 'X':
+                    measOp = pyqreach.QOperation("meas0" if outcomeBit == 0 else "meas1", qnum, [qubit], [])
+                    ts.addRelation(tmpHloc, childLoc + outcomeBit, measOp)
+
+    resultList = []
+    for j in range(2**(numMeasuredQubits)):
+        resultList.append(currLocNum + 2**(numMeasuredQubits) - 2 + j)
+    return resultList
 
 def visualize_transition_system(ts: pyqreach.TransitionSystem, filename='transition_system'):
     """

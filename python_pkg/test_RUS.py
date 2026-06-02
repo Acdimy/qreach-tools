@@ -33,9 +33,9 @@ from circ_utils import *
 qc = QuantumCircuit(3, 1)
 qc.x(2)
 qc.measure(2, 0)
-qc.reset(1)
+qc.initialize(0, 1)
 with qc.while_loop((0, 0b1)):
-    qc.reset(0)
+    # qc.reset(0)
     qc.h(0)
     qc.t(0)
     qc.cx(0, 1)
