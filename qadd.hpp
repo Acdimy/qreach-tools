@@ -215,11 +215,37 @@ inline QADDNode* apply_terminal(ApplyOp op, QADDNode* a, QADDNode* b) {
     }
 }
 
+inline bool is_zero_subspace_terminal(QADDNode* node) {
+    return is_terminal(node) &&
+           !node->val.type &&
+           !node->val.isIdentity &&
+           node->val.oplist.empty();
+}
+
 // =======================
 // Apply Algorithm
 // =======================
 
 inline QADDNode* Apply(ApplyOp op, QADDNode* u1, QADDNode* u2) {
+    if (u1 == u2) {
+        if (op == ApplyOp::JOIN || op == ApplyOp::MEET) {
+            return u1;
+        }
+    }
+
+    if (op == ApplyOp::JOIN) {
+        if (is_zero_subspace_terminal(u1)) return u2;
+        if (is_zero_subspace_terminal(u2)) return u1;
+    } else if (op == ApplyOp::MEET) {
+        if (is_zero_subspace_terminal(u1)) return u1;
+        if (is_zero_subspace_terminal(u2)) return u2;
+    } else if (op == ApplyOp::DIFF) {
+        if (is_zero_subspace_terminal(u1)) return u1;
+        if (is_zero_subspace_terminal(u2)) return u1;
+    } else if (op == ApplyOp::APPLY) {
+        if (is_zero_subspace_terminal(u2)) return u2;
+    }
+
     ApplyKey key{op, u1, u2};
 
     auto it = computeTable.find(key);

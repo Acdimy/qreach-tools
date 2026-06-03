@@ -376,7 +376,6 @@ public:
             tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
             step_start = after_apply;
         }
-        clear_compute_table();
 
         QADDNode* eliminated = exists_vars(tmp);
         if (profile) {
@@ -384,14 +383,12 @@ public:
             tsprof::stats().exists_ms += tsprof::elapsed_ms(step_start, after_exists);
             step_start = after_exists;
         }
-        clear_compute_table();
 
         QADDNode* next = rename_vars(eliminated);
         if (profile) {
             auto after_rename = std::chrono::steady_clock::now();
             tsprof::stats().rename_ms += tsprof::elapsed_ms(step_start, after_rename);
         }
-        clear_compute_table();
         return next;
     }
 
