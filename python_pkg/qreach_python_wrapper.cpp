@@ -1,11 +1,88 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <vector>
+#include <unordered_map>
 #include "../quantum_operation.hpp"
 #include "transition_system.hpp"
 #include "transition_system_qadd.hpp"
 
 namespace py = pybind11;
+
+namespace {
+
+py::dict export_qadd_graph(qadd::QADDNode* root) {
+    py::list nodes;
+    py::list edges;
+    std::unordered_map<qadd::QADDNode*, int> node_ids;
+    std::vector<qadd::QADDNode*> stack;
+
+    if (!root) {
+        py::dict result;
+        result["nodes"] = nodes;
+        result["edges"] = edges;
+        return result;
+    }
+
+    stack.push_back(root);
+    int next_id = 0;
+    while (!stack.empty()) {
+        qadd::QADDNode* node = stack.back();
+        stack.pop_back();
+
+        if (node_ids.find(node) != node_ids.end()) {
+            continue;
+        }
+
+        int node_id = next_id++;
+        node_ids[node] = node_id;
+
+        py::dict node_info;
+        node_info["id"] = node_id;
+        if (qadd::is_terminal(node)) {
+            node_info["kind"] = "terminal";
+            node_info["label"] = node->val.getName();
+            node_info["is_operation"] = node->val.type;
+            node_info["is_identity"] = node->val.isIdentity;
+            node_info["dimension"] = node->val.type ? -1 : qadd::get_dimension(node->val);
+        } else {
+            node_info["kind"] = "internal";
+            node_info["label"] = "X" + std::to_string(node->var);
+            node_info["var"] = node->var;
+            stack.push_back(node->low);
+            stack.push_back(node->high);
+        }
+        nodes.append(node_info);
+    }
+
+    for (const auto& entry : node_ids) {
+        qadd::QADDNode* node = entry.first;
+        int src_id = entry.second;
+        if (qadd::is_terminal(node)) {
+            continue;
+        }
+
+        py::dict low_edge;
+        low_edge["source"] = src_id;
+        low_edge["target"] = node_ids.at(node->low);
+        low_edge["branch"] = 0;
+        edges.append(low_edge);
+
+        py::dict high_edge;
+        high_edge["source"] = src_id;
+        high_edge["target"] = node_ids.at(node->high);
+        high_edge["branch"] = 1;
+        edges.append(high_edge);
+    }
+
+    py::dict result;
+    result["nodes"] = nodes;
+    result["edges"] = edges;
+    result["node_count"] = static_cast<int>(py::len(nodes));
+    result["edge_count"] = static_cast<int>(py::len(edges));
+    return result;
+}
+
+} // namespace
 
 PYBIND11_MODULE(pyqreach, m) {
     m.doc() = "python wrapper for Quantum Simulation"; // Optional module docstring
@@ -142,6 +219,16 @@ PYBIND11_MODULE(pyqreach, m) {
               .def("getAnnotationNodeCount", &qts::TransitionSystem::getAnnotationNodeCount, "getAnnotationNodeCount")
               .def("getRelationNodeCount", &qts::TransitionSystem::getRelationNodeCount, "getRelationNodeCount")
               .def("getTotalUniqueNodeCount", &qts::TransitionSystem::getTotalUniqueNodeCount, "getTotalUniqueNodeCount")
+              .def("exportAnnotationQADD",
+                   [](const qts::TransitionSystem& ts) {
+                       return export_qadd_graph(ts.getAnnotation());
+                   },
+                   "exportAnnotationQADD")
+              .def("exportRelationQADD",
+                   [](const qts::TransitionSystem& ts) {
+                       return export_qadd_graph(ts.getRelation());
+                   },
+                   "exportRelationQADD")
            .def("postConditions", &qts::TransitionSystem::postConditions, "postConditions")
            .def("computingFixedPointPost", &qts::TransitionSystem::postConditions, "computingFixedPointPost");
     
