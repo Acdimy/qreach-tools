@@ -393,19 +393,32 @@ public:
         clear_compute_table();
     }
 
-    QADDNode* compute_symbolic_post(QADDNode* delta) {
+    QADDNode* compute_symbolic_post(
+        const std::vector<int>& source_ids,
+        const std::vector<QOperation>& source_values,
+        std::vector<int>& touched_locations,
+        std::vector<QOperation>& next_values) {
         const bool profile = tsprof::enabled();
         auto step_start = std::chrono::steady_clock::now();
 
-        std::vector<QOperation> next_values(
-            static_cast<size_t>(num_locations),
-            CreateZeroQO(num_qubits, false));
-        std::vector<unsigned int> touched_marks(static_cast<size_t>(num_locations), 0);
-        std::vector<int> touched_locations;
-        unsigned int touched_epoch = 1;
+        if (profile) {
+            tsprof::stats().max_living_count = std::max(
+                tsprof::stats().max_living_count,
+                source_ids.size());
+        }
 
-        for (int src = 0; src < num_locations; ++src) {
-            const QOperation& source_value = get_location_terminal(delta, src)->val;
+        touched_locations.clear();
+        std::fill(next_values.begin(), next_values.end(), CreateZeroQO(num_qubits, false));
+
+        ++post_mark_epoch;
+        if (post_mark_epoch == 0) {
+            std::fill(post_marks.begin(), post_marks.end(), 0);
+            post_mark_epoch = 1;
+        }
+
+        for (size_t source_index = 0; source_index < source_ids.size(); ++source_index) {
+            int src = source_ids[source_index];
+            const QOperation& source_value = source_values[source_index];
             if (source_value.isZeroSubspace()) {
                 continue;
             }
@@ -427,8 +440,8 @@ public:
                     slot = slot.disjunction(image);
                 }
 
-                if (touched_marks[static_cast<size_t>(dst)] != touched_epoch) {
-                    touched_marks[static_cast<size_t>(dst)] = touched_epoch;
+                if (post_marks[static_cast<size_t>(dst)] != post_mark_epoch) {
+                    post_marks[static_cast<size_t>(dst)] = post_mark_epoch;
                     touched_locations.push_back(dst);
                 }
             }
@@ -448,8 +461,33 @@ public:
             auto after_apply = std::chrono::steady_clock::now();
             tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
             step_start = after_apply;
+            tsprof::stats().max_post_count = std::max(
+                tsprof::stats().max_post_count,
+                touched_locations.size());
         }
         return next;
+    }
+
+    QOperation compute_delta_value(const QOperation& next_value, const QOperation& old_value) const {
+        if (next_value.isZeroSubspace()) {
+            return CreateZeroQO(num_qubits, false);
+        }
+        if (old_value.isZeroSubspace()) {
+            return next_value;
+        }
+
+        if (next_value.normalized && old_value.normalized) {
+            int relation = next_value.compare(old_value);
+            if (relation == 0 || relation == 4) {
+                return CreateZeroQO(num_qubits, false);
+            }
+        }
+
+        QOperation diff = next_value.minus(old_value);
+        if (diff.isZeroSubspace() && !diff.normalized) {
+            return CreateZeroQO(num_qubits, false);
+        }
+        return diff;
     }
 
     bool is_zero_delta(QADDNode* node) const {
@@ -465,7 +503,15 @@ public:
             ++tsprof::stats().post_conditions_calls;
         }
 
-        QADDNode* delta = annotation;
+        std::vector<int> frontier_ids = initAnnotationID;
+        std::vector<QOperation> frontier_values;
+        frontier_values.reserve(frontier_ids.size());
+        for (int loc : frontier_ids) {
+            frontier_values.push_back(get_location_terminal(annotation, loc)->val);
+        }
+
+        std::vector<int> touched_locations;
+        std::vector<QOperation> next_values(static_cast<size_t>(num_locations), CreateZeroQO(num_qubits, false));
 
         while (true) {
             if (iter++ > MAX_ITER) {
@@ -478,7 +524,7 @@ public:
                 break;
             }
 
-            if (is_zero_delta(delta)) {
+            if (frontier_ids.empty()) {
                 break;
             }
 
@@ -487,7 +533,7 @@ public:
             }
 
             QADDNode* old_annotation = annotation;
-            QADDNode* next = compute_symbolic_post(delta);
+            QADDNode* next = compute_symbolic_post(frontier_ids, frontier_values, touched_locations, next_values);
 
             auto stage_start = std::chrono::steady_clock::now();
             QADDNode* joined = Apply(ApplyOp::JOIN, annotation, next);
@@ -497,7 +543,20 @@ public:
                 stage_start = stage_end;
             }
 
-            QADDNode* new_delta = Apply(ApplyOp::DIFF, next, old_annotation);
+            std::vector<int> next_frontier_ids;
+            std::vector<QOperation> next_frontier_values;
+            next_frontier_ids.reserve(touched_locations.size());
+            next_frontier_values.reserve(touched_locations.size());
+            for (int dst : touched_locations) {
+                const QOperation& candidate = next_values[static_cast<size_t>(dst)];
+                QOperation previous = get_location_terminal(old_annotation, dst)->val;
+                QOperation diff = compute_delta_value(candidate, previous);
+                if (!diff.isZeroSubspace()) {
+                    next_frontier_ids.push_back(dst);
+                    next_frontier_values.push_back(diff);
+                }
+            }
+
             if (tsprof::enabled()) {
                 auto stage_end = std::chrono::steady_clock::now();
                 tsprof::stats().extract_delta_ms += tsprof::elapsed_ms(stage_start, stage_end);
@@ -505,7 +564,9 @@ public:
             clear_compute_table();
 
             annotation = joined;
-            delta = new_delta;
+            frontier_ids = std::move(next_frontier_ids);
+            frontier_values = std::move(next_frontier_values);
+            livingAnnotationID = frontier_ids;
         }
 
         tsprof::print_summary();
