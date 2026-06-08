@@ -157,6 +157,7 @@ public:
         identifiers.push_back(identifier);
         labels.emplace_back();
         post_locations.emplace_back();
+        post_relation_terminals.emplace_back();
         post_marks.push_back(0);
         return id;
     }
@@ -206,7 +207,17 @@ public:
                                      op);
 
         relation = Apply(ApplyOp::ADD, relation, indicator);
-        append_unique(post_locations[src], dst);
+
+        auto& outgoing_locations = post_locations[src];
+        auto& outgoing_terms = post_relation_terminals[src];
+        auto existing = std::find(outgoing_locations.begin(), outgoing_locations.end(), dst);
+        if (existing == outgoing_locations.end()) {
+            outgoing_locations.push_back(dst);
+            outgoing_terms.push_back(make_terminal(op));
+        } else {
+            size_t index = static_cast<size_t>(std::distance(outgoing_locations.begin(), existing));
+            outgoing_terms[index] = apply_terminal(ApplyOp::ADD, outgoing_terms[index], make_terminal(op));
+        }
     }
 
     std::vector<int> getPostIDs(const std::vector<int>& ids) {
@@ -386,105 +397,53 @@ public:
         const bool profile = tsprof::enabled();
         auto step_start = std::chrono::steady_clock::now();
 
-        auto is_zero_operator = [](QADDNode* node) {
-            return is_terminal(node) &&
-                   node->val.type &&
-                   !node->val.isIdentity &&
-                   node->val.oplist.empty();
-        };
+        std::vector<QOperation> next_values(
+            static_cast<size_t>(num_locations),
+            CreateZeroQO(num_qubits, false));
+        std::vector<unsigned int> touched_marks(static_cast<size_t>(num_locations), 0);
+        std::vector<int> touched_locations;
+        unsigned int touched_epoch = 1;
 
-        std::unordered_map<QADDNode*, bool> zero_state_memo;
+        for (int src = 0; src < num_locations; ++src) {
+            const QOperation& source_value = get_location_terminal(delta, src)->val;
+            if (source_value.isZeroSubspace()) {
+                continue;
+            }
 
-        std::function<bool(QADDNode*)> is_zero_relation_subtree =
-            [&](QADDNode* node) -> bool {
-                auto it = zero_relation_subtree_cache.find(node);
-                if (it != zero_relation_subtree_cache.end()) {
-                    return it->second;
+            const auto& outgoing_locations = post_locations[src];
+            const auto& outgoing_terms = post_relation_terminals[src];
+            for (size_t edge_index = 0; edge_index < outgoing_locations.size(); ++edge_index) {
+                int dst = outgoing_locations[edge_index];
+                const QOperation& relation_value = outgoing_terms[edge_index]->val;
+                QOperation image = source_value.postImage(relation_value);
+                if (image.isZeroSubspace()) {
+                    continue;
                 }
 
-                bool result = false;
-                if (is_terminal(node)) {
-                    result = is_zero_operator(node);
+                QOperation& slot = next_values[static_cast<size_t>(dst)];
+                if (slot.isZeroSubspace()) {
+                    slot = image;
                 } else {
-                    result = is_zero_relation_subtree(node->low) &&
-                             is_zero_relation_subtree(node->high);
+                    slot = slot.disjunction(image);
                 }
 
-                zero_relation_subtree_cache[node] = result;
-                return result;
-            };
-
-        std::function<bool(QADDNode*)> is_zero_state_subtree =
-            [&](QADDNode* node) -> bool {
-                auto it = zero_state_memo.find(node);
-                if (it != zero_state_memo.end()) {
-                    return it->second;
+                if (touched_marks[static_cast<size_t>(dst)] != touched_epoch) {
+                    touched_marks[static_cast<size_t>(dst)] = touched_epoch;
+                    touched_locations.push_back(dst);
                 }
+            }
+        }
 
-                bool result = false;
-                if (is_terminal(node)) {
-                    result = is_zero_delta(node);
-                } else {
-                    result = is_zero_state_subtree(node->low) &&
-                             is_zero_state_subtree(node->high);
-                }
+        QADDNode* next = make_terminal(CreateZeroQO(num_qubits, false));
+        for (int dst : touched_locations) {
+            const QOperation& value = next_values[static_cast<size_t>(dst)];
+            if (value.isZeroSubspace()) {
+                continue;
+            }
+            QADDNode* indicator = build_state_indicator(0, encodings[dst], value);
+            next = Apply(ApplyOp::JOIN, next, indicator);
+        }
 
-                zero_state_memo[node] = result;
-                return result;
-            };
-
-        std::function<QADDNode*(QADDNode*, QADDNode*)> fused_apply =
-            [&](QADDNode* relation_node, QADDNode* delta_node) -> QADDNode* {
-                SymbolicPostPairKey key{relation_node, delta_node};
-                auto it = symbolic_post_cache.find(key);
-                if (it != symbolic_post_cache.end()) {
-                    return it->second;
-                }
-
-                if (is_zero_relation_subtree(relation_node) || is_zero_delta(delta_node)) {
-                    QADDNode* zero = make_terminal(CreateZeroQO(num_qubits, false));
-                    symbolic_post_cache[key] = zero;
-                    return zero;
-                }
-
-                if (is_terminal(relation_node) && is_terminal(delta_node)) {
-                    QADDNode* res = apply_terminal(ApplyOp::APPLY, relation_node, delta_node);
-                    symbolic_post_cache[key] = res;
-                    return res;
-                }
-
-                int top = std::min(var(relation_node), var(delta_node));
-                QADDNode* res = nullptr;
-
-                if ((top % 2) == 0) {
-                    QADDNode* rel_low = (var(relation_node) == top) ? relation_node->low : relation_node;
-                    QADDNode* rel_high = (var(relation_node) == top) ? relation_node->high : relation_node;
-                    QADDNode* delta_low = (var(delta_node) == top) ? delta_node->low : delta_node;
-                    QADDNode* delta_high = (var(delta_node) == top) ? delta_node->high : delta_node;
-                    QADDNode* low = fused_apply(rel_low, delta_low);
-                    QADDNode* high = fused_apply(rel_high, delta_high);
-                    if (low == high) {
-                        res = low;
-                    } else if (is_zero_state_subtree(low)) {
-                        res = high;
-                    } else if (is_zero_state_subtree(high)) {
-                        res = low;
-                    } else {
-                        res = Apply(ApplyOp::JOIN, low, high);
-                    }
-                } else {
-                    QADDNode* rel_low = (var(relation_node) == top) ? relation_node->low : relation_node;
-                    QADDNode* rel_high = (var(relation_node) == top) ? relation_node->high : relation_node;
-                    QADDNode* low = fused_apply(rel_low, delta_node);
-                    QADDNode* high = fused_apply(rel_high, delta_node);
-                    res = make_node(top - 1, low, high);
-                }
-
-                symbolic_post_cache[key] = res;
-                return res;
-            };
-
-        QADDNode* next = fused_apply(relation, delta);
         if (profile) {
             auto after_apply = std::chrono::steady_clock::now();
             tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
@@ -659,10 +618,9 @@ public:
     std::vector<int> initAnnotationID;
     std::vector<int> livingAnnotationID;
     std::vector<std::vector<int>> post_locations;
+    std::vector<std::vector<QADDNode*>> post_relation_terminals;
     std::vector<unsigned int> post_marks;
     unsigned int post_mark_epoch = 0;
-    std::unordered_map<SymbolicPostPairKey, QADDNode*, SymbolicPostPairKeyHash> symbolic_post_cache;
-    std::unordered_map<QADDNode*, bool> zero_relation_subtree_cache;
 
     // =============================
     // Encoding Helpers
