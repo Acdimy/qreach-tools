@@ -34,8 +34,8 @@ def run_json_command(argv, extra_env=None):
 
 def check_bounded_measure_only_regression():
     expected = {
-        4: {"annotation_nodes": 99, "unique_nodes": 2853},
-        8: {"annotation_nodes": 159, "unique_nodes": 3881},
+        4: {"annotation_nodes": 98, "unique_nodes": 1862},
+        8: {"annotation_nodes": 133, "unique_nodes": 1920},
     }
     payloads = []
     for limit in (4, 8):

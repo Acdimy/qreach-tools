@@ -105,6 +105,22 @@ void initializeTransitionSystem() {
 
 class TransitionSystem {
 public:
+    struct SymbolicPostPairKey {
+        QADDNode* relation_node;
+        QADDNode* delta_node;
+
+        bool operator==(const SymbolicPostPairKey& other) const {
+            return relation_node == other.relation_node && delta_node == other.delta_node;
+        }
+    };
+
+    struct SymbolicPostPairKeyHash {
+        size_t operator()(const SymbolicPostPairKey& key) const {
+            return (std::hash<QADDNode*>()(key.relation_node) << 1) ^
+                   std::hash<QADDNode*>()(key.delta_node);
+        }
+    };
+
     TransitionSystem() : num_locations(0), num_qubits(0), num_vars(MAX_NUM_VARS) {
         annotation = make_terminal(CreateZeroQO(num_qubits, false));
         relation   = make_terminal(CreateZeroQO(num_qubits, true));
@@ -370,24 +386,109 @@ public:
         const bool profile = tsprof::enabled();
         auto step_start = std::chrono::steady_clock::now();
 
-        QADDNode* tmp = Apply(ApplyOp::APPLY, relation, delta);
+        auto is_zero_operator = [](QADDNode* node) {
+            return is_terminal(node) &&
+                   node->val.type &&
+                   !node->val.isIdentity &&
+                   node->val.oplist.empty();
+        };
+
+        std::unordered_map<QADDNode*, bool> zero_state_memo;
+
+        std::function<bool(QADDNode*)> is_zero_relation_subtree =
+            [&](QADDNode* node) -> bool {
+                auto it = zero_relation_subtree_cache.find(node);
+                if (it != zero_relation_subtree_cache.end()) {
+                    return it->second;
+                }
+
+                bool result = false;
+                if (is_terminal(node)) {
+                    result = is_zero_operator(node);
+                } else {
+                    result = is_zero_relation_subtree(node->low) &&
+                             is_zero_relation_subtree(node->high);
+                }
+
+                zero_relation_subtree_cache[node] = result;
+                return result;
+            };
+
+        std::function<bool(QADDNode*)> is_zero_state_subtree =
+            [&](QADDNode* node) -> bool {
+                auto it = zero_state_memo.find(node);
+                if (it != zero_state_memo.end()) {
+                    return it->second;
+                }
+
+                bool result = false;
+                if (is_terminal(node)) {
+                    result = is_zero_delta(node);
+                } else {
+                    result = is_zero_state_subtree(node->low) &&
+                             is_zero_state_subtree(node->high);
+                }
+
+                zero_state_memo[node] = result;
+                return result;
+            };
+
+        std::function<QADDNode*(QADDNode*, QADDNode*)> fused_apply =
+            [&](QADDNode* relation_node, QADDNode* delta_node) -> QADDNode* {
+                SymbolicPostPairKey key{relation_node, delta_node};
+                auto it = symbolic_post_cache.find(key);
+                if (it != symbolic_post_cache.end()) {
+                    return it->second;
+                }
+
+                if (is_zero_relation_subtree(relation_node) || is_zero_delta(delta_node)) {
+                    QADDNode* zero = make_terminal(CreateZeroQO(num_qubits, false));
+                    symbolic_post_cache[key] = zero;
+                    return zero;
+                }
+
+                if (is_terminal(relation_node) && is_terminal(delta_node)) {
+                    QADDNode* res = apply_terminal(ApplyOp::APPLY, relation_node, delta_node);
+                    symbolic_post_cache[key] = res;
+                    return res;
+                }
+
+                int top = std::min(var(relation_node), var(delta_node));
+                QADDNode* res = nullptr;
+
+                if ((top % 2) == 0) {
+                    QADDNode* rel_low = (var(relation_node) == top) ? relation_node->low : relation_node;
+                    QADDNode* rel_high = (var(relation_node) == top) ? relation_node->high : relation_node;
+                    QADDNode* delta_low = (var(delta_node) == top) ? delta_node->low : delta_node;
+                    QADDNode* delta_high = (var(delta_node) == top) ? delta_node->high : delta_node;
+                    QADDNode* low = fused_apply(rel_low, delta_low);
+                    QADDNode* high = fused_apply(rel_high, delta_high);
+                    if (low == high) {
+                        res = low;
+                    } else if (is_zero_state_subtree(low)) {
+                        res = high;
+                    } else if (is_zero_state_subtree(high)) {
+                        res = low;
+                    } else {
+                        res = Apply(ApplyOp::JOIN, low, high);
+                    }
+                } else {
+                    QADDNode* rel_low = (var(relation_node) == top) ? relation_node->low : relation_node;
+                    QADDNode* rel_high = (var(relation_node) == top) ? relation_node->high : relation_node;
+                    QADDNode* low = fused_apply(rel_low, delta_node);
+                    QADDNode* high = fused_apply(rel_high, delta_node);
+                    res = make_node(top - 1, low, high);
+                }
+
+                symbolic_post_cache[key] = res;
+                return res;
+            };
+
+        QADDNode* next = fused_apply(relation, delta);
         if (profile) {
             auto after_apply = std::chrono::steady_clock::now();
             tsprof::stats().apply_ms += tsprof::elapsed_ms(step_start, after_apply);
             step_start = after_apply;
-        }
-
-        QADDNode* eliminated = exists_vars(tmp);
-        if (profile) {
-            auto after_exists = std::chrono::steady_clock::now();
-            tsprof::stats().exists_ms += tsprof::elapsed_ms(step_start, after_exists);
-            step_start = after_exists;
-        }
-
-        QADDNode* next = rename_vars(eliminated);
-        if (profile) {
-            auto after_rename = std::chrono::steady_clock::now();
-            tsprof::stats().rename_ms += tsprof::elapsed_ms(step_start, after_rename);
         }
         return next;
     }
@@ -560,6 +661,8 @@ public:
     std::vector<std::vector<int>> post_locations;
     std::vector<unsigned int> post_marks;
     unsigned int post_mark_epoch = 0;
+    std::unordered_map<SymbolicPostPairKey, QADDNode*, SymbolicPostPairKeyHash> symbolic_post_cache;
+    std::unordered_map<QADDNode*, bool> zero_relation_subtree_cache;
 
     // =============================
     // Encoding Helpers
