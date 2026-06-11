@@ -92,7 +92,9 @@ def _unsatisfy_bit(ts, loc: int, clbits_idx: list, clbits_vals: list) -> list:
 
 
 def _equal_ap(ts, loc_a: int, loc_b: int) -> bool:
-    return _get_cp_string(ts, loc_a) == _get_cp_string(ts, loc_b)
+    if _is_symbolic_ts(ts):
+        return _get_cp_string(ts, loc_a) == _get_cp_string(ts, loc_b)
+    return ts.Locations[loc_a].equalAP(ts.Locations[loc_b])
 
 
 def _get_identifier(ts, loc: int) -> str:

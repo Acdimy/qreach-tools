@@ -33,6 +33,10 @@ def run_json_command(argv, extra_env=None):
 
 
 def check_bounded_measure_only_regression():
+    if not MEASURE_ONLY.exists():
+        print("Skipping bounded measure-only SymTS regression because the helper script has been archived.")
+        return
+
     expected = {
         4: {"annotation_nodes": 98, "unique_nodes": 1862},
         8: {"annotation_nodes": 133, "unique_nodes": 1920},
@@ -66,6 +70,10 @@ def check_bounded_measure_only_regression():
 
 
 def check_if_construct_regression():
+    if not STEANE_POST.exists():
+        print("Skipping construct-stage SymTS regression because the SymTS test script has been archived.")
+        return
+
     naive = run_json_command([sys.executable, str(STEANE_POST), "naive", "1", "construct"])
     sym = run_json_command([sys.executable, str(STEANE_POST), "sym", "1", "construct"])
     print(
