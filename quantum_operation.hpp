@@ -626,7 +626,10 @@ class QuantumGateTerm : public QuantumTerm {
             // auto stateVec = InitializeWithVector(1, this->vars);
             // Prepare the projecor |init><0|
             // stateVec = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVec);
-            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, this->vars);
+            // Append this->vars with zeros, as the imaginary part, double the size to vec_raw.
+            auto vec_raw = this->vars;
+            vec_raw.resize(2 * vec_raw.size(), 0.0);
+            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, vec_raw);
             // Check the indexes that before and after the applied indexes, padding them (through tensor) with identity
             res = U;
             
