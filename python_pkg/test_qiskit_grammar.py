@@ -178,9 +178,9 @@ model_start_time = time()
 # AG ((t & valid) -> ! E [valid U (leaf & ! t)])
 # AG leaf -> !f
 # 同时check多个specs
-# result = modelChecking(ts, 'AG ((t & valid) -> ! E [valid U (valid & leaf & ! t)])')
+result = modelChecking(ts, 'AG ((t & valid) -> ! E [valid U (valid & leaf & ! t)])')
 # result = modelChecking(ts, 'AG leaf -> !f')
-result = modelChecking(ts, 'AG (EF (psip | phim))') # Eventually reach Bell state
+# result = modelChecking(ts, 'AG (EF (psip | phim))') # Eventually reach Bell state
 model_end_time = time()
 print(f"Time taken for model checking: {model_end_time - model_start_time:.2f} seconds")
 print("Output: ", result["output"])

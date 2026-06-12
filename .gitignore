@@ -33,3 +33,5 @@ test_qreach
 *.dot
 
 *.pdf
+
+/python_pkg/pyqreach.cpython-310-darwin.so.dSYM/

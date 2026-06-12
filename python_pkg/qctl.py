@@ -330,7 +330,8 @@ def ts2SMV(ts: pyqreach.TransitionSystem, ctl_formula: str):
 import tempfile
 import os
 
-def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='../NuSMV-2.7.0-linux64/bin/NuSMV'):
+def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='../../NuSMV-2.7.0-macos-universal/bin/NuSMV'):
+    # ../NuSMV-2.7.0-linux64/bin/NuSMV
     smv_code = ts2SMV(ts, ctl_formula)
     nusmv_cmd = nusmv_path if nusmv_path else 'NuSMV'
     with tempfile.NamedTemporaryFile(mode='w', suffix='.smv', delete=False) as temp_file:
