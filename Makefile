@@ -3,7 +3,8 @@ PROJECT = libqreach.so
 # Test Project Name (executable)
 TEST = test_qreach
 # Compiler
-CC = g++
+CXX ?= g++
+CC = $(CXX)
 
 # Run Options       
 COMMANDLINE_OPTIONS = #/dev/ttyS0
@@ -13,7 +14,8 @@ COMPILE_OPTIONS = -g -O3 -std=c++2a -w -Wall -Wextra -DHAVE_CONFIG_H -Werror -Wu
 # -ansi -pedantic -Wall 
 
 #Header include directories
-HEADERS = -I. -I $(BOOST_PATH) -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/
+BOOST_PATH ?= ../BOOST/boost_1_81_0
+HEADERS = -I. -I$(BOOST_PATH) -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/
 
 # Dependency options
 DEPENDENCY_OPTIONS = -MM
@@ -55,7 +57,7 @@ $(PROJECT): $(OBJECTS)
 MY_HEADERS = quantum_operation.hpp transition_system_qadd.hpp qadd.hpp
 
 test.o: test.cpp $(MY_HEADERS)
-	$(CC) -c $(COMPILE_OPTIONS) -o $@ $<
+	$(CC) -c $(COMPILE_OPTIONS) -o $@ $< $(HEADERS)
 
 $(TEST): $(OBJECTS_TEST)
 	$(CC) -o $(TEST) $(OBJECTS_TEST)

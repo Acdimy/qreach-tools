@@ -61,7 +61,7 @@ inline void print_summary(std::ostream& os = std::cout) {
     os << "[tsprof] post_conditions_calls=" << s.post_conditions_calls
        << " post_iterations=" << s.post_iterations
        << " max_living=" << s.max_living_count
-       << " max_postids=" << s.max_post_count
+         << " max_postids=" << s.max_post_count
        << std::endl;
     os << "[tsprof] get_post_ids_ms=" << s.get_post_ids_ms
        << " dim_before_ms=" << s.dim_before_ms
