@@ -1,6 +1,14 @@
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 import re
+from annotations import (
+    AnnotationRegistry,
+    annotate,
+    annotate_classical,
+    annotate_identifier,
+    annotate_where,
+    default_registry,
+)
 
 class Proposition:
     def __init__(self, name: str, content=None, condition=None):
