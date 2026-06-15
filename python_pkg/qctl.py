@@ -9,6 +9,7 @@ from annotations import (
     annotate_where,
     default_registry,
 )
+from inline_annotations import QReachCircuit, mark
 
 class Proposition:
     def __init__(self, name: str, content=None, condition=None):

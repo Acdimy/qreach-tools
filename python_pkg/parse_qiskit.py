@@ -5,6 +5,39 @@ from graphviz import Digraph
 from math import floor
 from math import ceil, log2, pi
 import numpy as np
+from dataclasses import dataclass, field
+from inline_annotations import is_mark_operation, mark_name
+
+
+@dataclass
+class ParseResult:
+    result_locations: list[int]
+    markers: dict[str, list[int]] = field(default_factory=dict)
+    instruction_locations: dict[int, list[int]] = field(default_factory=dict)
+    identifier_index: dict[str, list[int]] = field(default_factory=dict)
+
+    def __iter__(self):
+        return iter(self.result_locations)
+
+    def __len__(self):
+        return len(self.result_locations)
+
+    def __getitem__(self, item):
+        return self.result_locations[item]
+
+    def add_marker(self, name: str, locations: list[int]) -> None:
+        existing = self.markers.setdefault(name, [])
+        for loc in locations:
+            if loc not in existing:
+                existing.append(loc)
+
+    def merge(self, other: "ParseResult") -> None:
+        for name, locations in other.markers.items():
+            self.add_marker(name, locations)
+        for index, locations in other.instruction_locations.items():
+            self.instruction_locations.setdefault(index, []).extend(locations)
+        for identifier, locations in other.identifier_index.items():
+            self.identifier_index.setdefault(identifier, []).extend(locations)
 
 
 def _is_symbolic_ts(ts) -> bool:
@@ -317,7 +350,7 @@ def merge_locations(ts: pyqreach.TransitionSystem, currLocs: list, toMergeLocs: 
         ts.addRelation(l, newLocIdx, pyqreach.QOperation("I", qnum, [0], []))
     return newCurrLocs
 
-def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whileStarter: list, startIdx: int, ts: pyqreach.TransitionSystem, identifier="" , abstractLevel=1) -> list:
+def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whileStarter: list, startIdx: int, ts: pyqreach.TransitionSystem, identifier="" , abstractLevel=1, parse_result: ParseResult | None = None) -> list:
     """
     Build a while loop in the transition system based on the Qiskit QuantumCircuit.
     
@@ -347,7 +380,7 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
         while_loc = _add_location(ts, qnum, identifier + "W", terms=satisfyTerms)
         ts.addRelation(startIdx, while_loc, pyqreach.QOperation("I", qnum, [0], []))
         # Parse the while loop body
-        afterLoopBodyList = parse_qiskit_cir(qc, qnum, ts, [while_loc], identifier+"W")
+        afterLoopBodyList = parse_qiskit_cir(qc, qnum, ts, [while_loc], identifier+"W", return_metadata=False, parse_result=parse_result)
         # For each afterLoopBody location, recursively call the while loop
         for loc in afterLoopBodyList:
             # Check whether the AP of the loc satisfies one of the whileStarter locations
@@ -364,7 +397,7 @@ def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whi
                 ts.addRelation(loc, new_starter, pyqreach.QOperation("I", qnum, [0], []))
                 whileStarter.append(new_starter)  # Add the new location to the whileStarter list
                 # Add the while loop location to the exit list DEBUG 0904!!!
-                exitList.extend(build_while_loop(qc, qnum, clbits_idx, clbits_vals, whileStarter, new_starter, ts, identifier, abstractLevel))
+                exitList.extend(build_while_loop(qc, qnum, clbits_idx, clbits_vals, whileStarter, new_starter, ts, identifier, abstractLevel, parse_result=parse_result))
     if len(unsatisfyTerms) != 0:
         # Create a new location for the exit of the while loop
         exit_loc = _add_location(ts, qnum, identifier + "EW", terms=unsatisfyTerms)
@@ -389,7 +422,7 @@ def simplify_gates(instruction: list, qnum: int) -> list:
     """
     pass
 
-def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSystem, startNodes: list=[], identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:
+def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSystem, startNodes: list=None, identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1, return_metadata: bool = False, parse_result: ParseResult | None = None) -> list | ParseResult:
     """
     Parse a Qiskit QuantumCircuit into a pyqreach TransitionSystem, starting from specified nodes.
     qc: QuantumCircuit to parse
@@ -400,6 +433,10 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
     abstractLevel: Level of abstraction for merging locations (default is 1)
     Returns: List of resulting locations after parsing the circuit
     """
+    if parse_result is None:
+        parse_result = ParseResult(result_locations=[])
+    if startNodes is None:
+        startNodes = []
     # Assert start nodes don't exceed numLocations of ts
     for node in startNodes:
         assert node < ts.getLocationNum(), f"Start node {node} exceeds the number of locations in the transition system."
@@ -429,6 +466,9 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
         # qubits = [q._index for q in gate.qubits]
         qubits = get_global_qb_index(gate.qubits) if gate.qubits else []
         cbits = get_global_cl_index(gate.clbits) if gate.clbits else []
+        if is_mark_operation(gate.operation):
+            parse_result.add_marker(mark_name(gate.operation), list(currLoc))
+            continue
         if op_name == 'if_else':
             # Two instruction blocks, one for if and one for else, double the curr_loc_list
             # 1. For each current location, create a branch for ITE (in case part of the clVars satisfy if and part satisfy else). Otherwise, create a single postLoc.
@@ -451,14 +491,14 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                     if_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".I", terms=satisfyTerms)
                     ts.addRelation(cLoc, if_loc, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse the if block
-                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I")
+                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I", return_metadata=False, parse_result=parse_result)
                 if len(unsatisfyTerms) != 0:
                     # Create a new location for the else block
                     else_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".E", terms=unsatisfyTerms)
                     ts.addRelation(cLoc, else_loc, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse the else block
                     if else_block_cir is not None:
-                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E")
+                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E", return_metadata=False, parse_result=parse_result)
                     else:
                         else_result_locs = [else_loc]
                 tempNewCurrLoc.extend(if_result_locs)
@@ -483,7 +523,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             # print(clbits_idx, clbits_vals, "Condition info for while_loop operation.")
             outLoopLocs = []
             for cLoc in currLoc:
-                exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, identifier+"S"+str(pivot+_+1), abstractLevel)
+                exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, identifier+"S"+str(pivot+_+1), abstractLevel, parse_result=parse_result)
                 outLoopLocs.extend(exitLocs)
             currLoc = outLoopLocs
             # Merge locations if needed
@@ -505,7 +545,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             for cLoc in currLoc:
                 loopStarter = [cLoc]
                 for _ in range(loop_range):
-                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F")
+                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F", return_metadata=False, parse_result=parse_result)
                     loopStarter = loopResultLocs
                 outLoopLocs.extend(loopStarter)
             currLoc = outLoopLocs
@@ -542,14 +582,14 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                     ts.addRelation(cLoc, switch_loc, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse each case block
                     for idx,case_cir in enumerate(case_block_cirs):
-                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx))
+                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx), return_metadata=False, parse_result=parse_result)
                         tempNewCurrLoc.extend(case_result_locs)
                 if len(unsatisfyTerms) != 0:
                     # Create a new location for the default block (not satisfying any case)
                     default_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".D", terms=unsatisfyTerms)
                     ts.addRelation(cLoc, default_loc, pyqreach.QOperation("I", qnum, [0], []))
                     # Parse the default block
-                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D") if gate.operation.default is not None else [default_loc]
+                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D", return_metadata=False, parse_result=parse_result) if gate.operation.default is not None else [default_loc]
                     tempNewCurrLoc.extend(default_result_locs)
             # Merge locations if needed
             currLoc = tempNewCurrLoc
@@ -781,7 +821,8 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             # Update the current locations
             currLoc = tempNewCurrLoc
     resultLocs = currLoc
-    return resultLocs
+    parse_result.result_locations = resultLocs
+    return parse_result if return_metadata else resultLocs
 
 
 def parse_qiskit_cir_sym(qc: QuantumCircuit, qnum: int, ts: pyqreach.SymTS, startNodes: list=None, identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:
