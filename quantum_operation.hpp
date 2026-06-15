@@ -124,6 +124,63 @@ std::string stringPadding(std::string str, unsigned int length) {
     return str + std::string(length - str.length(), '0');
 }
 
+bool isSimpleProductStateString(const std::string& str) {
+    if (str.empty()) {
+        return false;
+    }
+    for (char c : str) {
+        if (c != '0' && c != '1' && c != '+' && c != '-') {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool hasHadamardBasisSymbol(const std::string& str) {
+    return str.find('+') != std::string::npos || str.find('-') != std::string::npos;
+}
+
+std::vector<double> simpleProductStateAmplitudes(const std::string& str, unsigned int physicalQubits) {
+    assert(isSimpleProductStateString(str));
+    assert(physicalQubits >= str.size());
+    std::string padded = stringPadding(str, physicalQubits);
+    unsigned int basisSize = 1 << physicalQubits;
+    std::vector<double> realAmps(basisSize, 0.0);
+
+    unsigned int hadamardCount = 0;
+    for (char c : padded) {
+        if (c == '+' || c == '-') {
+            ++hadamardCount;
+        }
+    }
+    double baseAmp = 1.0 / std::sqrt(static_cast<double>(1 << hadamardCount));
+
+    for (unsigned int basis = 0; basis < basisSize; ++basis) {
+        double amp = baseAmp;
+        bool compatible = true;
+        for (unsigned int pos = 0; pos < physicalQubits; ++pos) {
+            unsigned int bit = (basis >> (physicalQubits - pos - 1)) & 1U;
+            char symbol = padded[pos];
+            if ((symbol == '0' && bit != 0) || (symbol == '1' && bit != 1)) {
+                compatible = false;
+                break;
+            }
+            if (symbol == '-' && bit == 1) {
+                amp = -amp;
+            }
+        }
+        if (compatible) {
+            realAmps[basis] = amp;
+        }
+    }
+
+    std::vector<double> amps;
+    amps.reserve(2 * basisSize);
+    amps.insert(amps.end(), realAmps.begin(), realAmps.end());
+    amps.resize(2 * basisSize, 0.0);
+    return amps;
+}
+
 // 1-norm
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
     double threshold = 1e-8;
@@ -957,18 +1014,26 @@ class QOperation {
     /* The type must be specified */
     QOperation() : type(0) { qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_default_ctor); }
     QOperation(std::vector<std::string> strings) {
-        // Construct a QOperation of basic vectors.
+        // Construct a QOperation of simple product states.
+        // A string may contain 0/1 computational-basis symbols and +/- Hadamard-basis symbols:
+        // '+' means H|0> = (|0> + |1>)/sqrt(2), '-' means H|1> = (|0> - |1>)/sqrt(2).
         assert(strings.size() > 0);
         for (const auto& str : strings) {
             assert(str.size() > 0);
             assert(str.size() == strings[0].size());
+            assert(isSimpleProductStateString(str));
         }
         this->type = false;
         this->realqNum = strings[0].size();
         this->qNum = std::pow(2, ceil(log2(strings[0].size())));
         for (const auto& str : strings) {
-            SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
-            oplist.push_back(std::make_unique<SingleVecTerm>(term));
+            if (hasHadamardBasisSymbol(str)) {
+                SingleVecTerm term(simpleProductStateAmplitudes(str, this->qNum), this->qNum);
+                oplist.push_back(std::make_unique<SingleVecTerm>(term));
+            } else {
+                SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
+                oplist.push_back(std::make_unique<SingleVecTerm>(term));
+            }
         }
         this->normalized = true;
         qoprof::on_qoperation_create(oplist.size(), &qoprof::stats().qoperation_basis_ctor);
