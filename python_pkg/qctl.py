@@ -85,6 +85,122 @@ def tsLabelling(ts, op: pyqreach.QOperation, label: str, locList: list=None):
             ts.setLabel(loc, label)
             # print(f"Location {loc} labelled with {label}")
 
+
+def _location_bound(ts, loc: int, bound: str = "lower") -> pyqreach.QOperation:
+    if bound not in {"lower", "upper", "annotation"}:
+        raise ValueError("bound must be one of: 'lower', 'upper', 'annotation'")
+    if _is_symbolic_ts(ts):
+        if bound == "annotation":
+            return ts.getLocationAnnotation(loc)
+        # TODO: SymTS currently exposes getLocationAnnotation rather than the
+        # explicit lowerBound/upperBound pair.  Once symbolic pre/post workflow
+        # is unified, decide how lower/upper snapshot names should map here.
+        return ts.getLocationAnnotation(loc)
+    if bound == "lower" or bound == "annotation":
+        return ts.Locations[loc].lowerBound
+    return ts.Locations[loc].upperBound
+
+
+def _join_quantum_operations(ops: list[pyqreach.QOperation], qnum: int) -> pyqreach.QOperation:
+    """Return the span/disjunction of several QOperations.
+
+    QOperation.disjunction is not exposed in pybind11 yet, so reuse the existing
+    transition-system semantics: seed several source locations with the input
+    operations, connect them by identity transitions to one sink, and compute
+    the sink lowerBound.
+    """
+    if not ops:
+        raise ValueError("Cannot join an empty QOperation list")
+    if len(ops) == 1:
+        return ops[0]
+
+    ts_temp = pyqreach.TransitionSystem(False)
+    sink = len(ops)
+    for loc in range(len(ops) + 1):
+        ts_temp.addLocation(pyqreach.Location(qnum, loc))
+    for loc in range(len(ops)):
+        ts_temp.addRelation(loc, sink, pyqreach.QOperation("I", qnum, [0], []))
+    ts_temp.setAnnotation([[loc, op] for loc, op in enumerate(ops)])
+    ts_temp.computingFixedPointPost()
+    return ts_temp.Locations[sink].lowerBound
+
+
+def snapshot_operation(
+    ts,
+    locations: int | list[int],
+    *,
+    bound: str = "lower",
+    merge: str = "single",
+) -> pyqreach.QOperation | dict[int, pyqreach.QOperation]:
+    """Build a quantum proposition from one or more transition-system locations.
+
+    `merge` controls what happens when multiple locations are supplied:
+    - 'single': require exactly one location.
+    - 'first': use the first location.
+    - 'join': build one QOperation spanning all selected location bounds.
+    - 'per_location': return {loc: QOperation} without merging.
+    """
+    if isinstance(locations, int):
+        locs = [locations]
+    else:
+        locs = list(locations)
+    if not locs:
+        raise ValueError("No snapshot locations were provided")
+
+    if merge == "single":
+        if len(locs) != 1:
+            raise ValueError(f"Expected exactly one snapshot location, got {len(locs)}: {locs}")
+        return _location_bound(ts, locs[0], bound)
+    if merge == "first":
+        return _location_bound(ts, locs[0], bound)
+    if merge == "per_location":
+        return {loc: _location_bound(ts, loc, bound) for loc in locs}
+    if merge == "join":
+        qnum = _infer_qnum(ts, locs[0])
+        return _join_quantum_operations([_location_bound(ts, loc, bound) for loc in locs], qnum)
+    raise ValueError("merge must be one of: 'single', 'first', 'join', 'per_location'")
+
+
+def label_snapshot(
+    ts,
+    parse_result,
+    marker: str,
+    label: str | None = None,
+    *,
+    bound: str = "lower",
+    merge: str = "single",
+    locList: list | None = None,
+) -> dict[str, list[int]]:
+    """Label all TS locations satisfying the quantum proposition at a mark.
+
+    This intentionally follows tsLabelling's semantics: after obtaining the
+    snapshot QOperation from the marked location(s), it scans `locList` or all
+    transition-system locations and labels every location satisfying that
+    proposition.
+    """
+    if label is None:
+        label = marker
+    try:
+        locations = parse_result.markers[marker]
+    except KeyError as exc:
+        raise KeyError(f"Unknown QReach mark: {marker}") from exc
+
+    snapshot = snapshot_operation(ts, locations, bound=bound, merge=merge)
+    labelled: dict[str, list[int]] = {}
+    if isinstance(snapshot, dict):
+        for loc, op in snapshot.items():
+            loc_label = f"{label}_{loc}"
+            before = {target: set(ts.getLabels(target)) for target in (range(ts.getLocationNum()) if locList is None else locList)}
+            tsLabelling(ts, op, loc_label, locList=locList)
+            labelled[loc_label] = [target for target, labels in before.items() if loc_label not in labels and loc_label in ts.getLabels(target)]
+        return labelled
+
+    iterList = list(range(ts.getLocationNum())) if locList is None else list(locList)
+    before = {loc: set(ts.getLabels(loc)) for loc in iterList}
+    tsLabelling(ts, snapshot, label, locList=iterList)
+    labelled[label] = [loc for loc, labels in before.items() if label not in labels and label in ts.getLabels(loc)]
+    return labelled
+
 def tsLabellingDefault(ts, label: str, locList: list=None):
     iterList = range(ts.getLocationNum()) if locList is None else locList
     for loc in iterList:
