@@ -17,6 +17,39 @@ class Proposition:
         self.condition = condition
 
 
+def quantum_state(bitstring: str) -> pyqreach.QOperation:
+    """Create a QOperation representing one computational-basis state."""
+    return pyqreach.QOperation([bitstring])
+
+
+def _infer_qnum(ts, loc: int) -> int:
+    if hasattr(ts, "getLocationAnnotation"):
+        return ts.getLocationAnnotation(loc).qNum
+    return ts.Locations[loc].qNum
+
+
+def set_initial_state(ts, bitstring: str, loc: int | None = None) -> pyqreach.QOperation:
+    """Set a transition system location's initial quantum annotation.
+
+    Defaults to the transition system's init location.  Returns the created
+    QOperation so callers can reuse it for debugging or additional labelling.
+    """
+    if loc is None:
+        loc = ts.getInitLocation()
+    op = quantum_state(bitstring)
+    ts.setAnnotation([[loc, op]])
+    return op
+
+
+def set_zero_initial_state(ts, qnum: int | None = None, loc: int | None = None) -> pyqreach.QOperation:
+    """Set the init location to the all-zero computational-basis state."""
+    if loc is None:
+        loc = ts.getInitLocation()
+    if qnum is None:
+        qnum = _infer_qnum(ts, loc)
+    return set_initial_state(ts, "0" * qnum, loc=loc)
+
+
 def _is_symbolic_ts(ts) -> bool:
     return hasattr(ts, "getLocationIDs") and hasattr(ts, "getLocationAnnotation")
 

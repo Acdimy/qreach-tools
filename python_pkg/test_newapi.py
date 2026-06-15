@@ -28,8 +28,7 @@ with qc.while_loop((0, 0b1)):
 
 ts = pyqreach.TransitionSystem()
 resultList = parse_qiskit_cir(qc, qc.num_qubits, ts)
-opinit = pyqreach.QOperation(["000"])
-ts.setAnnotation([[0, opinit]])
+set_initial_state(ts, "000")
 ts.computingFixedPointPost()
 annotated_loc = annotate(ts, ["leaf", "reached"])
 print(annotated_loc)
