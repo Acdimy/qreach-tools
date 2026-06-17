@@ -19,8 +19,34 @@ class Proposition:
 
 
 def quantum_state(bitstring: str) -> pyqreach.QOperation:
-    """Create a QOperation representing one computational-basis state."""
+    """Create a QOperation representing one simple product state.
+
+    `bitstring` may contain 0/1 computational-basis symbols and +/- Hadamard-basis
+    symbols.  '+' means H|0> and '-' means H|1>.
+    """
     return pyqreach.QOperation([bitstring])
+
+
+def span_qops(ops) -> pyqreach.QOperation:
+    """Return the normalized span of several subspace QOperations.
+
+    This is the direct API for constructing multi-dimensional quantum
+    propositions from one-dimensional states, replacing the older temporary-TS
+    workaround used to force Gram-Schmidt through computingFixedPointPost.
+    """
+    ops = list(ops)
+    if not ops:
+        raise ValueError("Cannot construct the span of an empty QOperation list")
+    return pyqreach.span_qops(ops)
+
+
+def span_states(states) -> pyqreach.QOperation:
+    """Return the normalized span of simple product-state strings."""
+    unique_states = []
+    for state in states:
+        if state not in unique_states:
+            unique_states.append(state)
+    return span_qops(quantum_state(state) for state in unique_states)
 
 
 def _infer_qnum(ts, loc: int) -> int:
@@ -29,16 +55,44 @@ def _infer_qnum(ts, loc: int) -> int:
     return ts.Locations[loc].qNum
 
 
+def _set_quantum_annotations(ts, annotations: list[tuple[int, pyqreach.QOperation]]) -> list[int]:
+    """Set quantum annotations on transition-system locations.
+
+    Explicit TransitionSystem expects a batch ``[[loc, op], ...]`` while SymTS
+    exposes ``setAnnotation(loc, op)``.  This helper keeps qctl-level APIs
+    independent of that binding difference.
+    """
+    if not annotations:
+        return []
+    if _is_symbolic_ts(ts):
+        for loc, op in annotations:
+            ts.setAnnotation(loc, op)
+    else:
+        ts.setAnnotation([[loc, op] for loc, op in annotations])
+    return [loc for loc, _ in annotations]
+
+
 def set_initial_state(ts, bitstring: str, loc: int | None = None) -> pyqreach.QOperation:
-    """Set a transition system location's initial quantum annotation.
+    """Set a transition system location's initial quantum-state annotation.
 
     Defaults to the transition system's init location.  Returns the created
     QOperation so callers can reuse it for debugging or additional labelling.
     """
+    op = quantum_state(bitstring)
+    set_initial_operation(ts, op, loc=loc)
+    return op
+
+
+def set_initial_operation(ts, op: pyqreach.QOperation, loc: int | None = None) -> pyqreach.QOperation:
+    """Set a transition system location's initial quantum-operation annotation.
+
+    This is the operation-level dual of ``set_initial_state``.  It is useful when
+    the desired initial annotation has already been built with ``span_qops``,
+    ``span_states``, ``snapshot_operation``, or another QOperation builder.
+    """
     if loc is None:
         loc = ts.getInitLocation()
-    op = quantum_state(bitstring)
-    ts.setAnnotation([[loc, op]])
+    _set_quantum_annotations(ts, [(loc, op)])
     return op
 
 
@@ -49,6 +103,45 @@ def set_zero_initial_state(ts, qnum: int | None = None, loc: int | None = None) 
     if qnum is None:
         qnum = _infer_qnum(ts, loc)
     return set_initial_state(ts, "0" * qnum, loc=loc)
+
+
+def _leaf_locations(ts, loc_list=None) -> list[int]:
+    locs = list(_get_location_ids(ts) if loc_list is None else loc_list)
+    return [loc for loc in locs if ts.isLeafLoc(loc)]
+
+
+def annotate_leaf_operation(ts, op: pyqreach.QOperation, *, loc_list=None) -> list[int]:
+    """Set the same quantum-operation annotation on all leaf locations.
+
+    Returns the list of leaf locations that were annotated.  ``loc_list`` may be
+    supplied to restrict the scan to a subset of locations.
+    """
+    locs = _leaf_locations(ts, loc_list=loc_list)
+    return _set_quantum_annotations(ts, [(loc, op) for loc in locs])
+
+
+def annotate_leaf_state(ts, bitstring: str, *, loc_list=None) -> list[int]:
+    """Set a simple product-state annotation on all leaf locations."""
+    return annotate_leaf_operation(ts, quantum_state(bitstring), loc_list=loc_list)
+
+
+def marker_locations(parse_result, marker: str) -> list[int]:
+    """Return transition-system locations recorded for an inline QReach marker."""
+    try:
+        return list(parse_result.markers[marker])
+    except KeyError as exc:
+        raise KeyError(f"Unknown QReach mark: {marker}") from exc
+
+
+def annotate_marker_operation(ts, parse_result, marker: str, op: pyqreach.QOperation) -> list[int]:
+    """Set a quantum-operation annotation on all locations recorded for a marker."""
+    locs = marker_locations(parse_result, marker)
+    return _set_quantum_annotations(ts, [(loc, op) for loc in locs])
+
+
+def annotate_marker_state(ts, parse_result, marker: str, bitstring: str) -> list[int]:
+    """Set a simple product-state annotation on all locations recorded for a marker."""
+    return annotate_marker_operation(ts, parse_result, marker, quantum_state(bitstring))
 
 
 def _is_symbolic_ts(ts) -> bool:
@@ -102,27 +195,10 @@ def _location_bound(ts, loc: int, bound: str = "lower") -> pyqreach.QOperation:
 
 
 def _join_quantum_operations(ops: list[pyqreach.QOperation], qnum: int) -> pyqreach.QOperation:
-    """Return the span/disjunction of several QOperations.
-
-    QOperation.disjunction is not exposed in pybind11 yet, so reuse the existing
-    transition-system semantics: seed several source locations with the input
-    operations, connect them by identity transitions to one sink, and compute
-    the sink lowerBound.
-    """
+    """Return the normalized span/disjunction of several QOperations."""
     if not ops:
         raise ValueError("Cannot join an empty QOperation list")
-    if len(ops) == 1:
-        return ops[0]
-
-    ts_temp = pyqreach.TransitionSystem(False)
-    sink = len(ops)
-    for loc in range(len(ops) + 1):
-        ts_temp.addLocation(pyqreach.Location(qnum, loc))
-    for loc in range(len(ops)):
-        ts_temp.addRelation(loc, sink, pyqreach.QOperation("I", qnum, [0], []))
-    ts_temp.setAnnotation([[loc, op] for loc, op in enumerate(ops)])
-    ts_temp.computingFixedPointPost()
-    return ts_temp.Locations[sink].lowerBound
+    return span_qops(ops)
 
 
 def snapshot_operation(

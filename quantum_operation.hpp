@@ -2064,6 +2064,70 @@ class QOperation {
     }
 };
 
+inline QOperation SpanQOperations(const std::vector<QOperation>& ops) {
+    if (ops.empty()) {
+        throw std::runtime_error("Cannot construct the span of an empty QOperation list.");
+    }
+
+    QOperation res(false);
+    bool initialized = false;
+
+    for (const auto& op : ops) {
+        if (op.isIdentity) {
+            QOperation identity(false);
+            identity.normalized = true;
+            identity.qNum = op.qNum;
+            identity.realqNum = op.realqNum;
+            identity.isIdentity = true;
+            return identity;
+        }
+        if (op.type) {
+            throw std::runtime_error("SpanQOperations expects subspace/state QOperations, not gate-type QOperations.");
+        }
+        if (op.oplist.empty()) {
+            continue;
+        }
+        if (!initialized) {
+            res.qNum = op.qNum;
+            res.realqNum = op.realqNum;
+            initialized = true;
+        } else if (res.qNum != op.qNum) {
+            throw std::runtime_error("Cannot span QOperations with different qNum values.");
+        }
+
+        QOperation normalizedOp(op);
+        if (!normalizedOp.normalized && !normalizedOp.oplist.empty()) {
+            normalizedOp.GramSchmidt(0, static_cast<int>(normalizedOp.oplist.size()) - 1);
+        }
+        for (const auto& term : normalizedOp.oplist) {
+            if (term) {
+                res.oplist.push_back(term->clone());
+            }
+        }
+    }
+
+    if (!initialized || res.oplist.empty()) {
+        res.normalized = true;
+        return res;
+    }
+    if (res.qNum == 1 && res.oplist.size() > 1) {
+        // The current CFLOBDD matrix-multiply path used by GramSchmidt/dot asserts
+        // on the one-qubit level-1 case.  Any two distinct one-qubit states span
+        // the full one-qubit space; callers that build from strings should dedup
+        // identical inputs before reaching this lower-level helper.
+        return QOperation(std::vector<std::string>{"0", "1"});
+    }
+    if (res.oplist.size() > 1) {
+        res.GramSchmidt(0, static_cast<int>(res.oplist.size()) - 1);
+    } else {
+        // Single-vector inputs from QOperation string/amplitude constructors are already
+        // normalized.  Avoid normalizeInline() here because the current CFLOBDD
+        // MatrixMultiplyV4WithInfo path asserts for the one-qubit level-1 case.
+        res.normalized = true;
+    }
+    return res;
+}
+
 /* Const QOperation:
 I: the identity operator as the top of the QOperation lattice
   --> properties: for all QOperation A, conjunction(A, I) = A

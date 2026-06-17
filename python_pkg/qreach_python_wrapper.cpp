@@ -94,6 +94,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def(py::init<std::string, unsigned int, std::vector<unsigned int>, std::vector<double>>())
         .def("getName", &QOperation::getName, "getName")
         .def("printFormal", &QOperation::printFormal, py::arg("print") = true, "printFormal")
+        .def("disjunction", &QOperation::disjunction, py::arg("other"), "Return the span/disjunction of two subspace QOperations")
         .def_readonly("type", &QOperation::type)
         .def_readonly("normalized", &QOperation::normalized)
         .def_readonly("qNum", &QOperation::qNum)
@@ -102,6 +103,7 @@ PYBIND11_MODULE(pyqreach, m) {
     
     m.def("CreateIdentityQO", &CreateIdentityQO, "Create an identity quantum operation");
     m.def("CreateZeroQO", &CreateZeroQO, "Create a zero quantum operation");
+    m.def("span_qops", &SpanQOperations, py::arg("ops"), "Construct the normalized span of subspace QOperations");
 
     py::class_<ClassicalProposition>(m, "ClassicalProposition")
         .def(py::init<>())
