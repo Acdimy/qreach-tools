@@ -67,6 +67,21 @@ class QReachCircuit:
     def __repr__(self) -> str:
         return f"QReachCircuit({self.circuit!r})"
 
+    @classmethod
+    def from_qasm_file(cls, path: str) -> "QReachCircuit":
+        """Load a normal OpenQASM 2 file and wrap it as a QReachCircuit.
+
+        This mirrors ``QuantumCircuit.from_qasm_file``.  The QASM file is assumed
+        to be ordinary OpenQASM without QReach-specific inline annotations; users
+        may still add ``.mark(name)`` calls to the returned wrapper before parsing.
+        """
+        return cls(QuantumCircuit.from_qasm_file(path))
+
+    @classmethod
+    def from_qasm_str(cls, qasm_str: str) -> "QReachCircuit":
+        """Load an OpenQASM 2 string and wrap it as a QReachCircuit."""
+        return cls(QuantumCircuit.from_qasm_str(qasm_str))
+
     def mark(self, name: str) -> "QReachCircuit":
         mark(self.circuit, name)
         self.declared_marks.append(name)

@@ -325,6 +325,15 @@ print(parse_result.markers)
 
 Marks are represented as labelled Qiskit barriers, so they are semantic no-ops for the transition-system construction. The parser records the current transition-system locations for each mark.
 
+You can also load a normal OpenQASM 2 file through the wrapper:
+
+```python
+qc = QReachCircuit.from_qasm_file("benchmark/grover/grover_5.qasm")
+qc.mark("after_load")
+```
+
+`QReachCircuit.from_qasm_file(...)` mirrors Qiskit's `QuantumCircuit.from_qasm_file(...)`; the file is assumed to be ordinary OpenQASM without QReach-specific inline annotations.
+
 You can also mark a normal `QuantumCircuit`:
 
 ```python

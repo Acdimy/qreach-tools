@@ -38,4 +38,4 @@ ts = pyqreach.TransitionSystem()
 parse_result = parse_qiskit_cir(circ, circ.num_qubits, ts, return_metadata=True)
 opI = pyqreach.CreateIdentityQO(4)
 opO = pyqreach.CreateZeroQO(4)
-annotate_where(ts, )
+#TODO: immitate the codes in python_pkg/test_ent.py, but use the new api.

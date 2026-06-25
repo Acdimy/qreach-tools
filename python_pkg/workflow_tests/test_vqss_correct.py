@@ -25,12 +25,18 @@ for i in range(7, 14):
     with circ.if_test((i, 1)):
         circ.x(i)
 
+start_time = time()
 ts = pyqreach.TransitionSystem()
 parse_result = parse_qiskit_cir(circ, circ.num_qubits, ts, return_metadata=True)
 set_initial_state(ts, "00000000000000")
+build_time = time() - start_time
 ts.computingFixedPointPost()
 label_snapshot(ts, parse_result, "enc", "target")
 annotate(ts, ["leaf"])
 result = modelChecking(ts, 'AG (leaf -> target)')
+check_time = time() - start_time - build_time
+print(f"Transition System Locations: {ts.getLocationNum()}")
+print(f"Time taken for building transition system: {build_time:.2f} seconds")
+print(f"Time taken for model checking: {check_time:.2f} seconds")
 print("Output: ", result["output"])
 print("Model checking result:", result['satisfied'])

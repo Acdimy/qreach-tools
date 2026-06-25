@@ -268,8 +268,12 @@ Important: do not implement explicit `reached` using `SymTS.locationHasNonZeroAn
 
 ```python
 QReachCircuit
+QReachCircuit.from_qasm_file(path)
+QReachCircuit.from_qasm_str(qasm_str)
 mark(qc, name)
 ```
+
+`QReachCircuit.from_qasm_file(...)` mirrors Qiskit's `QuantumCircuit.from_qasm_file(...)` for ordinary OpenQASM 2 files without QReach-specific inline annotations. The returned wrapper can still receive `.mark(name)` calls before parsing.
 
 Marks are labelled Qiskit barriers with prefix `qreach:mark:` and are semantic no-ops for transition-system construction.
 
