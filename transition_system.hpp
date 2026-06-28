@@ -211,6 +211,8 @@ public:
     std::deque<int> currPostLocs;
     std::vector<bool> visitedPre;
     std::vector<bool> visitedPost;
+    std::vector<bool> inPreQueue;
+    std::vector<bool> inPostQueue;
 public:
     std::vector<Location> Locations;
     unsigned int initLocation;
@@ -324,8 +326,20 @@ void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOpera
         unsigned int loc = std::get<0>(annotation);
         QOperation op = std::get<1>(annotation);
         // this->Locations[loc].setAnnotation(op);
-        this->currPreLocs.push_back(loc);
-        this->currPostLocs.push_back(loc);
+        if (loc >= this->inPreQueue.size()) {
+            this->inPreQueue.resize(this->Locations.size(), false);
+        }
+        if (loc >= this->inPostQueue.size()) {
+            this->inPostQueue.resize(this->Locations.size(), false);
+        }
+        if (!this->inPreQueue[loc]) {
+            this->currPreLocs.push_back(loc);
+            this->inPreQueue[loc] = true;
+        }
+        if (!this->inPostQueue[loc]) {
+            this->currPostLocs.push_back(loc);
+            this->inPostQueue[loc] = true;
+        }
         this->Locations[loc].upperBound = op; // Must be copy assignment!
         this->Locations[loc].lowerBound = op;
     }
@@ -361,12 +375,19 @@ void TransitionSystem::preConditionInit() {
     */
    // Initialize the visitedPre vectors
     this->visitedPre.resize(this->Locations.size(), false);
+    this->inPreQueue.resize(this->Locations.size(), false);
+    for (int loc : this->currPreLocs) {
+        if (loc >= 0 && static_cast<unsigned int>(loc) < this->inPreQueue.size()) {
+            this->inPreQueue[loc] = true;
+        }
+    }
     this->computedTablePre.clear(); // Clear the computed table for pre-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if ((this->Locations[i].postLocations.size() == 1 && this->Locations[i].postLocations[0] == i) || this->Locations[i].postLocations.size() == 0) {
-            // If i not in currPreLocs, add it. (TODO: Use a set to avoid duplicates)
-            if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), i) == this->currPreLocs.end()) {
+            // If i not in currPreLocs, add it.
+            if (!this->inPreQueue[i]) {
                 this->currPreLocs.push_back(i);
+                this->inPreQueue[i] = true;
                 this->visitedPre[i] = true; // Mark this location as visited
             }
         }
@@ -424,13 +445,15 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
             if (visitedPre[preLoc->idx] == false) {
                 std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
                 this->currPreLocs.push_back(preLoc->idx);
+                this->inPreQueue[preLoc->idx] = true;
                 visitedPre[preLoc->idx] = true;
             } else if (preLoc->upperBound.oplist.size() < dimBefore && dimBefore > 0) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
                 // TODO: Check it carefully!!
-                if (std::find(this->currPreLocs.begin(), this->currPreLocs.end(), preLoc->idx) == this->currPreLocs.end()) {
+                if (!this->inPreQueue[preLoc->idx]) {
                     std::cout << "Pre condition for location " << preLoc->idx << " is updated from " << dimBefore << " to " << preLoc->lowerBound.oplist.size() << std::endl;
                     this->currPreLocs.push_back(preLoc->idx);
+                    this->inPreQueue[preLoc->idx] = true;
                 }
             } else {
                 std::cout << "Pre condition for location " << preLoc->idx << " is not updated." << std::endl;
@@ -450,6 +473,9 @@ void TransitionSystem::preConditions() {
         if (!this->currPreLocs.empty()) {
             unsigned int loc = this->currPreLocs.front();
             this->currPreLocs.pop_front();
+            if (loc < this->inPreQueue.size()) {
+                this->inPreQueue[loc] = false;
+            }
             this->preConditionOneStep(loc);
         } else if (!this->locationBuf.empty()) {
             // If there are locations in locationBuf, we need to process them.
@@ -484,12 +510,19 @@ void TransitionSystem::postConditionInit() {
     */
     // Initialize the visitedPost vectors
     this->visitedPost.resize(this->Locations.size(), false);
+    this->inPostQueue.resize(this->Locations.size(), false);
+    for (int loc : this->currPostLocs) {
+        if (loc >= 0 && static_cast<unsigned int>(loc) < this->inPostQueue.size()) {
+            this->inPostQueue[loc] = true;
+        }
+    }
     this->computedTablePost.clear(); // Clear the computed table for post-conditions
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == i) || this->Locations[i].preLocations.size() == 0) {
             // If i not in currPostLocs, add it.
-            if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), i) == this->currPostLocs.end()) {
+            if (!this->inPostQueue[i]) {
                 this->currPostLocs.push_back(i);
+                this->inPostQueue[i] = true;
                 this->visitedPost[i] = true; // Mark this location as visited
             }
         }
@@ -526,13 +559,15 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
             if (visitedPost[postLoc->idx] == false) {
                 // std::cout << "Visit a new post location " << postLoc->idx << std::endl;
                 this->currPostLocs.push_back(postLoc->idx);
+                this->inPostQueue[postLoc->idx] = true;
                 visitedPost[postLoc->idx] = true;
             } else if (postLoc->lowerBound.oplist.size() > dimBefore && dimBefore < std::pow(2, postLoc->lowerBound.qNum)) {
                 // If the dimension of the lowerBound is reduced, we need to recheck the post-condition.
                 // If postLoc->idx is not in currPostLocs, append it.
-                if (std::find(this->currPostLocs.begin(), this->currPostLocs.end(), postLoc->idx) == this->currPostLocs.end()) {
+                if (!this->inPostQueue[postLoc->idx]) {
                     // std::cout << "Post condition for location " << postLoc->idx << " is updated from " << dimBefore << " to " << postLoc->lowerBound.oplist.size() << std::endl;
                     this->currPostLocs.push_back(postLoc->idx);
+                    this->inPostQueue[postLoc->idx] = true;
                 }
             } else {
                 // std::cout << "Post condition for location " << postLoc->idx << " is not updated." << std::endl;
@@ -551,6 +586,9 @@ void TransitionSystem::postConditions() {
     while (!this->currPostLocs.empty()) {
         unsigned int loc = this->currPostLocs.front();
         this->currPostLocs.pop_front();
+        if (loc < this->inPostQueue.size()) {
+            this->inPostQueue[loc] = false;
+        }
         this->postConditionOneStep(loc);
     }
 }
