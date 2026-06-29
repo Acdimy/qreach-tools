@@ -12,8 +12,17 @@
 
 using namespace CFL_OBDD;
 
-// Provide a hash specialization for std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>
+// Provide hash specializations for relation/cache keys.
 namespace std {
+    template <>
+    struct hash<std::tuple<unsigned int, unsigned int>> {
+        std::size_t operator()(const std::tuple<unsigned int, unsigned int>& t) const {
+            std::size_t h1 = std::hash<unsigned int>()(std::get<0>(t));
+            std::size_t h2 = std::hash<unsigned int>()(std::get<1>(t));
+            return h1 ^ (h2 << 1);
+        }
+    };
+
     template <>
     struct hash<std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>> {
         std::size_t operator()(const std::tuple<unsigned int, unsigned int, unsigned int, unsigned int>& t) const {
@@ -224,7 +233,7 @@ public:
     std::vector<Location> Locations;
     unsigned int initLocation;
     // I need to build a map from relation names to the quantum operations.
-    std::map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
+    std::unordered_map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
 
     
     // A computed table: tuple(from_loc, from_dim, to_loc, to_dim), indicating the relation(from_loc, to_loc) with the dimensions is computed.
@@ -430,23 +439,26 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
         unsigned int preLocIdx = this->Locations[loc].preLocations[i];
         Location* preLoc = this->Locations.data() + preLocIdx; // Get the pointer to the preLocation
         assert(preLoc->idx == preLocIdx); // Ensure the index is correct
+        auto relationIt = this->relations.find(std::make_tuple(preLoc->idx, loc));
+        assert(relationIt != this->relations.end());
+        const QOperation& relation = relationIt->second;
         // If it is a self-loop and the relation is identity, skip it without appending currPreLoc.
-        if (preLoc->idx == loc && this->relations[std::make_tuple(preLoc->idx, loc)].isIdentity) {
+        if (preLoc->idx == loc && relation.isIdentity) {
             std::cout << "Skip self-loop for location " << loc << std::endl;
             continue;
         }
         if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) == this->computedTablePre.end()) {
-            std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].oplist.size() << " operations in relation from " << loc << " to " << preLoc->idx << std::endl;
-            // std::cout << this->relations[std::make_tuple(preLoc->idx, loc)].type << std::endl;
+            std::cout << relation.oplist.size() << " operations in relation from " << loc << " to " << preLoc->idx << std::endl;
+            // std::cout << relation.type << std::endl;
             int dimBefore;
             if (preLoc->flag < 0) {
-                QOperation preImage = this->Locations[loc].upperBound.preImage(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                QOperation preImage = this->Locations[loc].upperBound.preImage(relation);
                 computedTablePre.insert(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size()));
                 dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
                 preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             } else if (preLoc->flag == 0) {
                 std::cout << "Flag is 0 for location " << preLoc->idx << std::endl;
-                QOperation tempConjunction = this->Locations[loc].upperBound.conjunction_simp(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                QOperation tempConjunction = this->Locations[loc].upperBound.conjunction_simp(relation);
                 preLoc->tempOperations.push_back(tempConjunction);
                 preLoc->flag = 1;
                 this->locationBuf[preLoc->idx] = loc;
@@ -454,7 +466,7 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
             } else if (preLoc->flag == 1) {
                 // The other branch has reached here, we can do the conjunction.
                 std::cout << "Flag is 1 for location " << preLoc->idx << std::endl;
-                QOperation tempConjunction2 = this->Locations[loc].upperBound.conjunction_simp(this->relations[std::make_tuple(preLoc->idx, loc)]);
+                QOperation tempConjunction2 = this->Locations[loc].upperBound.conjunction_simp(relation);
                 QOperation tempDisjunction = preLoc->tempOperations.back().disjunction(tempConjunction2);
                 preLoc->tempOperations.pop_back(); // Remove the last operation
                 preLoc->upperBound = preLoc->upperBound.conjunction_simp(tempDisjunction);
@@ -509,8 +521,11 @@ void TransitionSystem::preConditions() {
             int postLoc = it->second;
             this->locationBuf.erase(it);
             this->Locations[loc].flag = -1; // TODO: Here is a tricky part, we view this location as a normal one and never try a special treatment.
-            assert(this->relations[std::make_tuple(loc, postLoc)].isProj >= 0);
-            QOperation negOther = this->relations[std::make_tuple(loc, postLoc)].negation();
+            auto relationIt = this->relations.find(std::make_tuple(loc, postLoc));
+            assert(relationIt != this->relations.end());
+            const QOperation& relation = relationIt->second;
+            assert(relation.isProj >= 0);
+            QOperation negOther = relation.negation();
             negOther.genProjMeasSpace();
             QOperation preImage = this->Locations[loc].tempOperations.back().disjunction(negOther);
             this->Locations[loc].tempOperations.pop_back();

@@ -240,3 +240,143 @@ post adjacency edge cache 清理了 `postConditionOneStep(...)` 的 relation 访
 3. `QOperation` 构造、复制、`postImage`、`disjunction`；
 4. 增加更细粒度的 profiling 以区分构造、fixed-point post、label/model-checking 各阶段耗时；
 5. 进一步设计 lazy construction，尤其是从初始 annotation 前向传播的 workflow。
+
+## 2026-06-29: relation container unordered_map 兼容性优化
+
+### 目标
+
+本轮优化针对 `transition_system.hpp` 中显式朴素版 `qts_naive::TransitionSystem` 的 relation 容器本身。
+
+此前 `relations` 使用：
+
+```cpp
+std::map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
+```
+
+这会让 relation 查询和插入走 ordered map 的树结构。上一轮 `post adjacency edge cache` 已经减少了 post fixed-point 热路径中的 repeated lookup；本轮进一步把底层 relation container 切换为 hash map，并清理只读查询中的 `operator[]` 用法，避免只读路径出现隐式插入语义。
+
+### 修改内容
+
+1. 为二元 relation key 增加 hash specialization：
+
+```cpp
+std::hash<std::tuple<unsigned int, unsigned int>>
+```
+
+2. 将 `TransitionSystem::relations` 从 `std::map` 改为：
+
+```cpp
+std::unordered_map<std::tuple<unsigned int, unsigned int>, QOperation> relations;
+```
+
+3. 保持 `relations` 字段名和 pybind 暴露方式不变，因此 Python 侧现有访问方式（例如 `len(ts.relations)`）保持兼容。
+
+4. `getRelationName(...)` 和 `rebuildPostEdgeCache()` 继续使用 `find()` 做只读查询。
+
+5. 清理 pre-condition 路径中的只读 relation 访问，将多处：
+
+```cpp
+this->relations[std::make_tuple(...)]
+```
+
+替换为一次 `find()` 后复用：
+
+```cpp
+auto relationIt = this->relations.find(std::make_tuple(...));
+assert(relationIt != this->relations.end());
+const QOperation& relation = relationIt->second;
+```
+
+6. `addRelation(...)` 仍然作为写入路径使用 `operator[]` 更新 relation，这是有意保留的写入语义；只读 fixed-point 查询路径不再依赖 `operator[]`。
+
+### 构建结果
+
+已重新构建 C++ library 和 Python extension：
+
+```bash
+cd python_pkg
+../.venv/bin/python -m invoke build-qreach
+../.venv/bin/python -m invoke build-pybind11
+```
+
+结果：构建成功。
+
+备注：IDE/clang diagnostics 仍然报告本地 clangd include/config 相关问题，例如 Boost include 缺失和 STL 模板诊断；按照项目说明，以实际 `invoke build-qreach` / `invoke build-pybind11` 构建结果为准。
+
+### 单元测试结果
+
+已运行以下测试：
+
+```bash
+../.venv/bin/python workflow_tests/test_simulation_grover.py
+../.venv/bin/python workflow_tests/test_simulation_qft.py
+../.venv/bin/python workflow_tests/test_ts_structure.py
+```
+
+结果：全部通过。
+
+- `test_simulation_grover.py`：PASSED
+- `test_simulation_qft.py`：PASSED
+- `test_ts_structure.py`：All TransitionSystem structural tests PASSED
+
+### benchmark 对比
+
+本轮 baseline 使用上一轮 `post adjacency edge cache` 优化后的当前实现，在改为 `std::unordered_map` 前重新运行得到。
+
+#### 修改前（post adjacency edge cache baseline）
+
+`workflow_tests/test_vqss_correct.py`：
+
+```text
+Transition System Locations: 1635
+Time taken for building transition system: 0.95 seconds
+Time taken for model checking: 1.91 seconds
+Model checking result: True
+```
+
+`workflow_tests/test_bv_n14.py`：
+
+```text
+Transition System Locations: 16424
+Time taken for building transition system: 72.71 seconds
+Time taken for model checking: 0.02 seconds
+```
+
+#### 修改后（relations unordered_map）
+
+`workflow_tests/test_vqss_correct.py`：
+
+```text
+Transition System Locations: 1635
+Time taken for building transition system: 0.93 seconds
+Time taken for model checking: 1.84 seconds
+Model checking result: True
+```
+
+`workflow_tests/test_bv_n14.py`：
+
+```text
+Transition System Locations: 16424
+Time taken for building transition system: 72.13 seconds
+Time taken for model checking: 0.02 seconds
+```
+
+### 结论
+
+本轮修改保持了语义正确性，指定测试全部通过。
+
+relation container 改为 `std::unordered_map` 后，relation 的平均查找/更新复杂度从 ordered map 的 O(log E) 变为 hash map 的平均 O(1)。同时，只读 fixed-point 查询路径改用 `find()` 后复用 `const QOperation&`，避免了 `operator[]` 在只读路径上的隐式插入语义，也与 `TransitionSystem_opti_plan.md` 中“对只读查询使用 `find()` / `at()`”的方向一致。
+
+从 benchmark 看：
+
+1. `vqss` 从 0.95s build / 1.91s check 变为 0.93s build / 1.84s check，有小幅改善；
+2. `bv_n14` build time 从 72.71s 到 72.13s，有小幅改善；
+3. 改善幅度仍然不大，应视为低风险数据结构优化和兼容性清理，而不是主要瓶颈已解决。
+
+后续如果继续优化，建议优先增加细粒度 profiling，确认时间主要消耗在：
+
+1. parser / transition-system 构造；
+2. relation/location 生成数量；
+3. `QOperation` 复制和运算；
+4. post fixed-point propagation；
+5. labelling / model checking 输出阶段。
