@@ -15,6 +15,9 @@ class ParseResult:
     markers: dict[str, list[int]] = field(default_factory=dict)
     instruction_locations: dict[int, list[int]] = field(default_factory=dict)
     identifier_index: dict[str, list[int]] = field(default_factory=dict)
+    lazy: bool = False
+    lazy_pruned_locations: list[int] = field(default_factory=list)
+    lazy_pruned_by_instruction: dict[int, list[int]] = field(default_factory=dict)
 
     def __iter__(self):
         return iter(self.result_locations)
@@ -38,6 +41,103 @@ class ParseResult:
             self.instruction_locations.setdefault(index, []).extend(locations)
         for identifier, locations in other.identifier_index.items():
             self.identifier_index.setdefault(identifier, []).extend(locations)
+        self.lazy = self.lazy or other.lazy
+        for loc in other.lazy_pruned_locations:
+            if loc not in self.lazy_pruned_locations:
+                self.lazy_pruned_locations.append(loc)
+        for index, locations in other.lazy_pruned_by_instruction.items():
+            existing = self.lazy_pruned_by_instruction.setdefault(index, [])
+            for loc in locations:
+                if loc not in existing:
+                    existing.append(loc)
+
+    def add_lazy_pruned_location(self, instruction_index: int, loc: int) -> None:
+        self.lazy = True
+        if loc not in self.lazy_pruned_locations:
+            self.lazy_pruned_locations.append(loc)
+        existing = self.lazy_pruned_by_instruction.setdefault(instruction_index, [])
+        if loc not in existing:
+            existing.append(loc)
+
+@dataclass
+class LazyPostContext:
+    enabled: bool = True
+    qnum: int = 0
+
+
+def _qop_post_image(op: pyqreach.QOperation, relation: pyqreach.QOperation) -> pyqreach.QOperation:
+    return op.post_image(relation)
+
+
+def _qop_is_zero(op: pyqreach.QOperation) -> bool:
+    return op.is_zero()
+
+
+def _set_lower_bound(ts, loc: int, op: pyqreach.QOperation) -> None:
+    if _is_symbolic_ts(ts):
+        raise ValueError("lazy measurement mode currently supports explicit TransitionSystem only")
+    ts.Locations[loc].lowerBound = op
+
+
+def _get_lower_bound(ts, loc: int) -> pyqreach.QOperation:
+    if _is_symbolic_ts(ts):
+        raise ValueError("lazy measurement mode currently supports explicit TransitionSystem only")
+    return ts.Locations[loc].lowerBound
+
+
+def _add_post_and_propagate(ts, from_loc: int, to_loc: int, relation: pyqreach.QOperation, lazy_ctx: LazyPostContext | None):
+    ts.addRelation(from_loc, to_loc, relation)
+    if lazy_ctx is None:
+        return None
+    post = _qop_post_image(_get_lower_bound(ts, from_loc), relation)
+    if not _qop_is_zero(post):
+        current = _get_lower_bound(ts, to_loc)
+        _set_lower_bound(ts, to_loc, post if _qop_is_zero(current) else current.disjunction(post))
+    return post
+
+
+def _add_lazy_measure_outcome(
+    ts,
+    *,
+    from_loc: int,
+    qnum: int,
+    qubit: int,
+    cbit: int,
+    outcome: bool,
+    identifier: str,
+    reachable_locs: dict[str, int],
+    pruned_locs: dict[str, int],
+    next_locs: list[int],
+    parse_result: ParseResult,
+    instruction_index: int,
+) -> None:
+    cp = _copy_cp_with_value(ts, from_loc, cbit, outcome)
+    cp_key = cp.toString()
+    relation = pyqreach.QOperation("meas1" if outcome else "meas0", qnum, [qubit], [])
+    post = _qop_post_image(_get_lower_bound(ts, from_loc), relation)
+
+    if _qop_is_zero(post):
+        if cp_key not in pruned_locs:
+            target = _add_location_with_cp(ts, qnum, cp, identifier)
+            pruned_locs[cp_key] = target
+            parse_result.add_lazy_pruned_location(instruction_index, target)
+        else:
+            target = pruned_locs[cp_key]
+        ts.addRelation(from_loc, target, relation)
+        return
+
+    if cp_key not in reachable_locs:
+        target = _add_location_with_cp(ts, qnum, cp, identifier)
+        reachable_locs[cp_key] = target
+        next_locs.append(target)
+        _set_lower_bound(ts, target, post)
+    else:
+        target = reachable_locs[cp_key]
+        current = _get_lower_bound(ts, target)
+        _set_lower_bound(ts, target, post if _qop_is_zero(current) else current.disjunction(post))
+        if target not in next_locs:
+            next_locs.append(target)
+    ts.addRelation(from_loc, target, relation)
 
 
 def _is_symbolic_ts(ts) -> bool:
@@ -348,6 +448,11 @@ def merge_locations(ts: pyqreach.TransitionSystem, currLocs: list, toMergeLocs: 
                 _append_classical_ap(ts, newLocIdx, term)
         # Add relations from the merged locations to the new location
         ts.addRelation(l, newLocIdx, pyqreach.QOperation("I", qnum, [0], []))
+        if not _is_symbolic_ts(ts):
+            source_bound = _get_lower_bound(ts, l)
+            if not _qop_is_zero(source_bound):
+                current_bound = _get_lower_bound(ts, newLocIdx)
+                _set_lower_bound(ts, newLocIdx, source_bound if _qop_is_zero(current_bound) else current_bound.disjunction(source_bound))
     return newCurrLocs
 
 def build_while_loop(qc: QuantumCircuit, qnum: int, clbits_idx, clbits_vals, whileStarter: list, startIdx: int, ts: pyqreach.TransitionSystem, identifier="" , abstractLevel=1, parse_result: ParseResult | None = None) -> list:
@@ -422,7 +527,7 @@ def simplify_gates(instruction: list, qnum: int) -> list:
     """
     pass
 
-def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSystem, startNodes: list=None, identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1, return_metadata: bool = False, parse_result: ParseResult | None = None) -> list | ParseResult:
+def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSystem, startNodes: list=None, identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1, return_metadata: bool = False, parse_result: ParseResult | None = None, lazy_ctx: LazyPostContext | None = None) -> list | ParseResult:
     """
     Parse a Qiskit QuantumCircuit into a pyqreach TransitionSystem, starting from specified nodes.
     qc: QuantumCircuit to parse
@@ -435,6 +540,10 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
     """
     if parse_result is None:
         parse_result = ParseResult(result_locations=[])
+    if lazy_ctx is not None:
+        if _is_symbolic_ts(ts):
+            raise ValueError("lazy measurement mode currently supports explicit TransitionSystem only")
+        parse_result.lazy = True
     if startNodes is None:
         startNodes = []
     # Assert start nodes don't exceed numLocations of ts
@@ -489,16 +598,16 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 if len(satisfyTerms) != 0:
                     # Create a new location for the if block
                     if_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".I", terms=satisfyTerms)
-                    ts.addRelation(cLoc, if_loc, pyqreach.QOperation("I", qnum, [0], []))
+                    _add_post_and_propagate(ts, cLoc, if_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
                     # Parse the if block
-                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I", return_metadata=False, parse_result=parse_result)
+                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
                 if len(unsatisfyTerms) != 0:
                     # Create a new location for the else block
                     else_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".E", terms=unsatisfyTerms)
-                    ts.addRelation(cLoc, else_loc, pyqreach.QOperation("I", qnum, [0], []))
+                    _add_post_and_propagate(ts, cLoc, else_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
                     # Parse the else block
                     if else_block_cir is not None:
-                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E", return_metadata=False, parse_result=parse_result)
+                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
                     else:
                         else_result_locs = [else_loc]
                 tempNewCurrLoc.extend(if_result_locs)
@@ -516,6 +625,8 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             else:
                 raise ValueError("Unsupported merge level for if_else operation.")
         elif op_name == 'while_loop':
+            if lazy_ctx is not None:
+                raise NotImplementedError("parse_qiskit_cir_lazy does not support while_loop yet")
             # print("While loop operation detected")
             while_block_cir = gate.operation.params[0]
             condition = gate.operation.condition
@@ -545,7 +656,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             for cLoc in currLoc:
                 loopStarter = [cLoc]
                 for _ in range(loop_range):
-                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F", return_metadata=False, parse_result=parse_result)
+                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
                     loopStarter = loopResultLocs
                 outLoopLocs.extend(loopStarter)
             currLoc = outLoopLocs
@@ -579,17 +690,17 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 if len(satisfyTerms) != 0:
                     # Create a new location for the switch_case block
                     switch_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".C", terms=satisfyTerms)
-                    ts.addRelation(cLoc, switch_loc, pyqreach.QOperation("I", qnum, [0], []))
+                    _add_post_and_propagate(ts, cLoc, switch_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
                     # Parse each case block
                     for idx,case_cir in enumerate(case_block_cirs):
-                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx), return_metadata=False, parse_result=parse_result)
+                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx), return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
                         tempNewCurrLoc.extend(case_result_locs)
                 if len(unsatisfyTerms) != 0:
                     # Create a new location for the default block (not satisfying any case)
                     default_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".D", terms=unsatisfyTerms)
-                    ts.addRelation(cLoc, default_loc, pyqreach.QOperation("I", qnum, [0], []))
+                    _add_post_and_propagate(ts, cLoc, default_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
                     # Parse the default block
-                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D", return_metadata=False, parse_result=parse_result) if gate.operation.default is not None else [default_loc]
+                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx) if gate.operation.default is not None else [default_loc]
                     tempNewCurrLoc.extend(default_result_locs)
             # Merge locations if needed
             currLoc = tempNewCurrLoc
@@ -611,6 +722,42 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             #     for j in range(i_meas+1, len(currLoc)):
             #         assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
             assert len(qubits) == 1, "Measure operation can only be applied to one qubit at a time."
+            if lazy_ctx is not None:
+                reachableMeasuredLocDict = {}
+                prunedMeasuredLocDict = {}
+                tempNewCurrLoc = []
+                branch_identifier = identifier + "S" + str(pivot + _ + 1)
+                for cLoc in currLoc:
+                    _add_lazy_measure_outcome(
+                        ts,
+                        from_loc=cLoc,
+                        qnum=qnum,
+                        qubit=qubits[0],
+                        cbit=cbits[0],
+                        outcome=False,
+                        identifier=branch_identifier,
+                        reachable_locs=reachableMeasuredLocDict,
+                        pruned_locs=prunedMeasuredLocDict,
+                        next_locs=tempNewCurrLoc,
+                        parse_result=parse_result,
+                        instruction_index=pivot + _,
+                    )
+                    _add_lazy_measure_outcome(
+                        ts,
+                        from_loc=cLoc,
+                        qnum=qnum,
+                        qubit=qubits[0],
+                        cbit=cbits[0],
+                        outcome=True,
+                        identifier=branch_identifier,
+                        reachable_locs=reachableMeasuredLocDict,
+                        pruned_locs=prunedMeasuredLocDict,
+                        next_locs=tempNewCurrLoc,
+                        parse_result=parse_result,
+                        instruction_index=pivot + _,
+                    )
+                currLoc = tempNewCurrLoc
+                continue
             measuredLocDict = {}
             tempNewCurrLoc = []
             for cLoc in currLoc:
@@ -673,13 +820,15 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 prevLoc = cLoc
                 for i in range(indexNum):
                     reset_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".R" + str(i+1), copy_from=prevLoc)
-                    ts.addRelation(prevLoc, reset_loc, pyqreach.QOperation("reset", qnum, [qubits[i]], []))
+                    reset_op = pyqreach.QOperation("reset", qnum, [qubits[i]], [])
+                    _add_post_and_propagate(ts, prevLoc, reset_loc, reset_op, lazy_ctx)
                     prevLoc = reset_loc
                 # Then apply the init gate
                 init_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".N", copy_from=prevLoc)
                 params_real = [param.real for param in gate.operation.params]
                 params_imag = [param.imag for param in gate.operation.params]
-                ts.addRelation(prevLoc, init_loc, pyqreach.QOperation("init", qnum, qubits, params_real + params_imag))
+                init_op = pyqreach.QOperation("init", qnum, qubits, params_real + params_imag)
+                _add_post_and_propagate(ts, prevLoc, init_loc, init_op, lazy_ctx)
                 tempNewCurrLoc.append(init_loc)
             # Update the current locations
             currLoc = tempNewCurrLoc
@@ -693,9 +842,9 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
             for cLoc in currLoc:
                 # Make new locations
                 loc1 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".1", copy_from=cLoc)
-                ts.addRelation(cLoc, loc1, op1)
+                _add_post_and_propagate(ts, cLoc, loc1, op1, lazy_ctx)
                 loc2 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=loc1)
-                ts.addRelation(loc1, loc2, op2)
+                _add_post_and_propagate(ts, loc1, loc2, op2, lazy_ctx)
                 tempNewCurrLoc.append(loc2)
             # Update the current locations
             currLoc = tempNewCurrLoc
@@ -801,7 +950,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                     # Make new locations
                     new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
                     # Add the operation to the transition system
-                    ts.addRelation(cLoc, new_loc, op)
+                    _add_post_and_propagate(ts, cLoc, new_loc, op, lazy_ctx)
                     tempNewCurrLoc.append(new_loc)
             else:
                 clbits_idx, clbits_vals = get_condition_info(qc.cregs, gate_condition)
@@ -810,19 +959,79 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                         # Make new locations
                         new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
                         # Add the operation to the transition system
-                        ts.addRelation(cLoc, new_loc, op)
+                        _add_post_and_propagate(ts, cLoc, new_loc, op, lazy_ctx)
                         tempNewCurrLoc.append(new_loc)
                     else:
                         # Apply identity operation
                         new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
                         # Add the identity operation to the transition system
-                        ts.addRelation(cLoc, new_loc, pyqreach.QOperation("I", qnum, qubits, []))
+                        identity_op = pyqreach.QOperation("I", qnum, qubits, [])
+                        _add_post_and_propagate(ts, cLoc, new_loc, identity_op, lazy_ctx)
                         tempNewCurrLoc.append(new_loc)
             # Update the current locations
             currLoc = tempNewCurrLoc
     resultLocs = currLoc
     parse_result.result_locations = resultLocs
     return parse_result if return_metadata else resultLocs
+
+
+def parse_qiskit_cir_lazy(
+    qc: QuantumCircuit,
+    qnum: int,
+    ts: pyqreach.TransitionSystem,
+    *,
+    initial_state: str | None = None,
+    initial_op: pyqreach.QOperation | None = None,
+    startNodes: list | None = None,
+    identifier: str = "",
+    pivot: int = 0,
+    pivotend: int = 1000000,
+    abstractLevel: int = 1,
+    return_metadata: bool = False,
+) -> list | ParseResult:
+    """
+    Parse a circuit with measurement-focused lazy construction.
+
+    Both measurement outcomes are still represented in the transition system.
+    Outcomes whose post-image is zero become leaf placeholder locations with
+    the correct classical proposition and incoming measurement edge, but they
+    are not expanded by later instructions.
+    """
+    if _is_symbolic_ts(ts):
+        raise ValueError("parse_qiskit_cir_lazy currently supports explicit TransitionSystem only")
+    if initial_state is not None and initial_op is not None:
+        raise ValueError("Specify at most one of initial_state and initial_op")
+    if initial_op is None:
+        if initial_state is None:
+            raise ValueError("parse_qiskit_cir_lazy requires initial_state or initial_op")
+        initial_op = pyqreach.QOperation([initial_state])
+
+    if startNodes is None:
+        startNodes = []
+    init_parse(qc)
+    if startNodes == []:
+        loc0 = _add_location(ts, qnum, "S0", terms=['0' * qc.num_clbits])
+        ts.setInitLocation(loc0)
+        startNodes = [loc0]
+    for loc in startNodes:
+        _set_lower_bound(ts, loc, initial_op)
+        ts.Locations[loc].upperBound = initial_op
+
+    parse_result = ParseResult(result_locations=[], lazy=True)
+    result = parse_qiskit_cir(
+        qc,
+        qnum,
+        ts,
+        startNodes=startNodes,
+        identifier=identifier,
+        pivot=pivot,
+        pivotend=pivotend,
+        abstractLevel=abstractLevel,
+        return_metadata=True,
+        parse_result=parse_result,
+        lazy_ctx=LazyPostContext(enabled=True, qnum=qnum),
+    )
+    return result if return_metadata else result.result_locations
 
 
 def parse_qiskit_cir_sym(qc: QuantumCircuit, qnum: int, ts: pyqreach.SymTS, startNodes: list=None, identifier: str="", pivot: int=0, pivotend: int=1000000, abstractLevel: int=1) -> list:

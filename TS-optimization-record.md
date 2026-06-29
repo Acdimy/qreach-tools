@@ -380,3 +380,136 @@ relation container 改为 `std::unordered_map` 后，relation 的平均查找/�
 3. `QOperation` 复制和运算；
 4. post fixed-point propagation；
 5. labelling / model checking 输出阶段。
+
+## 2026-06-29: lazy measurement construction 初步实现
+
+### 目标
+
+本轮优化针对连续 measurement 在 eager transition-system 构造阶段造成的指数级分支扩张。根据当前语义约束，本轮不把 transition system 改成“天然 reachable-only graph”，而是只实现 measurement-focused lazy construction：
+
+1. measurement 的两个 outcome location 仍然显式构造；
+2. quantum post-image 非零的 outcome 继续进入后续 parser frontier；
+3. quantum post-image 为零的 outcome 构造为 leaf placeholder，保留 classical AP 和 incoming measurement edge；
+4. zero-outcome placeholder 不再继续展开后续控制流；
+5. 由用户显式调用 `parse_qiskit_cir_lazy(...)` 开启，默认 `parse_qiskit_cir(...)` eager 行为保持兼容。
+
+这样保留了现有 CTL 使用方式中显式 `reached` / `valid` AP 的语义：不带 reach guard 的公式仍然能看到 graph 中的 zero-bound placeholder；带 reach guard 的公式则可以过滤这些 quantum-unreachable locations。
+
+### 修改内容
+
+1. 在 `pyqreach.QOperation` Python binding 中新增：
+
+```python
+op.post_image(relation)
+op.dim()
+op.is_zero()
+```
+
+用于 Python parser 在构造期间判断 measurement outcome 的 quantum reachability。
+
+2. 扩展 `ParseResult` lazy metadata：
+
+```python
+lazy: bool
+lazy_pruned_locations: list[int]
+lazy_pruned_by_instruction: dict[int, list[int]]
+```
+
+3. 新增 `parse_qiskit_cir_lazy(...)` wrapper。该 wrapper 要求提供 `initial_state` 或 `initial_op`，因为 lazy measurement 需要在 parse 过程中前向维护 lowerBound。
+
+4. 在 parser 内部增加 lazy context。lazy mode 下普通 gate / control-flow identity branch 会同步传播 lowerBound；measurement 分支则根据 post-image 区分：
+
+- 非零 post-image：构造正常 successor，更新 lowerBound，加入下一轮 `currLoc`；
+- 零 post-image：构造 placeholder successor，保留 classical AP 和 relation，记录到 `lazy_pruned_locations`，但不加入 `currLoc`。
+
+5. `while_loop` 在 lazy mode 下暂时显式报 `NotImplementedError`，避免在尚未实现 lazy loop skeleton 的情况下产生不清晰语义。
+
+6. 新增测试/benchmark 脚本：
+
+```bash
+python_pkg/workflow_tests/test_lazy_measurement.py
+python_pkg/workflow_tests/test_vqss_correct_lazy.py
+python_pkg/workflow_tests/test_bv_n14_lazy.py
+```
+
+### 构建结果
+
+已重新构建 Python extension：
+
+```bash
+cd python_pkg
+../.venv/bin/python -m invoke build-pybind11
+```
+
+结果：构建成功。
+
+### 单元测试结果
+
+已运行：
+
+```bash
+PYTHONPATH=. ../.venv/bin/python workflow_tests/test_lazy_measurement.py
+PYTHONPATH=. ../.venv/bin/python workflow_tests/test_simulation_grover.py
+PYTHONPATH=. ../.venv/bin/python workflow_tests/test_simulation_qft.py
+PYTHONPATH=. ../.venv/bin/python workflow_tests/test_ts_structure.py
+```
+
+结果：全部通过。
+
+- `test_lazy_measurement.py`：All lazy measurement tests PASSED
+- `test_simulation_grover.py`：PASSED
+- `test_simulation_qft.py`：PASSED
+- `test_ts_structure.py`：All TransitionSystem structural tests PASSED
+
+### benchmark 对比
+
+#### eager baseline
+
+`workflow_tests/test_vqss_correct.py`：
+
+```text
+Transition System Locations: 1635
+Time taken for building transition system: 0.99 seconds
+Time taken for model checking: 1.91 seconds
+Model checking result: True
+```
+
+`workflow_tests/test_bv_n14.py`：
+
+```text
+Transition System Locations: 16424
+Time taken for building transition system: 75.84 seconds
+Time taken for model checking: 0.02 seconds
+```
+
+#### lazy measurement
+
+`workflow_tests/test_vqss_correct_lazy.py`：
+
+```text
+Transition System Locations: 315
+Lazy pruned locations: 40
+Time taken for building transition system: 0.20 seconds
+Time taken for model checking: 0.30 seconds
+Model checking result: True
+```
+
+`workflow_tests/test_bv_n14_lazy.py`：
+
+```text
+Transition System Locations: 68
+Lazy pruned locations: 13
+Time taken for building transition system: 0.03 seconds
+Time taken for model checking: 0.02 seconds
+```
+
+### 结论
+
+lazy measurement construction 对当前两个 benchmark 的构造阶段有明显改善：
+
+1. `vqss` location 数量从 1635 降到 315，build time 从约 0.99s 降到约 0.20s；
+2. `bv_n14` location 数量从 16424 降到 68，build time 从约 75.84s 降到约 0.03s；
+3. zero-outcome measurement branch 仍然显式存在于 transition graph 中，并保留 classical AP / incoming edge；
+4. pruning 只阻止 zero-bound placeholder 继续展开后续控制流，因此没有把现有 TS 语义改成天然 reachable-only。
+
+本轮实现仍是第一阶段：重点支持 initial annotation / forward post workflow 下的 lazy measurement。后续如需完整兼容复杂 control flow 中 unreachable suffix 的 marker / annotation 精确位置，可以继续设计更细的 unreachable skeleton mode。
