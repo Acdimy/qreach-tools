@@ -205,7 +205,14 @@ void initializeTransitionSystem()
 class TransitionSystem
 {
 private:
+    struct PostEdge {
+        unsigned int to;
+        const QOperation* relation;
+    };
+
     std::unordered_map<int, int> locationBuf;
+    std::vector<std::vector<PostEdge>> postEdgeCache;
+    void rebuildPostEdgeCache();
 public:
     std::deque<int> currPreLocs;
     std::deque<int> currPostLocs;
@@ -302,6 +309,7 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
 {
     // The problem is how to represent a projective operation's support vectors.
     this->relations[std::make_tuple(from, to)] = op;
+    this->postEdgeCache.clear();
     // The bi-directional relation is established here.
     this->Locations[from].appendPostLocation(to);
     this->Locations[to].appendPreLocation(from);
@@ -355,6 +363,21 @@ void TransitionSystem::setAnnotation(std::vector<std::tuple<unsigned int, QOpera
 void TransitionSystem::setInitLocation(unsigned int loc)
 {
     this->initLocation = loc;
+}
+
+void TransitionSystem::rebuildPostEdgeCache()
+{
+    this->postEdgeCache.clear();
+    this->postEdgeCache.resize(this->Locations.size());
+    for (unsigned int from = 0; from < this->Locations.size(); from++) {
+        auto& edges = this->postEdgeCache[from];
+        edges.reserve(this->Locations[from].postLocations.size());
+        for (unsigned int to : this->Locations[from].postLocations) {
+            auto relationIt = this->relations.find(std::make_tuple(from, to));
+            assert(relationIt != this->relations.end());
+            edges.push_back(PostEdge{to, &relationIt->second});
+        }
+    }
 }
 
 void TransitionSystem::resetLocationBounds()
@@ -517,6 +540,9 @@ void TransitionSystem::postConditionInit() {
         }
     }
     this->computedTablePost.clear(); // Clear the computed table for post-conditions
+    if (this->postEdgeCache.size() != this->Locations.size()) {
+        this->rebuildPostEdgeCache();
+    }
     for (unsigned int i = 0; i < this->Locations.size(); i++) {
         if ((this->Locations[i].preLocations.size() == 1 && this->Locations[i].preLocations[0] == i) || this->Locations[i].preLocations.size() == 0) {
             // If i not in currPostLocs, add it.
@@ -537,22 +563,24 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
     Do the disjunction with the existed lowerBound of postLocations (Use QOperation.disjunction).
     */
     // std::cout << this->Locations[loc].postLocations.size() << " post locations for location " << loc << std::endl;
-    for (unsigned int i = 0; i < this->Locations[loc].postLocations.size(); i++) {
-        unsigned int postLocIdx = this->Locations[loc].postLocations[i];
+    assert(this->postEdgeCache.size() == this->Locations.size());
+    for (const PostEdge& edge : this->postEdgeCache[loc]) {
+        unsigned int postLocIdx = edge.to;
         Location* postLoc = this->Locations.data() + postLocIdx; // Get the pointer to the postLocation
         if (postLoc->idx != postLocIdx) {
             std::cout << "Warning: postLoc->idx (" << postLoc->idx << ") != postLocIdx (" << postLocIdx << ")" << std::endl;
         }
         assert(postLoc->idx == postLocIdx); // Ensure the index is correct
+        const QOperation& relation = *edge.relation;
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
-        if (postLoc->idx == loc && this->relations[std::make_tuple(loc, postLoc->idx)].isIdentity) {
+        if (postLoc->idx == loc && relation.isIdentity) {
             std::cout << "Skip self-loop for location " << loc << std::endl;
             continue;
         }
         // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
         if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
-            // std::cout << this->relations[std::make_tuple(loc, postLoc->idx)].oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
-            QOperation postImage = this->Locations[loc].lowerBound.postImage(this->relations[std::make_tuple(loc, postLoc->idx)]);
+            // std::cout << relation.oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
+            QOperation postImage = this->Locations[loc].lowerBound.postImage(relation);
             computedTablePost.insert(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size()));
             int dimBefore = postLoc->lowerBound.oplist.size(); // Lower bound: dimension 0 as default
             postLoc->lowerBound = postLoc->lowerBound.disjunction(postImage); // TODO: Disjunction inline
