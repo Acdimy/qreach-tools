@@ -409,14 +409,19 @@ def run_batch(config: QasmRunConfig) -> list[dict[str, Any]]:
     return rows
 
 
-def add_common_arguments(parser: argparse.ArgumentParser, *, default_error_injection: bool) -> None:
+def add_common_arguments(parser: argparse.ArgumentParser, *, default_error_injection: bool, default_debug: bool = False) -> None:
     parser.add_argument("--input-dir", type=Path, default=None, help="Directory or .qasm file to check recursively")
     parser.add_argument("--output-dir", type=Path, default=None, help="Directory for the default CSV output")
     parser.add_argument("--output-file", type=Path, default=None, help="CSV file to write")
     parser.add_argument("--timeout-seconds", type=float, default=300.0, help="Per-file timeout in seconds")
     parser.add_argument("--initial-state", default=None, help="Override inferred initial state bitstring")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for error injection")
-    parser.add_argument("--debug", action="store_true", help="Run optional legacy debug/model-checking checks")
+    if default_debug:
+        parser.add_argument("--debug", dest="debug", action="store_true", default=True)
+        parser.add_argument("--no-debug", dest="debug", action="store_false", help="Skip optional legacy debug/model-checking checks")
+    else:
+        parser.add_argument("--debug", dest="debug", action="store_true", default=False, help="Run optional legacy debug/model-checking checks")
+        parser.add_argument("--no-debug", dest="debug", action="store_false")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of discovered files for smoke runs")
     parser.add_argument("--fail-fast", action="store_true", help="Stop after the first non-ok row")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite output CSV instead of appending")

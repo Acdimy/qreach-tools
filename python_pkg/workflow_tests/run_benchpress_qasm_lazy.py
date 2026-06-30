@@ -23,7 +23,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Recursively run QisMC lazy-measurement checks for Benchpress medium QASM files."
     )
-    add_common_arguments(parser, default_error_injection=True)
+    add_common_arguments(parser, default_error_injection=True, default_debug=True)
     args = parser.parse_args()
     config = make_config_from_args(
         args,
