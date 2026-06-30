@@ -581,6 +581,9 @@ class QuantumGateTerm : public QuantumTerm {
         } else if (name == "s") {
             auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
             res = S;
+        } else if (name == "sdg") {
+            auto Sdg = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, -0.5);
+            res = Sdg;
         } else if (name == "t") {
             auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, 0.25);
             res = S; 

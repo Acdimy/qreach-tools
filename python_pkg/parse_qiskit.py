@@ -867,6 +867,8 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 op = pyqreach.QOperation("Z", qnum, qubits, [])
             elif op_name == 's':
                 op = pyqreach.QOperation("S", qnum, qubits, [])
+            elif op_name == 'sdg':
+                op = pyqreach.QOperation("Sdg", qnum, qubits, [])
             elif op_name == 't':
                 op = pyqreach.QOperation("T", qnum, qubits, [])
             elif op_name == 'tdg':
