@@ -22,6 +22,10 @@ test_qreach
 
 /python_pkg/__pycache__/
 
+__pycache__/
+*.py[cod]
+*$py.class
+
 /.vscode/
 
 *.png
