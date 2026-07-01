@@ -22,8 +22,8 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import XGate, YGate, ZGate
 
-from parse_qiskit import parse_qiskit_cir_lazy
-from qctl import modelChecking, quantum_state, span_qops, tsLabelling, tsLabellingClRegList, tsLabellingDefault
+from parse_qiskit import parse_qiskit_cir, parse_qiskit_cir_lazy
+from qctl import modelChecking, quantum_state, set_initial_state, span_qops, tsLabelling, tsLabellingClRegList, tsLabellingDefault
 
 
 CSV_FIELDS = [
@@ -68,6 +68,7 @@ class QasmRunConfig:
     fail_fast: bool = False
     limit: int | None = None
     append: bool = True
+    lazy: bool = True
 
 
 def discover_qasm_files(input_dir: Path) -> list[Path]:
@@ -143,15 +144,30 @@ def _lazy_check(ts: pyqreach.TransitionSystem, parse_result: Any) -> bool:
     return True
 
 
-def _simulate_final_operation(qc: QuantumCircuit, initial_state: str):
+def _parse_qiskit_for_config(
+    qc: QuantumCircuit,
+    ts: pyqreach.TransitionSystem,
+    initial_state: str,
+    *,
+    lazy: bool,
+):
+    if lazy:
+        return parse_qiskit_cir_lazy(
+            qc,
+            qc.num_qubits,
+            ts,
+            initial_state=initial_state,
+            return_metadata=True,
+        )
+
+    result = parse_qiskit_cir(qc, qc.num_qubits, ts, return_metadata=True)
+    set_initial_state(ts, initial_state)
+    return result
+
+
+def _simulate_final_operation(qc: QuantumCircuit, initial_state: str, *, lazy: bool):
     ts = pyqreach.TransitionSystem()
-    result = parse_qiskit_cir_lazy(
-        qc,
-        qc.num_qubits,
-        ts,
-        initial_state=initial_state,
-        return_metadata=True,
-    )
+    result = _parse_qiskit_for_config(qc, ts, initial_state, lazy=lazy)
     ts.computingFixedPointPost()
     if len(result.result_locations) == 1:
         return ts.Locations[result.result_locations[0]].lowerBound
@@ -165,6 +181,8 @@ def _run_debug_check(
     parse_result: Any,
     initial_state: str,
     original_qc: QuantumCircuit | None,
+    *,
+    lazy: bool,
 ) -> dict[str, Any]:
     stem = qasm_path.stem.lower()
     if "grover" in stem:
@@ -195,7 +213,7 @@ def _run_debug_check(
         }
 
     if original_qc is not None:
-        expected = _simulate_final_operation(original_qc, initial_state)
+        expected = _simulate_final_operation(original_qc, initial_state, lazy=lazy)
         for loc in parse_result.result_locations:
             ts.setLabel(loc, "final")
         tsLabelling(ts, expected, "debug_op", locList=parse_result.result_locations)
@@ -237,13 +255,7 @@ def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0
 
     ts = pyqreach.TransitionSystem()
     build_start = perf_counter()
-    parse_result = parse_qiskit_cir_lazy(
-        qc,
-        qc.num_qubits,
-        ts,
-        initial_state=initial_state,
-        return_metadata=True,
-    )
+    parse_result = _parse_qiskit_for_config(qc, ts, initial_state, lazy=config.lazy)
     row["time_prepare_ts"] = perf_counter() - build_start
 
     fp_start = perf_counter()
@@ -254,7 +266,7 @@ def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0
     lazy_check_passed = _lazy_check(ts, parse_result)
     debug_result: dict[str, Any] = {}
     if config.debug:
-        debug_result = _run_debug_check(qasm_path, qc, ts, parse_result, initial_state, original_qc)
+        debug_result = _run_debug_check(qasm_path, qc, ts, parse_result, initial_state, original_qc, lazy=config.lazy)
     row["verification_time"] = perf_counter() - verify_start
 
     row.update(
@@ -264,8 +276,8 @@ def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0
             "num_gates": len(qc.data),
             "num_locations": ts.getLocationNum(),
             "num_result_locations": len(parse_result.result_locations),
-            "lazy": parse_result.lazy,
-            "lazy_pruned_locations": len(parse_result.lazy_pruned_locations),
+            "lazy": bool(config.lazy),
+            "lazy_pruned_locations": len(getattr(parse_result, "lazy_pruned_locations", [])),
             "lazy_check_passed": lazy_check_passed,
             "time_total": perf_counter() - total_start,
             "error_injection": bool(config.error_injection),
@@ -298,6 +310,7 @@ def _worker(qasm_path: str, config_payload: dict[str, Any], file_index: int, out
             fail_fast=config_payload.get("fail_fast", False),
             limit=config_payload.get("limit"),
             append=config_payload.get("append", True),
+            lazy=config_payload.get("lazy", True),
         )
         row = run_qasm_file(Path(qasm_path), config, file_index=file_index)
     except Exception as exc:  # noqa: BLE001 - row should capture benchmark failures
@@ -314,6 +327,7 @@ def _worker(qasm_path: str, config_payload: dict[str, Any], file_index: int, out
                 "time_total": "",
                 "debug_enabled": config_payload.get("debug", False),
                 "error_injection": config_payload.get("error_injection", False),
+                "lazy": config_payload.get("lazy", True),
             }
         )
         row["model_check_status"] = traceback.format_exc(limit=5)
@@ -332,6 +346,7 @@ def _config_payload(config: QasmRunConfig) -> dict[str, Any]:
         "fail_fast": config.fail_fast,
         "limit": config.limit,
         "append": config.append,
+        "lazy": config.lazy,
     }
 
 
@@ -352,6 +367,7 @@ def run_qasm_file_with_timeout(qasm_path: Path, config: QasmRunConfig, *, file_i
                 "time_total": config.timeout_seconds,
                 "error_injection": bool(config.error_injection),
                 "debug_enabled": bool(config.debug),
+                "lazy": bool(config.lazy),
             }
         )
         return row
@@ -366,6 +382,7 @@ def run_qasm_file_with_timeout(qasm_path: Path, config: QasmRunConfig, *, file_i
                 "error": f"worker exited with code {proc.exitcode} without returning a result",
                 "error_injection": bool(config.error_injection),
                 "debug_enabled": bool(config.debug),
+                "lazy": bool(config.lazy),
             }
         )
         return row
@@ -425,6 +442,8 @@ def add_common_arguments(parser: argparse.ArgumentParser, *, default_error_injec
     parser.add_argument("--limit", type=int, default=None, help="Limit number of discovered files for smoke runs")
     parser.add_argument("--fail-fast", action="store_true", help="Stop after the first non-ok row")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite output CSV instead of appending")
+    parser.add_argument("--lazy", dest="lazy", action="store_true", default=True, help="Use lazy measurement construction")
+    parser.add_argument("--no-lazy", dest="lazy", action="store_false", help="Use the ordinary non-lazy parser")
     if default_error_injection:
         parser.add_argument("--error-injection", dest="error_injection", action="store_true", default=True)
         parser.add_argument("--no-error-injection", dest="error_injection", action="store_false")
@@ -454,4 +473,5 @@ def make_config_from_args(
         fail_fast=args.fail_fast,
         limit=args.limit,
         append=not args.overwrite,
+        lazy=args.lazy,
     )

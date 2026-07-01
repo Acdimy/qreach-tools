@@ -21,7 +21,7 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Recursively run QisMC lazy-measurement checks for benchmark QASM files."
+        description="Recursively run QisMC benchmark QASM checks. Use --no-lazy for ordinary parsing."
     )
     add_common_arguments(parser, default_error_injection=False)
     args = parser.parse_args()
