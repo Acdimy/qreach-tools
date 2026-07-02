@@ -14,7 +14,9 @@
 #include <optional>
 #include <cmath>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
+#include <chrono>
 
 using namespace CFL_OBDD;
 
@@ -494,6 +496,82 @@ inline Reporter reporter;
 
 } // namespace qoprof
 
+namespace qgateprof {
+
+inline bool enabled() {
+    static const bool enabled_flag = []() {
+        const char* value = std::getenv("QREACH_GATE_PROFILE");
+        return value && std::string(value) != "0";
+    }();
+    return enabled_flag;
+}
+
+inline std::string join_indexes(const std::vector<unsigned int>& indexes) {
+    std::ostringstream os;
+    os << "[";
+    for (size_t i = 0; i < indexes.size(); ++i) {
+        if (i > 0) os << ",";
+        os << indexes[i];
+    }
+    os << "]";
+    return os.str();
+}
+
+inline long long elapsed_us(std::chrono::steady_clock::time_point start,
+                            std::chrono::steady_clock::time_point end) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+}
+
+inline void on_apply_gate(const std::string& name,
+                          const std::vector<unsigned int>& indexes,
+                          unsigned int qnum,
+                          bool direction,
+                          long long concretize_us,
+                          long long conjugate_transpose_us,
+                          long long multiply_us,
+                          long long total_us) {
+    if (!enabled()) return;
+    std::cout << "[qreach-gate-profile]"
+              << " gate=" << name
+              << " indexes=" << join_indexes(indexes)
+              << " qNum=" << qnum
+              << " direction=" << (direction ? "forward" : "backward")
+              << " concretize_us=" << concretize_us
+              << " conjugate_transpose_us=" << conjugate_transpose_us
+              << " multiply_us=" << multiply_us
+              << " total_us=" << total_us
+              << std::endl;
+}
+
+inline void on_postimage(const size_t input_terms,
+                         const size_t gate_terms,
+                         const size_t raw_terms,
+                         const size_t final_terms,
+                         long long input_zero_check_us,
+                         long long apply_us,
+                         long long result_zero_check_us,
+                         long long append_us,
+                         long long gramschmidt_us,
+                         long long normalize_us,
+                         long long total_us) {
+    if (!enabled()) return;
+    std::cout << "[qreach-postimage-profile]"
+              << " input_terms=" << input_terms
+              << " gate_terms=" << gate_terms
+              << " raw_terms=" << raw_terms
+              << " final_terms=" << final_terms
+              << " input_zero_check_us=" << input_zero_check_us
+              << " apply_us=" << apply_us
+              << " result_zero_check_us=" << result_zero_check_us
+              << " append_us=" << append_us
+              << " gramschmidt_us=" << gramschmidt_us
+              << " normalize_us=" << normalize_us
+              << " total_us=" << total_us
+              << std::endl;
+}
+
+} // namespace qgateprof
+
 class PauliString {
     unsigned int length;
     bool sign;
@@ -959,18 +1037,65 @@ class SingleVecTerm : public QuantumTerm {
     CFLOBDD_COMPLEX_BIG applyGate(const QuantumGateTerm& other, bool direction) const {
         /* If direction is false, apply an inverse gate. */
         /* This function is INPLACE! */
+        const bool profile = qgateprof::enabled();
+        if (!profile) {
+            CFLOBDD_COMPLEX_BIG operand = other.concretize();
+            CFLOBDD_COMPLEX_BIG res ;
+            if (direction) {
+                // Forward induction
+                // Temporarily use the content as the operand.
+
+                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            } else {
+                // Backward induction
+                operand = Matrix1234ComplexFloatBoost::MatrixConjugate(operand);
+                operand = Matrix1234ComplexFloatBoost::MatrixTranspose(operand);
+                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            }
+            return res;
+        }
+
+        const auto total_start = std::chrono::steady_clock::now();
+        const auto concretize_start = std::chrono::steady_clock::now();
         CFLOBDD_COMPLEX_BIG operand = other.concretize();
+        const auto concretize_end = std::chrono::steady_clock::now();
+        long long conjugate_transpose_us = 0;
         CFLOBDD_COMPLEX_BIG res ;
         if (direction) {
             // Forward induction
             // Temporarily use the content as the operand.
 
+            const auto multiply_start = std::chrono::steady_clock::now();
             res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            const auto multiply_end = std::chrono::steady_clock::now();
+            qgateprof::on_apply_gate(
+                other.name,
+                other.index,
+                other.qNum,
+                direction,
+                qgateprof::elapsed_us(concretize_start, concretize_end),
+                conjugate_transpose_us,
+                qgateprof::elapsed_us(multiply_start, multiply_end),
+                qgateprof::elapsed_us(total_start, multiply_end));
         } else {
             // Backward induction
+            const auto conjugate_transpose_start = std::chrono::steady_clock::now();
             operand = Matrix1234ComplexFloatBoost::MatrixConjugate(operand);
             operand = Matrix1234ComplexFloatBoost::MatrixTranspose(operand);
+            const auto conjugate_transpose_end = std::chrono::steady_clock::now();
+            conjugate_transpose_us = qgateprof::elapsed_us(conjugate_transpose_start, conjugate_transpose_end);
+            const auto multiply_start = std::chrono::steady_clock::now();
             res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            const auto multiply_end = std::chrono::steady_clock::now();
+            qgateprof::on_apply_gate(
+                other.name,
+                other.index,
+                other.qNum,
+                direction,
+                qgateprof::elapsed_us(concretize_start, concretize_end),
+                conjugate_transpose_us,
+                qgateprof::elapsed_us(multiply_start, multiply_end),
+                qgateprof::elapsed_us(total_start, multiply_end));
         }
         return res;
     }
@@ -1815,20 +1940,50 @@ class QOperation {
     QOperation postImage(const QOperation& other) const {
         const size_t input_terms = this->oplist.size();
         const size_t gate_terms = other.oplist.size();
+        const bool gate_profile = qgateprof::enabled();
+        const auto postimage_start = std::chrono::steady_clock::now();
+        long long input_zero_check_us = 0;
+        long long apply_us = 0;
+        long long result_zero_check_us = 0;
+        long long append_us = 0;
+        long long gramschmidt_us = 0;
+        long long normalize_us = 0;
         /* The post-image of a quantum operator */
         assert(this->type == false && other.type == true);
         QOperation res;
         for (size_t i = 0; i < this->oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
             if (!ivec) continue;
-            if (checkifzero(ivec->content)) continue; // A key optimization!
+            const auto input_zero_check_start = std::chrono::steady_clock::now();
+            const bool input_is_zero = checkifzero(ivec->content);
+            const auto input_zero_check_end = std::chrono::steady_clock::now();
+            if (gate_profile) {
+                input_zero_check_us += qgateprof::elapsed_us(input_zero_check_start, input_zero_check_end);
+            }
+            if (input_is_zero) continue; // A key optimization!
             for (size_t j = 0; j < other.oplist.size(); j++) {
                 auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                 if (!jgate) continue;
+                const auto apply_start = std::chrono::steady_clock::now();
                 auto tmp = ivec->applyGate(*jgate, true);
+                const auto apply_end = std::chrono::steady_clock::now();
+                if (gate_profile) {
+                    apply_us += qgateprof::elapsed_us(apply_start, apply_end);
+                }
                 // If tmp is non-trivial, we insert it to the res.
-                if (!checkifzero(tmp)) {
+                const auto result_zero_check_start = std::chrono::steady_clock::now();
+                const bool result_is_zero = checkifzero(tmp);
+                const auto result_zero_check_end = std::chrono::steady_clock::now();
+                if (gate_profile) {
+                    result_zero_check_us += qgateprof::elapsed_us(result_zero_check_start, result_zero_check_end);
+                }
+                if (!result_is_zero) {
+                    const auto append_start = std::chrono::steady_clock::now();
                     res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                    const auto append_end = std::chrono::steady_clock::now();
+                    if (gate_profile) {
+                        append_us += qgateprof::elapsed_us(append_start, append_end);
+                    }
                 } else {
                     // std::cout << "PostImage: a zero vector is generated." << jgate->name << std::endl;
                     // this->printFormal();
@@ -1850,7 +2005,12 @@ class QOperation {
         const size_t raw_terms = res.oplist.size();
         // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
         if (res.oplist.size() > 1) {
+            const auto gramschmidt_start = std::chrono::steady_clock::now();
             res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+            const auto gramschmidt_end = std::chrono::steady_clock::now();
+            if (gate_profile) {
+                gramschmidt_us += qgateprof::elapsed_us(gramschmidt_start, gramschmidt_end);
+            }
             // res.normalized = true;
         } else {
             // normalize the single vector if there is only one vector.
@@ -1859,12 +2019,31 @@ class QOperation {
                 if (!ivec) {
                     std::cout << "Strange nullptr" << std::endl;
                 } else {
+                    const auto normalize_start = std::chrono::steady_clock::now();
                     ivec->normalizeInline();
+                    const auto normalize_end = std::chrono::steady_clock::now();
+                    if (gate_profile) {
+                        normalize_us += qgateprof::elapsed_us(normalize_start, normalize_end);
+                    }
                 }
             }
             res.normalized = true;
         }
         qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
+        if (gate_profile) {
+            const auto postimage_end = std::chrono::steady_clock::now();
+            qgateprof::on_postimage(input_terms,
+                                    gate_terms,
+                                    raw_terms,
+                                    res.oplist.size(),
+                                    input_zero_check_us,
+                                    apply_us,
+                                    result_zero_check_us,
+                                    append_us,
+                                    gramschmidt_us,
+                                    normalize_us,
+                                    qgateprof::elapsed_us(postimage_start, postimage_end));
+        }
         return res;
     }
     
