@@ -1,3 +1,6 @@
+import os
+from time import perf_counter
+
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 from qiskit.circuit import Clbit
@@ -63,6 +66,48 @@ class ParseResult:
 class LazyPostContext:
     enabled: bool = True
     qnum: int = 0
+
+
+
+def _parse_profile_config() -> tuple[bool, float, bool]:
+    enabled = os.environ.get("QREACH_PARSE_PROFILE") == "1"
+    verbose = os.environ.get("QREACH_PARSE_PROFILE_VERBOSE") == "1"
+    threshold_raw = os.environ.get("QREACH_PARSE_PROFILE_THRESHOLD", "0.25")
+    try:
+        threshold = float(threshold_raw)
+    except ValueError:
+        threshold = 0.25
+    return enabled, threshold, verbose
+
+
+def _parse_profile_emit(
+    *,
+    enabled: bool,
+    threshold: float,
+    verbose: bool,
+    instruction_index: int,
+    op_name: str,
+    qubits: list[int],
+    locations_in: int,
+    locations_out: int,
+    elapsed: float,
+    total_locations: int,
+) -> None:
+    if not enabled:
+        return
+    if not verbose and elapsed < threshold:
+        return
+    print(
+        "[parse-profile] "
+        f"idx={instruction_index} "
+        f"op={op_name} "
+        f"qubits={qubits} "
+        f"locations_in={locations_in} "
+        f"locations_out={locations_out} "
+        f"elapsed={elapsed:.6f}s "
+        f"total_locations={total_locations}",
+        flush=True,
+    )
 
 
 def _qop_post_image(op: pyqreach.QOperation, relation: pyqreach.QOperation) -> pyqreach.QOperation:
@@ -559,419 +604,441 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
     currLoc = startNodes
     resultLocs = []
     pruning_resets = False
+    parse_profile_enabled, parse_profile_threshold, parse_profile_verbose = _parse_profile_config()
     if identifier != "" and not identifier.endswith('.'):
         identifier += "."
-    for _,gate in enumerate(instructions):
-        # Assume each Locs in currLoc has different classical APs (In the current abstractlevel==1)
-        op_name = gate.operation.name
-        if op_name != 'reset':
-            pruning_resets = False
-        if pruning_resets:
-            # If we are pruning resets, skip the reset gates
-            if op_name == 'reset':
-                # pass
+    for _, gate in enumerate(instructions):
+        profile_instruction_index = pivot + _
+        profile_start = perf_counter() if parse_profile_enabled else 0.0
+        profile_locations_in = len(currLoc)
+        profile_op_name = gate.operation.name
+        profile_qubits: list[int] = []
+        try:
+            # Assume each Locs in currLoc has different classical APs (In the current abstractlevel==1)
+            op_name = profile_op_name
+            if op_name != 'reset':
+                pruning_resets = False
+            if pruning_resets:
+                # If we are pruning resets, skip the reset gates
+                if op_name == 'reset':
+                    # pass
+                    continue
+            # Note: Assume there is a single quantum register in the circuit!!!
+            # qubits = [q._index for q in gate.qubits]
+            qubits = get_global_qb_index(gate.qubits) if gate.qubits else []
+            profile_qubits = qubits
+            cbits = get_global_cl_index(gate.clbits) if gate.clbits else []
+            if is_mark_operation(gate.operation):
+                parse_result.add_marker(mark_name(gate.operation), list(currLoc))
                 continue
-        # Note: Assume there is a single quantum register in the circuit!!!
-        # qubits = [q._index for q in gate.qubits]
-        qubits = get_global_qb_index(gate.qubits) if gate.qubits else []
-        cbits = get_global_cl_index(gate.clbits) if gate.clbits else []
-        if is_mark_operation(gate.operation):
-            parse_result.add_marker(mark_name(gate.operation), list(currLoc))
-            continue
-        if op_name == 'if_else':
-            # Two instruction blocks, one for if and one for else, double the curr_loc_list
-            # 1. For each current location, create a branch for ITE (in case part of the clVars satisfy if and part satisfy else). Otherwise, create a single postLoc.
-            # 2. Call parse_qiskit_cir recursively for each branch.
-            # 3. For each branch, do a heuristic merge.
-            if_block_cir = gate.operation.params[0]
-            else_block_cir = gate.operation.params[1] if len(gate.operation.params) > 1 else [] # Maybe None
-            condition = gate.operation.condition
-            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
-            # print(clbits_idx, clbits_vals, "Condition info for if_else operation.")
-            tempNewCurrLoc = []
-            for cLoc in currLoc:
-                # First judge if cLoc satisfies the condition
-                satisfyTerms = _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
-                unsatisfyTerms = _unsatisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
-                assert(len(satisfyTerms) + len(unsatisfyTerms) == _term_num(ts, cLoc)), "Condition terms do not match the location's terms."
-                if_result_locs, else_result_locs = [], []
-                if len(satisfyTerms) != 0:
-                    # Create a new location for the if block
-                    if_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".I", terms=satisfyTerms)
-                    _add_post_and_propagate(ts, cLoc, if_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
-                    # Parse the if block
-                    if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
-                if len(unsatisfyTerms) != 0:
-                    # Create a new location for the else block
-                    else_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".E", terms=unsatisfyTerms)
-                    _add_post_and_propagate(ts, cLoc, else_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
-                    # Parse the else block
-                    if else_block_cir is not None:
-                        else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
-                    else:
-                        else_result_locs = [else_loc]
-                tempNewCurrLoc.extend(if_result_locs)
-                tempNewCurrLoc.extend(else_result_locs)
-            # Merge locations if needed
-            currLoc = tempNewCurrLoc
-            if abstractLevel == 1:
-                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
-                grouped = groupby_classical_aps(ts, tempNewCurrLoc)
-                merged_curr_locs = list(currLoc)
-                for key, locs in grouped.items():
-                    if len(locs) > 1:
-                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"I.M")
-                currLoc = merged_curr_locs
-            else:
-                raise ValueError("Unsupported merge level for if_else operation.")
-        elif op_name == 'while_loop':
-            if lazy_ctx is not None:
-                raise NotImplementedError("parse_qiskit_cir_lazy does not support while_loop yet")
-            # print("While loop operation detected")
-            while_block_cir = gate.operation.params[0]
-            condition = gate.operation.condition
-            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
-            # print(clbits_idx, clbits_vals, "Condition info for while_loop operation.")
-            outLoopLocs = []
-            for cLoc in currLoc:
-                exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, identifier+"S"+str(pivot+_+1), abstractLevel, parse_result=parse_result)
-                outLoopLocs.extend(exitLocs)
-            currLoc = outLoopLocs
-            # Merge locations if needed
-            if abstractLevel == 1:
-                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
-                grouped = groupby_classical_aps(ts, outLoopLocs)
-                merged_curr_locs = list(currLoc)
-                for key, locs in grouped.items():
-                    if len(locs) > 1:
-                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"W.M")
-                currLoc = merged_curr_locs
-            else:
-                raise ValueError("Unsupported merge level for while_loop operation.")
-        elif op_name == 'for_loop':
-            # print("For loop operation detected")
-            for_block_cir = gate.operation.params[0]
-            loop_range = gate.operation.params[1]
-            outLoopLocs = []
-            for cLoc in currLoc:
-                loopStarter = [cLoc]
-                for _ in range(loop_range):
-                    loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
-                    loopStarter = loopResultLocs
-                outLoopLocs.extend(loopStarter)
-            currLoc = outLoopLocs
-            # Merge locations if needed
-            if abstractLevel == 1:
-                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
-                grouped = groupby_classical_aps(ts, outLoopLocs)
-                merged_curr_locs = list(currLoc)
-                for key, locs in grouped.items():
-                    if len(locs) > 1:
-                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"F.M")
-                currLoc = merged_curr_locs
-            else:
-                raise ValueError("Unsupported merge level for for_loop operation.")
-        elif op_name == 'switch_case':
-            # Multiple instruction blocks, one for each case, double the curr_loc_list
-            # 1. For each current location, create a branch for each case (in case part of the clVars satisfy one case and part satisfy another). Otherwise, create a single postLoc.
-            # 2. Call parse_qiskit_cir recursively for each branch.
-            # 3. For each branch, do a heuristic merge.
-            case_block_cirs = gate.operation.params[0]  # A list of QuantumCircuits for each case
-            condition = gate.operation.condition
-            clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
-            # print(clbits_idx, clbits_vals, "Condition info for switch_case operation.")
-            tempNewCurrLoc = []
-            for cLoc in currLoc:
-                # First judge if cLoc satisfies the condition
-                satisfyTerms = _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
-                unsatisfyTerms = _unsatisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
-                assert(len(satisfyTerms) + len(unsatisfyTerms) == _term_num(ts, cLoc)), "Condition terms do not match the location's terms."
-                case_result_locs = []
-                if len(satisfyTerms) != 0:
-                    # Create a new location for the switch_case block
-                    switch_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".C", terms=satisfyTerms)
-                    _add_post_and_propagate(ts, cLoc, switch_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
-                    # Parse each case block
-                    for idx,case_cir in enumerate(case_block_cirs):
-                        case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx), return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
-                        tempNewCurrLoc.extend(case_result_locs)
-                if len(unsatisfyTerms) != 0:
-                    # Create a new location for the default block (not satisfying any case)
-                    default_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".D", terms=unsatisfyTerms)
-                    _add_post_and_propagate(ts, cLoc, default_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
-                    # Parse the default block
-                    default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx) if gate.operation.default is not None else [default_loc]
-                    tempNewCurrLoc.extend(default_result_locs)
-            # Merge locations if needed
-            currLoc = tempNewCurrLoc
-            if abstractLevel == 1:
-                # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
-                grouped = groupby_classical_aps(ts, tempNewCurrLoc)
-                merged_curr_locs = list(currLoc)
-                for key, locs in grouped.items():
-                    if len(locs) > 1:
-                        merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"C.M")
-                currLoc = merged_curr_locs
-            else:
-                raise ValueError("Unsupported merge level for switch_case operation.")
-                
-        elif op_name == 'measure':
-            # Another operation that split the locations. The only operation that can modify classical bits.
-            # Assert single qubit measurement!
-            # for i_meas,cl in enumerate(currLoc):
-            #     for j in range(i_meas+1, len(currLoc)):
-            #         assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
-            assert len(qubits) == 1, "Measure operation can only be applied to one qubit at a time."
-            if lazy_ctx is not None:
-                reachableMeasuredLocDict = {}
-                prunedMeasuredLocDict = {}
+            if op_name == 'if_else':
+                # Two instruction blocks, one for if and one for else, double the curr_loc_list
+                # 1. For each current location, create a branch for ITE (in case part of the clVars satisfy if and part satisfy else). Otherwise, create a single postLoc.
+                # 2. Call parse_qiskit_cir recursively for each branch.
+                # 3. For each branch, do a heuristic merge.
+                if_block_cir = gate.operation.params[0]
+                else_block_cir = gate.operation.params[1] if len(gate.operation.params) > 1 else [] # Maybe None
+                condition = gate.operation.condition
+                clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+                # print(clbits_idx, clbits_vals, "Condition info for if_else operation.")
                 tempNewCurrLoc = []
-                branch_identifier = identifier + "S" + str(pivot + _ + 1)
                 for cLoc in currLoc:
-                    _add_lazy_measure_outcome(
-                        ts,
-                        from_loc=cLoc,
-                        qnum=qnum,
-                        qubit=qubits[0],
-                        cbit=cbits[0],
-                        outcome=False,
-                        identifier=branch_identifier,
-                        reachable_locs=reachableMeasuredLocDict,
-                        pruned_locs=prunedMeasuredLocDict,
-                        next_locs=tempNewCurrLoc,
-                        parse_result=parse_result,
-                        instruction_index=pivot + _,
-                    )
-                    _add_lazy_measure_outcome(
-                        ts,
-                        from_loc=cLoc,
-                        qnum=qnum,
-                        qubit=qubits[0],
-                        cbit=cbits[0],
-                        outcome=True,
-                        identifier=branch_identifier,
-                        reachable_locs=reachableMeasuredLocDict,
-                        pruned_locs=prunedMeasuredLocDict,
-                        next_locs=tempNewCurrLoc,
-                        parse_result=parse_result,
-                        instruction_index=pivot + _,
-                    )
-                currLoc = tempNewCurrLoc
-                continue
-            measuredLocDict = {}
-            tempNewCurrLoc = []
-            for cLoc in currLoc:
-                cp_meas0 = _copy_cp_with_value(ts, cLoc, cbits[0], False)
-                cp_meas1 = _copy_cp_with_value(ts, cLoc, cbits[0], True)
-                meas0_key = cp_meas0.toString()
-                meas1_key = cp_meas1.toString()
-                if meas0_key not in measuredLocDict:
-                    meas0_loc = _add_location_with_cp(ts, qnum, cp_meas0)
-                    # if _ + 1 < len(instructions):
-                    #     if instructions[_+1].operation.name == 'measure':
-                    #         if loc_meas0.satisfyBit([0,1],[1,0]):
-                    #             print("Debugging after two consecutive measures - meas0 branch")
-                    #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
-                    #             print("cLoc: ", cLoc)
-                    # if _ - 1 >= 0:
-                    #     if instructions[_-1].operation.name == 'measure':
-                    #         if loc_meas0.satisfyBit([0,1],[1,1]):
-                    #             print("Debugging after two consecutive measures - meas0 branch")
-                    #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
-                    #             print("cLoc: ", cLoc)
-                    measuredLocDict[meas0_key] = meas0_loc
-                    tempNewCurrLoc.append(meas0_loc)
-                    ts.addRelation(cLoc, meas0_loc, pyqreach.QOperation("meas0", qnum, qubits, []))
-                else:
-                    ts.addRelation(cLoc, measuredLocDict[meas0_key], pyqreach.QOperation("meas0", qnum, qubits, []))
-                if meas1_key not in measuredLocDict:
-                    meas1_loc = _add_location_with_cp(ts, qnum, cp_meas1)
-                    # if _ + 1 < len(instructions):
-                    #     if instructions[_+1].operation.name == 'measure':
-                    #         if loc_meas1.satisfyBit([0,1],[1,0]):
-                    #             print("Debugging after the first consecutive measures - meas1 branch")
-                    #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
-                    #             print("cLoc: ", cLoc)
-                    # if _ - 1 >= 0:
-                    #     if instructions[_-1].operation.name == 'measure' and ts.Locations[cLoc].satisfyBit([0,1],[1,0]):
-                    #         if loc_meas1.satisfyBit([0,1],[1,1]):
-                    #             print("Debugging after the second consecutive measures - meas1 branch")
-                    #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
-                    #             print("cLoc: ", cLoc)
-                    measuredLocDict[meas1_key] = meas1_loc
-                    tempNewCurrLoc.append(meas1_loc)
-                    # print(ts.Locations[ts.getLocationNum()-1].cp.toString(), "Classical APs of the new measured location at ", cbits[0])
-                    ts.addRelation(cLoc, meas1_loc, pyqreach.QOperation("meas1", qnum, qubits, []))
-                else:
-                    ts.addRelation(cLoc, measuredLocDict[meas1_key], pyqreach.QOperation("meas1", qnum, qubits, []))
-            # Update the current locations
-            currLoc = tempNewCurrLoc
-            for l in currLoc:
-                _set_identifier(ts, l, identifier + "S" + str(pivot + _ + 1))
-        elif op_name == 'initialize':
-            # 1. Apply reset to the qubit indexes;
-            # 2. Apply an init gate to the qubit indexes;
-            # Assert the indexes are sequential ordered
-            assert all(qubits[i] + 1 == qubits[i + 1] for i in range(len(qubits) - 1)), "For now, initialize operation can only be applied to sequential qubits."
-            tempNewCurrLoc = []
-            for cLoc in currLoc:
-                indexNum = len(qubits)
-                # For each index, apply reset gates seperately, and append new locations in a sequence
-                prevLoc = cLoc
-                for i in range(indexNum):
-                    reset_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".R" + str(i+1), copy_from=prevLoc)
-                    reset_op = pyqreach.QOperation("reset", qnum, [qubits[i]], [])
-                    _add_post_and_propagate(ts, prevLoc, reset_loc, reset_op, lazy_ctx)
-                    prevLoc = reset_loc
-                # Then apply the init gate
-                init_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".N", copy_from=prevLoc)
-                params_real = [param.real for param in gate.operation.params]
-                params_imag = [param.imag for param in gate.operation.params]
-                init_op = pyqreach.QOperation("init", qnum, qubits, params_real + params_imag)
-                _add_post_and_propagate(ts, prevLoc, init_loc, init_op, lazy_ctx)
-                tempNewCurrLoc.append(init_loc)
-            # Update the current locations
-            currLoc = tempNewCurrLoc
-        elif op_name == 'dcx':
-            # Slightly difficult to implement in C++
-            # Just apply cx[q0,q1], cx[q1,q0]
-            assert len(qubits) == 2, "DCX operation must be applied to two qubits."
-            op1 = pyqreach.QOperation("CX", qnum, [qubits[0], qubits[1]], [])
-            op2 = pyqreach.QOperation("CX", qnum, [qubits[1], qubits[0]], [])
-            tempNewCurrLoc = []
-            for cLoc in currLoc:
-                # Make new locations
-                loc1 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".1", copy_from=cLoc)
-                _add_post_and_propagate(ts, cLoc, loc1, op1, lazy_ctx)
-                loc2 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=loc1)
-                _add_post_and_propagate(ts, loc1, loc2, op2, lazy_ctx)
-                tempNewCurrLoc.append(loc2)
-            # Update the current locations
-            currLoc = tempNewCurrLoc
-        elif op_name == 'barrier':
-            # Barrier operation, do nothing
-            # for l in currLoc:
-            #     ts.Locations[l].setIdentifier(identifier + "S" + str(pivot + _ + 1))
-            continue
-        else:
-            op = None
-            if op_name == 'h':
-                op = pyqreach.QOperation("H", qnum, qubits, [])
-            elif op_name == 'id':
-                op = pyqreach.QOperation("I", qnum, qubits, [])
-            elif op_name == 'x':
-                op = pyqreach.QOperation("X", qnum, qubits, [])
-            elif op_name == 'y':
-                op = pyqreach.QOperation("Y", qnum, qubits, [])
-            elif op_name == 'z':
-                op = pyqreach.QOperation("Z", qnum, qubits, [])
-            elif op_name == 's':
-                op = pyqreach.QOperation("S", qnum, qubits, [])
-            elif op_name == 'sdg':
-                op = pyqreach.QOperation("Sdg", qnum, qubits, [])
-            elif op_name == 't':
-                op = pyqreach.QOperation("T", qnum, qubits, [])
-            elif op_name == 'tdg':
-                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, -1/4])
-            elif op_name == 'u':
-                theta, phi, lam = gate.operation.params
-                op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, phi/pi, lam/pi])
-            elif op_name == 'u1':
-                lam = gate.operation.params[0]
-                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
-            elif op_name == 'rx':
-                pass
-            elif op_name == 'ry':
-                theta = gate.operation.params[0]
-                op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, 0, 0])
-            elif op_name == 'rz':
-                # Lack a global phase
-                lam = gate.operation.params[0]
-                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
-            elif op_name == 'p':
-                lam = gate.operation.params[0]
-                op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
-            elif op_name == 'sx':
-                op = pyqreach.QOperation("SX", qnum, qubits, [])
-            elif op_name == 'iX':
-                op = pyqreach.QOperation("U3", qnum, qubits, [1, 1/2, -1/2])
-            elif op_name == 'iY':
-                op = pyqreach.QOperation("U3", qnum, qubits, [1, 1, 1])
-            elif op_name == 'iZ':
-                op = pyqreach.QOperation("arb", qnum, qubits, [0,1,0,0,0,0,0,-1])
-            elif op_name == '-iX':
-                op = pyqreach.QOperation("U3", qnum, qubits, [1, -1/2, 1/2])
-            elif op_name == '-iY':
-                op = pyqreach.QOperation("U3", qnum, qubits, [1, 0, 0])
-            elif op_name == '-iZ':
-                op = pyqreach.QOperation("arb", qnum, qubits, [0,-1,0,0,0,0,0,1])
-            elif op_name == 'cx':
-                op = pyqreach.QOperation("CX", qnum, qubits, [])
-            elif op_name == 'cz':
-                op = pyqreach.QOperation("CZ", qnum, qubits, [])
-            elif op_name == 'cp':
-                op = pyqreach.QOperation("CP", qnum, qubits, [gate.operation.params[0]/pi])
-            elif op_name == 'cu1':
-                lam = gate.operation.params[0]/pi
-                op = pyqreach.QOperation("CP", qnum, qubits, [lam/pi])
-            elif op_name == 'csx':
-                op = pyqreach.QOperation("CSX", qnum, qubits, [])
-            elif op_name == 'swap':
-                op = pyqreach.QOperation("SWAP", qnum, qubits, [])
-            elif op_name == 'iswap':
-                op = pyqreach.QOperation("iSWAP", qnum, qubits, [])
-            elif op_name == 'ccx':
-                op = pyqreach.QOperation("CCX", qnum, qubits, [])
-            elif op_name == 'reset':
-                # Reset operation, we assume it resets all qubits to |0>, using resetAll QOperation, or reset a single qubit to |0>,
-                # resulting in a mixed state, we use reset QOperation.
-                # Check if the continuous qnum gates are all resets, if so, we set pruning_resets to True.
-                # TODO: Here is a trick! we assume all reset gates on different qubits are grouped together!
-                doResetAll = True if _ + qnum <= len(instructions) and all(instructions[i][0].name == 'reset' for i in range(_, _ + qnum)) else False
-                # If there exists a qubit that is not reset, we set doResetAll to False.
-                recordResetSet = set()
-                if doResetAll:
-                    # print("Into resetAll pruning at instruction index:", _)
-                    for gidx in range(_, _+qnum-1):
-                        resetBit = instructions[gidx].qubits[0]._index
-                        if resetBit not in recordResetSet:
-                            recordResetSet.add(resetBit)
+                    # First judge if cLoc satisfies the condition
+                    satisfyTerms = _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
+                    unsatisfyTerms = _unsatisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
+                    assert(len(satisfyTerms) + len(unsatisfyTerms) == _term_num(ts, cLoc)), "Condition terms do not match the location's terms."
+                    if_result_locs, else_result_locs = [], []
+                    if len(satisfyTerms) != 0:
+                        # Create a new location for the if block
+                        if_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".I", terms=satisfyTerms)
+                        _add_post_and_propagate(ts, cLoc, if_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
+                        # Parse the if block
+                        if_result_locs = parse_qiskit_cir(if_block_cir, qnum, ts, [if_loc], identifier+"S"+str(pivot + _ + 1)+".I", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
+                    if len(unsatisfyTerms) != 0:
+                        # Create a new location for the else block
+                        else_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".E", terms=unsatisfyTerms)
+                        _add_post_and_propagate(ts, cLoc, else_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
+                        # Parse the else block
+                        if else_block_cir is not None:
+                            else_result_locs = parse_qiskit_cir(else_block_cir, qnum, ts, [else_loc], identifier+"S"+str(pivot + _ + 1)+".E", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
                         else:
-                            doResetAll = False
-                if not doResetAll:
-                    op = pyqreach.QOperation("reset", qnum, qubits, [])
+                            else_result_locs = [else_loc]
+                    tempNewCurrLoc.extend(if_result_locs)
+                    tempNewCurrLoc.extend(else_result_locs)
+                # Merge locations if needed
+                currLoc = tempNewCurrLoc
+                if abstractLevel == 1:
+                    # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                    grouped = groupby_classical_aps(ts, tempNewCurrLoc)
+                    merged_curr_locs = list(currLoc)
+                    for key, locs in grouped.items():
+                        if len(locs) > 1:
+                            merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"I.M")
+                    currLoc = merged_curr_locs
                 else:
-                    op = pyqreach.QOperation("resetAll", qnum, qubits, [])
-                    pruning_resets = True  # Set pruning_resets to True to skip the reset gates in the next iterations
-            else:
-                raise ValueError(f"Unsupported gate: {op_name}")
-            gate_condition = gate.condition
-            tempNewCurrLoc = []
-            if gate_condition is None:
+                    raise ValueError("Unsupported merge level for if_else operation.")
+            elif op_name == 'while_loop':
+                if lazy_ctx is not None:
+                    raise NotImplementedError("parse_qiskit_cir_lazy does not support while_loop yet")
+                # print("While loop operation detected")
+                while_block_cir = gate.operation.params[0]
+                condition = gate.operation.condition
+                clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+                # print(clbits_idx, clbits_vals, "Condition info for while_loop operation.")
+                outLoopLocs = []
+                for cLoc in currLoc:
+                    exitLocs = build_while_loop(while_block_cir, qnum, clbits_idx, clbits_vals, [cLoc], cLoc, ts, identifier+"S"+str(pivot+_+1), abstractLevel, parse_result=parse_result)
+                    outLoopLocs.extend(exitLocs)
+                currLoc = outLoopLocs
+                # Merge locations if needed
+                if abstractLevel == 1:
+                    # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                    grouped = groupby_classical_aps(ts, outLoopLocs)
+                    merged_curr_locs = list(currLoc)
+                    for key, locs in grouped.items():
+                        if len(locs) > 1:
+                            merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"W.M")
+                    currLoc = merged_curr_locs
+                else:
+                    raise ValueError("Unsupported merge level for while_loop operation.")
+            elif op_name == 'for_loop':
+                # print("For loop operation detected")
+                for_block_cir = gate.operation.params[0]
+                loop_range = gate.operation.params[1]
+                outLoopLocs = []
+                for cLoc in currLoc:
+                    loopStarter = [cLoc]
+                    for _ in range(loop_range):
+                        loopResultLocs = parse_qiskit_cir(for_block_cir, qnum, ts, loopStarter, identifier+"S"+str(pivot+_+1)+".F", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
+                        loopStarter = loopResultLocs
+                    outLoopLocs.extend(loopStarter)
+                currLoc = outLoopLocs
+                # Merge locations if needed
+                if abstractLevel == 1:
+                    # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                    grouped = groupby_classical_aps(ts, outLoopLocs)
+                    merged_curr_locs = list(currLoc)
+                    for key, locs in grouped.items():
+                        if len(locs) > 1:
+                            merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"F.M")
+                    currLoc = merged_curr_locs
+                else:
+                    raise ValueError("Unsupported merge level for for_loop operation.")
+            elif op_name == 'switch_case':
+                # Multiple instruction blocks, one for each case, double the curr_loc_list
+                # 1. For each current location, create a branch for each case (in case part of the clVars satisfy one case and part satisfy another). Otherwise, create a single postLoc.
+                # 2. Call parse_qiskit_cir recursively for each branch.
+                # 3. For each branch, do a heuristic merge.
+                case_block_cirs = gate.operation.params[0]  # A list of QuantumCircuits for each case
+                condition = gate.operation.condition
+                clbits_idx, clbits_vals = get_condition_info(qc.cregs, condition)
+                # print(clbits_idx, clbits_vals, "Condition info for switch_case operation.")
+                tempNewCurrLoc = []
+                for cLoc in currLoc:
+                    # First judge if cLoc satisfies the condition
+                    satisfyTerms = _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
+                    unsatisfyTerms = _unsatisfy_bit(ts, cLoc, clbits_idx, clbits_vals)
+                    assert(len(satisfyTerms) + len(unsatisfyTerms) == _term_num(ts, cLoc)), "Condition terms do not match the location's terms."
+                    case_result_locs = []
+                    if len(satisfyTerms) != 0:
+                        # Create a new location for the switch_case block
+                        switch_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".C", terms=satisfyTerms)
+                        _add_post_and_propagate(ts, cLoc, switch_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
+                        # Parse each case block
+                        for idx,case_cir in enumerate(case_block_cirs):
+                            case_result_locs = parse_qiskit_cir(case_cir, qnum, ts, [switch_loc], identifier+"S"+str(pivot + _ + 1)+".C"+str(idx), return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx)
+                            tempNewCurrLoc.extend(case_result_locs)
+                    if len(unsatisfyTerms) != 0:
+                        # Create a new location for the default block (not satisfying any case)
+                        default_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".D", terms=unsatisfyTerms)
+                        _add_post_and_propagate(ts, cLoc, default_loc, pyqreach.QOperation("I", qnum, [0], []), lazy_ctx)
+                        # Parse the default block
+                        default_result_locs = parse_qiskit_cir(gate.operation.default, qnum, ts, [default_loc], identifier+"S"+str(pivot + _ + 1)+".D", return_metadata=False, parse_result=parse_result, lazy_ctx=lazy_ctx) if gate.operation.default is not None else [default_loc]
+                        tempNewCurrLoc.extend(default_result_locs)
+                # Merge locations if needed
+                currLoc = tempNewCurrLoc
+                if abstractLevel == 1:
+                    # merge locations in currLoc when they share the same classical APs. (Don't merge measured locations)
+                    grouped = groupby_classical_aps(ts, tempNewCurrLoc)
+                    merged_curr_locs = list(currLoc)
+                    for key, locs in grouped.items():
+                        if len(locs) > 1:
+                            merged_curr_locs = merge_locations(ts, merged_curr_locs, locs, identifier+"C.M")
+                    currLoc = merged_curr_locs
+                else:
+                    raise ValueError("Unsupported merge level for switch_case operation.")
+                
+            elif op_name == 'measure':
+                # Another operation that split the locations. The only operation that can modify classical bits.
+                # Assert single qubit measurement!
+                # for i_meas,cl in enumerate(currLoc):
+                #     for j in range(i_meas+1, len(currLoc)):
+                #         assert not ts.Locations[cl].equalAP(ts.Locations[currLoc[j]]), "Measure operation cannot be applied to locations with equal classical APs."
+                assert len(qubits) == 1, "Measure operation can only be applied to one qubit at a time."
+                if lazy_ctx is not None:
+                    reachableMeasuredLocDict = {}
+                    prunedMeasuredLocDict = {}
+                    tempNewCurrLoc = []
+                    branch_identifier = identifier + "S" + str(pivot + _ + 1)
+                    for cLoc in currLoc:
+                        _add_lazy_measure_outcome(
+                            ts,
+                            from_loc=cLoc,
+                            qnum=qnum,
+                            qubit=qubits[0],
+                            cbit=cbits[0],
+                            outcome=False,
+                            identifier=branch_identifier,
+                            reachable_locs=reachableMeasuredLocDict,
+                            pruned_locs=prunedMeasuredLocDict,
+                            next_locs=tempNewCurrLoc,
+                            parse_result=parse_result,
+                            instruction_index=pivot + _,
+                        )
+                        _add_lazy_measure_outcome(
+                            ts,
+                            from_loc=cLoc,
+                            qnum=qnum,
+                            qubit=qubits[0],
+                            cbit=cbits[0],
+                            outcome=True,
+                            identifier=branch_identifier,
+                            reachable_locs=reachableMeasuredLocDict,
+                            pruned_locs=prunedMeasuredLocDict,
+                            next_locs=tempNewCurrLoc,
+                            parse_result=parse_result,
+                            instruction_index=pivot + _,
+                        )
+                    currLoc = tempNewCurrLoc
+                    continue
+                measuredLocDict = {}
+                tempNewCurrLoc = []
+                for cLoc in currLoc:
+                    cp_meas0 = _copy_cp_with_value(ts, cLoc, cbits[0], False)
+                    cp_meas1 = _copy_cp_with_value(ts, cLoc, cbits[0], True)
+                    meas0_key = cp_meas0.toString()
+                    meas1_key = cp_meas1.toString()
+                    if meas0_key not in measuredLocDict:
+                        meas0_loc = _add_location_with_cp(ts, qnum, cp_meas0)
+                        # if _ + 1 < len(instructions):
+                        #     if instructions[_+1].operation.name == 'measure':
+                        #         if loc_meas0.satisfyBit([0,1],[1,0]):
+                        #             print("Debugging after two consecutive measures - meas0 branch")
+                        #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
+                        #             print("cLoc: ", cLoc)
+                        # if _ - 1 >= 0:
+                        #     if instructions[_-1].operation.name == 'measure':
+                        #         if loc_meas0.satisfyBit([0,1],[1,1]):
+                        #             print("Debugging after two consecutive measures - meas0 branch")
+                        #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
+                        #             print("cLoc: ", cLoc)
+                        measuredLocDict[meas0_key] = meas0_loc
+                        tempNewCurrLoc.append(meas0_loc)
+                        ts.addRelation(cLoc, meas0_loc, pyqreach.QOperation("meas0", qnum, qubits, []))
+                    else:
+                        ts.addRelation(cLoc, measuredLocDict[meas0_key], pyqreach.QOperation("meas0", qnum, qubits, []))
+                    if meas1_key not in measuredLocDict:
+                        meas1_loc = _add_location_with_cp(ts, qnum, cp_meas1)
+                        # if _ + 1 < len(instructions):
+                        #     if instructions[_+1].operation.name == 'measure':
+                        #         if loc_meas1.satisfyBit([0,1],[1,0]):
+                        #             print("Debugging after the first consecutive measures - meas1 branch")
+                        #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
+                        #             print("cLoc: ", cLoc)
+                        # if _ - 1 >= 0:
+                        #     if instructions[_-1].operation.name == 'measure' and ts.Locations[cLoc].satisfyBit([0,1],[1,0]):
+                        #         if loc_meas1.satisfyBit([0,1],[1,1]):
+                        #             print("Debugging after the second consecutive measures - meas1 branch")
+                        #             print("Identifier: ", ts.Locations[cLoc].getIdentifier(), "Location idx:", ts.getLocationNum()-1)
+                        #             print("cLoc: ", cLoc)
+                        measuredLocDict[meas1_key] = meas1_loc
+                        tempNewCurrLoc.append(meas1_loc)
+                        # print(ts.Locations[ts.getLocationNum()-1].cp.toString(), "Classical APs of the new measured location at ", cbits[0])
+                        ts.addRelation(cLoc, meas1_loc, pyqreach.QOperation("meas1", qnum, qubits, []))
+                    else:
+                        ts.addRelation(cLoc, measuredLocDict[meas1_key], pyqreach.QOperation("meas1", qnum, qubits, []))
+                # Update the current locations
+                currLoc = tempNewCurrLoc
+                for l in currLoc:
+                    _set_identifier(ts, l, identifier + "S" + str(pivot + _ + 1))
+            elif op_name == 'initialize':
+                # 1. Apply reset to the qubit indexes;
+                # 2. Apply an init gate to the qubit indexes;
+                # Assert the indexes are sequential ordered
+                assert all(qubits[i] + 1 == qubits[i + 1] for i in range(len(qubits) - 1)), "For now, initialize operation can only be applied to sequential qubits."
+                tempNewCurrLoc = []
+                for cLoc in currLoc:
+                    indexNum = len(qubits)
+                    # For each index, apply reset gates seperately, and append new locations in a sequence
+                    prevLoc = cLoc
+                    for i in range(indexNum):
+                        reset_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".R" + str(i+1), copy_from=prevLoc)
+                        reset_op = pyqreach.QOperation("reset", qnum, [qubits[i]], [])
+                        _add_post_and_propagate(ts, prevLoc, reset_loc, reset_op, lazy_ctx)
+                        prevLoc = reset_loc
+                    # Then apply the init gate
+                    init_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".N", copy_from=prevLoc)
+                    params_real = [param.real for param in gate.operation.params]
+                    params_imag = [param.imag for param in gate.operation.params]
+                    init_op = pyqreach.QOperation("init", qnum, qubits, params_real + params_imag)
+                    _add_post_and_propagate(ts, prevLoc, init_loc, init_op, lazy_ctx)
+                    tempNewCurrLoc.append(init_loc)
+                # Update the current locations
+                currLoc = tempNewCurrLoc
+            elif op_name == 'dcx':
+                # Slightly difficult to implement in C++
+                # Just apply cx[q0,q1], cx[q1,q0]
+                assert len(qubits) == 2, "DCX operation must be applied to two qubits."
+                op1 = pyqreach.QOperation("CX", qnum, [qubits[0], qubits[1]], [])
+                op2 = pyqreach.QOperation("CX", qnum, [qubits[1], qubits[0]], [])
+                tempNewCurrLoc = []
                 for cLoc in currLoc:
                     # Make new locations
-                    new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
-                    # Add the operation to the transition system
-                    _add_post_and_propagate(ts, cLoc, new_loc, op, lazy_ctx)
-                    tempNewCurrLoc.append(new_loc)
+                    loc1 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1) + ".1", copy_from=cLoc)
+                    _add_post_and_propagate(ts, cLoc, loc1, op1, lazy_ctx)
+                    loc2 = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=loc1)
+                    _add_post_and_propagate(ts, loc1, loc2, op2, lazy_ctx)
+                    tempNewCurrLoc.append(loc2)
+                # Update the current locations
+                currLoc = tempNewCurrLoc
+            elif op_name == 'barrier':
+                # Barrier operation, do nothing
+                # for l in currLoc:
+                #     ts.Locations[l].setIdentifier(identifier + "S" + str(pivot + _ + 1))
+                continue
             else:
-                clbits_idx, clbits_vals = get_condition_info(qc.cregs, gate_condition)
-                for cLoc in currLoc:
-                    if _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals):
+                op = None
+                if op_name == 'h':
+                    op = pyqreach.QOperation("H", qnum, qubits, [])
+                elif op_name == 'id':
+                    op = pyqreach.QOperation("I", qnum, qubits, [])
+                elif op_name == 'x':
+                    op = pyqreach.QOperation("X", qnum, qubits, [])
+                elif op_name == 'y':
+                    op = pyqreach.QOperation("Y", qnum, qubits, [])
+                elif op_name == 'z':
+                    op = pyqreach.QOperation("Z", qnum, qubits, [])
+                elif op_name == 's':
+                    op = pyqreach.QOperation("S", qnum, qubits, [])
+                elif op_name == 'sdg':
+                    op = pyqreach.QOperation("Sdg", qnum, qubits, [])
+                elif op_name == 't':
+                    op = pyqreach.QOperation("T", qnum, qubits, [])
+                elif op_name == 'tdg':
+                    op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, -1/4])
+                elif op_name == 'u':
+                    theta, phi, lam = gate.operation.params
+                    op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, phi/pi, lam/pi])
+                elif op_name == 'u1':
+                    lam = gate.operation.params[0]
+                    op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
+                elif op_name == 'rx':
+                    pass
+                elif op_name == 'ry':
+                    theta = gate.operation.params[0]
+                    op = pyqreach.QOperation("U3", qnum, qubits, [theta/pi, 0, 0])
+                elif op_name == 'rz':
+                    # Lack a global phase
+                    lam = gate.operation.params[0]
+                    op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
+                elif op_name == 'p':
+                    lam = gate.operation.params[0]
+                    op = pyqreach.QOperation("U3", qnum, qubits, [0, 0, lam/pi])
+                elif op_name == 'sx':
+                    op = pyqreach.QOperation("SX", qnum, qubits, [])
+                elif op_name == 'iX':
+                    op = pyqreach.QOperation("U3", qnum, qubits, [1, 1/2, -1/2])
+                elif op_name == 'iY':
+                    op = pyqreach.QOperation("U3", qnum, qubits, [1, 1, 1])
+                elif op_name == 'iZ':
+                    op = pyqreach.QOperation("arb", qnum, qubits, [0,1,0,0,0,0,0,-1])
+                elif op_name == '-iX':
+                    op = pyqreach.QOperation("U3", qnum, qubits, [1, -1/2, 1/2])
+                elif op_name == '-iY':
+                    op = pyqreach.QOperation("U3", qnum, qubits, [1, 0, 0])
+                elif op_name == '-iZ':
+                    op = pyqreach.QOperation("arb", qnum, qubits, [0,-1,0,0,0,0,0,1])
+                elif op_name == 'cx':
+                    op = pyqreach.QOperation("CX", qnum, qubits, [])
+                elif op_name == 'cz':
+                    op = pyqreach.QOperation("CZ", qnum, qubits, [])
+                elif op_name == 'cp':
+                    op = pyqreach.QOperation("CP", qnum, qubits, [gate.operation.params[0]/pi])
+                elif op_name == 'cu1':
+                    lam = gate.operation.params[0]/pi
+                    op = pyqreach.QOperation("CP", qnum, qubits, [lam/pi])
+                elif op_name == 'csx':
+                    op = pyqreach.QOperation("CSX", qnum, qubits, [])
+                elif op_name == 'swap':
+                    op = pyqreach.QOperation("SWAP", qnum, qubits, [])
+                elif op_name == 'iswap':
+                    op = pyqreach.QOperation("iSWAP", qnum, qubits, [])
+                elif op_name == 'ccx':
+                    op = pyqreach.QOperation("CCX", qnum, qubits, [])
+                elif op_name == 'reset':
+                    # Reset operation, we assume it resets all qubits to |0>, using resetAll QOperation, or reset a single qubit to |0>,
+                    # resulting in a mixed state, we use reset QOperation.
+                    # Check if the continuous qnum gates are all resets, if so, we set pruning_resets to True.
+                    # TODO: Here is a trick! we assume all reset gates on different qubits are grouped together!
+                    doResetAll = True if _ + qnum <= len(instructions) and all(instructions[i][0].name == 'reset' for i in range(_, _ + qnum)) else False
+                    # If there exists a qubit that is not reset, we set doResetAll to False.
+                    recordResetSet = set()
+                    if doResetAll:
+                        # print("Into resetAll pruning at instruction index:", _)
+                        for gidx in range(_, _+qnum-1):
+                            resetBit = instructions[gidx].qubits[0]._index
+                            if resetBit not in recordResetSet:
+                                recordResetSet.add(resetBit)
+                            else:
+                                doResetAll = False
+                    if not doResetAll:
+                        op = pyqreach.QOperation("reset", qnum, qubits, [])
+                    else:
+                        op = pyqreach.QOperation("resetAll", qnum, qubits, [])
+                        pruning_resets = True  # Set pruning_resets to True to skip the reset gates in the next iterations
+                else:
+                    raise ValueError(f"Unsupported gate: {op_name}")
+                gate_condition = gate.condition
+                tempNewCurrLoc = []
+                if gate_condition is None:
+                    for cLoc in currLoc:
                         # Make new locations
                         new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
                         # Add the operation to the transition system
                         _add_post_and_propagate(ts, cLoc, new_loc, op, lazy_ctx)
                         tempNewCurrLoc.append(new_loc)
-                    else:
-                        # Apply identity operation
-                        new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
-                        # Add the identity operation to the transition system
-                        identity_op = pyqreach.QOperation("I", qnum, qubits, [])
-                        _add_post_and_propagate(ts, cLoc, new_loc, identity_op, lazy_ctx)
-                        tempNewCurrLoc.append(new_loc)
-            # Update the current locations
-            currLoc = tempNewCurrLoc
+                else:
+                    clbits_idx, clbits_vals = get_condition_info(qc.cregs, gate_condition)
+                    for cLoc in currLoc:
+                        if _satisfy_bit(ts, cLoc, clbits_idx, clbits_vals):
+                            # Make new locations
+                            new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
+                            # Add the operation to the transition system
+                            _add_post_and_propagate(ts, cLoc, new_loc, op, lazy_ctx)
+                            tempNewCurrLoc.append(new_loc)
+                        else:
+                            # Apply identity operation
+                            new_loc = _add_location(ts, qnum, identifier + "S" + str(pivot + _ + 1), copy_from=cLoc)
+                            # Add the identity operation to the transition system
+                            identity_op = pyqreach.QOperation("I", qnum, qubits, [])
+                            _add_post_and_propagate(ts, cLoc, new_loc, identity_op, lazy_ctx)
+                            tempNewCurrLoc.append(new_loc)
+                # Update the current locations
+                currLoc = tempNewCurrLoc
+        finally:
+            if parse_profile_enabled:
+                _parse_profile_emit(
+                    enabled=parse_profile_enabled,
+                    threshold=parse_profile_threshold,
+                    verbose=parse_profile_verbose,
+                    instruction_index=profile_instruction_index,
+                    op_name=profile_op_name,
+                    qubits=profile_qubits,
+                    locations_in=profile_locations_in,
+                    locations_out=len(currLoc),
+                    elapsed=perf_counter() - profile_start,
+                    total_locations=ts.getLocationNum(),
+                )
     resultLocs = currLoc
     parse_result.result_locations = resultLocs
     return parse_result if return_metadata else resultLocs
