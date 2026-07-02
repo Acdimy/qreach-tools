@@ -1941,6 +1941,60 @@ class QOperation {
         const size_t input_terms = this->oplist.size();
         const size_t gate_terms = other.oplist.size();
         const bool gate_profile = qgateprof::enabled();
+        /* The post-image of a quantum operator */
+        assert(this->type == false && other.type == true);
+        if (!gate_profile) {
+            QOperation res;
+            for (size_t i = 0; i < this->oplist.size(); i++) {
+                auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
+                if (!ivec) continue;
+                if (checkifzero(ivec->content)) continue; // A key optimization!
+                for (size_t j = 0; j < other.oplist.size(); j++) {
+                    auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
+                    if (!jgate) continue;
+                    auto tmp = ivec->applyGate(*jgate, true);
+                    // If tmp is non-trivial, we insert it to the res.
+                    if (!checkifzero(tmp)) {
+                        res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                    } else {
+                        // std::cout << "PostImage: a zero vector is generated." << jgate->name << std::endl;
+                        // this->printFormal();
+                    }
+                    /* We don't have GramSchmidt in postImage (for some interface of probability), we need to handle the uniqueness */
+                    // SingleVecTerm postVec(tmp);
+                    // if (res.oplist.size() == 0) {
+                    //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                    // } else if (res.findVectorContent(postVec) == -1) {
+                    //     // If the postVec is not in the res, append it.
+                    //     res.append(std::make_unique<SingleVecTerm>(postVec));
+                    // } else if (res.findVectorContent(postVec) >= 0) {
+                    //     // If the postVec is in the res, add the amplitude to the existing vector.
+                    // }
+                }
+            }
+            // res.normalized = true;
+            res.qNum = this->qNum;
+            const size_t raw_terms = res.oplist.size();
+            // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
+            if (res.oplist.size() > 1) {
+                res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
+                // res.normalized = true;
+            } else {
+                // normalize the single vector if there is only one vector.
+                if (res.oplist.size() == 1) {
+                    auto* ivec = dynamic_cast<SingleVecTerm*>(res.oplist[0].get());
+                    if (!ivec) {
+                        std::cout << "Strange nullptr" << std::endl;
+                    } else {
+                        ivec->normalizeInline();
+                    }
+                }
+                res.normalized = true;
+            }
+            qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
+            return res;
+        }
+
         const auto postimage_start = std::chrono::steady_clock::now();
         long long input_zero_check_us = 0;
         long long apply_us = 0;
@@ -1948,8 +2002,6 @@ class QOperation {
         long long append_us = 0;
         long long gramschmidt_us = 0;
         long long normalize_us = 0;
-        /* The post-image of a quantum operator */
-        assert(this->type == false && other.type == true);
         QOperation res;
         for (size_t i = 0; i < this->oplist.size(); i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
@@ -1957,9 +2009,7 @@ class QOperation {
             const auto input_zero_check_start = std::chrono::steady_clock::now();
             const bool input_is_zero = checkifzero(ivec->content);
             const auto input_zero_check_end = std::chrono::steady_clock::now();
-            if (gate_profile) {
-                input_zero_check_us += qgateprof::elapsed_us(input_zero_check_start, input_zero_check_end);
-            }
+            input_zero_check_us += qgateprof::elapsed_us(input_zero_check_start, input_zero_check_end);
             if (input_is_zero) continue; // A key optimization!
             for (size_t j = 0; j < other.oplist.size(); j++) {
                 auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
@@ -1967,23 +2017,17 @@ class QOperation {
                 const auto apply_start = std::chrono::steady_clock::now();
                 auto tmp = ivec->applyGate(*jgate, true);
                 const auto apply_end = std::chrono::steady_clock::now();
-                if (gate_profile) {
-                    apply_us += qgateprof::elapsed_us(apply_start, apply_end);
-                }
+                apply_us += qgateprof::elapsed_us(apply_start, apply_end);
                 // If tmp is non-trivial, we insert it to the res.
                 const auto result_zero_check_start = std::chrono::steady_clock::now();
                 const bool result_is_zero = checkifzero(tmp);
                 const auto result_zero_check_end = std::chrono::steady_clock::now();
-                if (gate_profile) {
-                    result_zero_check_us += qgateprof::elapsed_us(result_zero_check_start, result_zero_check_end);
-                }
+                result_zero_check_us += qgateprof::elapsed_us(result_zero_check_start, result_zero_check_end);
                 if (!result_is_zero) {
                     const auto append_start = std::chrono::steady_clock::now();
                     res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
                     const auto append_end = std::chrono::steady_clock::now();
-                    if (gate_profile) {
-                        append_us += qgateprof::elapsed_us(append_start, append_end);
-                    }
+                    append_us += qgateprof::elapsed_us(append_start, append_end);
                 } else {
                     // std::cout << "PostImage: a zero vector is generated." << jgate->name << std::endl;
                     // this->printFormal();
@@ -2008,9 +2052,7 @@ class QOperation {
             const auto gramschmidt_start = std::chrono::steady_clock::now();
             res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
             const auto gramschmidt_end = std::chrono::steady_clock::now();
-            if (gate_profile) {
-                gramschmidt_us += qgateprof::elapsed_us(gramschmidt_start, gramschmidt_end);
-            }
+            gramschmidt_us += qgateprof::elapsed_us(gramschmidt_start, gramschmidt_end);
             // res.normalized = true;
         } else {
             // normalize the single vector if there is only one vector.
@@ -2022,28 +2064,24 @@ class QOperation {
                     const auto normalize_start = std::chrono::steady_clock::now();
                     ivec->normalizeInline();
                     const auto normalize_end = std::chrono::steady_clock::now();
-                    if (gate_profile) {
-                        normalize_us += qgateprof::elapsed_us(normalize_start, normalize_end);
-                    }
+                    normalize_us += qgateprof::elapsed_us(normalize_start, normalize_end);
                 }
             }
             res.normalized = true;
         }
         qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
-        if (gate_profile) {
-            const auto postimage_end = std::chrono::steady_clock::now();
-            qgateprof::on_postimage(input_terms,
-                                    gate_terms,
-                                    raw_terms,
-                                    res.oplist.size(),
-                                    input_zero_check_us,
-                                    apply_us,
-                                    result_zero_check_us,
-                                    append_us,
-                                    gramschmidt_us,
-                                    normalize_us,
-                                    qgateprof::elapsed_us(postimage_start, postimage_end));
-        }
+        const auto postimage_end = std::chrono::steady_clock::now();
+        qgateprof::on_postimage(input_terms,
+                                gate_terms,
+                                raw_terms,
+                                res.oplist.size(),
+                                input_zero_check_us,
+                                apply_us,
+                                result_zero_check_us,
+                                append_us,
+                                gramschmidt_us,
+                                normalize_us,
+                                qgateprof::elapsed_us(postimage_start, postimage_end));
         return res;
     }
     
