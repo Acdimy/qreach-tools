@@ -635,6 +635,15 @@ class QuantumGateTerm : public QuantumTerm {
         return std::make_unique<QuantumGateTerm>(*this);
     }
 
+    bool isNormPreservingGate() const {
+        const std::string lname = toLower(this->name);
+        return lname == "x" || lname == "y" || lname == "z" || lname == "h" ||
+               lname == "i" || lname == "s" || lname == "sdg" || lname == "t" ||
+               lname == "p" || lname == "sx" || lname == "cx" || lname == "csx" ||
+               lname == "u3" || lname == "swap" || lname == "iswap" ||
+               lname == "cz" || lname == "cp" || lname == "ccx";
+    }
+
     CFLOBDD_COMPLEX_BIG concretize() const {
         std::string name = toLower(this->name);
         unsigned index = this->index[0];
@@ -937,6 +946,7 @@ class QuantumGateTerm : public QuantumTerm {
 
 class SingleVecTerm : public QuantumTerm {
     public:
+    bool knownUnitNorm = false;
     // construct as a projector or state
     SingleVecTerm() {}
     SingleVecTerm(unsigned int qubits) {this->qNum = qubits;}
@@ -948,6 +958,7 @@ class SingleVecTerm : public QuantumTerm {
         CFLOBDD_COMPLEX_BIG stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
         stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
         this->content = stateVector;
+        this->knownUnitNorm = true;
     }
     SingleVecTerm(std::vector<double> amp, unsigned int qubits) {
         // qubits is the realQubits, qNum is the total physical qubits.
@@ -960,6 +971,7 @@ class SingleVecTerm : public QuantumTerm {
         }
         CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
         this->content = stateVector;
+        this->knownUnitNorm = false;
     }
     SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
         // Need copy?
@@ -1955,7 +1967,10 @@ class QOperation {
                     auto tmp = ivec->applyGate(*jgate, true);
                     // If tmp is non-trivial, we insert it to the res.
                     if (!checkifzero(tmp)) {
-                        res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                        SingleVecTerm postVec(tmp);
+                        postVec.knownUnitNorm = this->normalized && input_terms == 1 && gate_terms == 1 &&
+                                                 ivec->knownUnitNorm && jgate->isNormPreservingGate();
+                        res.append(std::make_unique<SingleVecTerm>(postVec));
                     } else {
                         // std::cout << "PostImage: a zero vector is generated." << jgate->name << std::endl;
                         // this->printFormal();
@@ -1975,6 +1990,15 @@ class QOperation {
             // res.normalized = true;
             res.qNum = this->qNum;
             const size_t raw_terms = res.oplist.size();
+            if (res.oplist.size() == 1 && this->normalized && input_terms == 1 && gate_terms == 1) {
+                auto* input_vec = dynamic_cast<SingleVecTerm*>(this->oplist[0].get());
+                auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
+                if (input_vec && input_vec->knownUnitNorm && jgate && jgate->isNormPreservingGate()) {
+                    res.normalized = true;
+                    qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
+                    return res;
+                }
+            }
             // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
             if (res.oplist.size() > 1) {
                 res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
@@ -2025,7 +2049,10 @@ class QOperation {
                 result_zero_check_us += qgateprof::elapsed_us(result_zero_check_start, result_zero_check_end);
                 if (!result_is_zero) {
                     const auto append_start = std::chrono::steady_clock::now();
-                    res.append(std::make_unique<SingleVecTerm>(SingleVecTerm(tmp)));
+                    SingleVecTerm postVec(tmp);
+                    postVec.knownUnitNorm = this->normalized && input_terms == 1 && gate_terms == 1 &&
+                                             ivec->knownUnitNorm && jgate->isNormPreservingGate();
+                    res.append(std::make_unique<SingleVecTerm>(postVec));
                     const auto append_end = std::chrono::steady_clock::now();
                     append_us += qgateprof::elapsed_us(append_start, append_end);
                 } else {
@@ -2047,6 +2074,27 @@ class QOperation {
         // res.normalized = true;
         res.qNum = this->qNum;
         const size_t raw_terms = res.oplist.size();
+        if (res.oplist.size() == 1 && this->normalized && input_terms == 1 && gate_terms == 1) {
+            auto* input_vec = dynamic_cast<SingleVecTerm*>(this->oplist[0].get());
+            auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[0].get());
+            if (input_vec && input_vec->knownUnitNorm && jgate && jgate->isNormPreservingGate()) {
+                res.normalized = true;
+                qoprof::on_postimage_call(input_terms, gate_terms, raw_terms, res.oplist.size());
+                const auto postimage_end = std::chrono::steady_clock::now();
+                qgateprof::on_postimage(input_terms,
+                                        gate_terms,
+                                        raw_terms,
+                                        res.oplist.size(),
+                                        input_zero_check_us,
+                                        apply_us,
+                                        result_zero_check_us,
+                                        append_us,
+                                        gramschmidt_us,
+                                        normalize_us,
+                                        qgateprof::elapsed_us(postimage_start, postimage_end));
+                return res;
+            }
+        }
         // Use GramSchmidt to handle the uniqueness of the vectors. And remove zero vectors.
         if (res.oplist.size() > 1) {
             const auto gramschmidt_start = std::chrono::steady_clock::now();
