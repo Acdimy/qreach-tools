@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from debug_grover32_ccx_pathology import PYTHON_PKG, run_prefix_once
+from workflow_tests.debug_grover32_ccx_pathology import PYTHON_PKG, run_prefix_once
 
 
 def _qasm(name: str) -> Path:
