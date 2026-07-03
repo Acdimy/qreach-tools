@@ -2011,6 +2011,7 @@ class QOperation {
                         std::cout << "Strange nullptr" << std::endl;
                     } else {
                         ivec->normalizeInline();
+                        ivec->knownUnitNorm = true;
                     }
                 }
                 res.normalized = true;
@@ -2111,6 +2112,7 @@ class QOperation {
                 } else {
                     const auto normalize_start = std::chrono::steady_clock::now();
                     ivec->normalizeInline();
+                    ivec->knownUnitNorm = true;
                     const auto normalize_end = std::chrono::steady_clock::now();
                     normalize_us += qgateprof::elapsed_us(normalize_start, normalize_end);
                 }
