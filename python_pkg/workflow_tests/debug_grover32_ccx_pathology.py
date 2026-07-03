@@ -251,7 +251,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Debug lazy QASM prefix timeouts for converted Grover circuits")
     parser.add_argument("--qasm", required=True, help="Path to a QASM file")
     parser.add_argument("--max-instructions", type=int, default=None, help="Maximum prefix instruction count")
-    parser.add_argument("--timeout-seconds", type=float, default=30.0, help="Subprocess timeout for --bisect")
+    parser.add_argument("--timeout-seconds", type=float, default=30.0, help="Subprocess timeout for prefix runs")
     parser.add_argument("--bisect", action="store_true", help="Find the smallest prefix that exceeds the timeout")
     parser.add_argument("--skip-fixed-post", action="store_true", help="Only time lazy parse, not fixed-point post")
     parser.add_argument("--initial-state", default=None, help="Initial product state; defaults to all zeroes")
@@ -275,11 +275,12 @@ def main() -> None:
         print(f"smallest_failing_result={format_result(failing) if failing else ''}")
         return
 
-    result = run_prefix_once(
+    result = run_prefix_with_timeout(
         qasm_path,
         max_instructions=args.max_instructions,
         initial_state=args.initial_state,
         run_fixed_post=run_fixed_post,
+        timeout_seconds=args.timeout_seconds,
     )
     print(format_result(result))
 
