@@ -105,7 +105,12 @@ def set_zero_initial_state(ts, qnum: int | None = None, loc: int | None = None) 
     return set_initial_state(ts, "0" * qnum, loc=loc)
 
 
-def _leaf_locations(ts, loc_list=None) -> list[int]:
+def leaf_locations(ts, loc_list=None) -> list[int]:
+    """Return the leaf locations in a transition system.
+
+    If ``loc_list`` is given, only those locations are examined; otherwise all
+    locations are scanned.
+    """
     locs = list(_get_location_ids(ts) if loc_list is None else loc_list)
     return [loc for loc in locs if ts.isLeafLoc(loc)]
 
@@ -116,7 +121,7 @@ def annotate_leaf_operation(ts, op: pyqreach.QOperation, *, loc_list=None) -> li
     Returns the list of leaf locations that were annotated.  ``loc_list`` may be
     supplied to restrict the scan to a subset of locations.
     """
-    locs = _leaf_locations(ts, loc_list=loc_list)
+    locs = leaf_locations(ts, loc_list=loc_list)
     return _set_quantum_annotations(ts, [(loc, op) for loc in locs])
 
 
@@ -564,6 +569,184 @@ def ts2SMV(ts: pyqreach.TransitionSystem, ctl_formula: str):
 import tempfile
 import os
 
+
+def _parse_counterexample_trace(cex_text: str) -> list[dict]:
+    """Parse NuSMV counterexample text into a list of state dictionaries.
+
+    Each dict contains ``state`` (location id as int) and any proposition
+    assignments that appear on subsequent lines before the next state marker
+    (e.g. ``leaf``, ``target``).
+    """
+    if not cex_text:
+        return []
+
+    # Split on state markers like "-> State: 1.17 <-"
+    state_blocks = re.split(r"-> State: \d+\.\d+ <-", cex_text)
+    trace: list[dict] = []
+
+    for block in state_blocks:
+        block = block.strip()
+        if not block:
+            continue
+        entry: dict[str, object] = {}
+        for line in block.splitlines():
+            line = line.strip()
+            m = re.match(r"state\s*=\s*(\d+)", line)
+            if m:
+                entry["state"] = int(m.group(1))
+                continue
+            m = re.match(r"(\w+)\s*=\s*(TRUE|FALSE)", line)
+            if m:
+                entry[m.group(1)] = m.group(2) == "TRUE"
+        if "state" in entry:
+            trace.append(entry)
+
+    return trace
+
+
+def _find_violating_step(trace: list[dict], antecedent: str, consequent: str) -> dict | None:
+    """Return the first trace step where antecedent is TRUE and consequent is FALSE.
+
+    In NuSMV counterexample output, propositions that are not listed on a state
+    line are implicitly FALSE.
+    """
+    for step in trace:
+        ant_val = step.get(antecedent, False)
+        con_val = step.get(consequent, False)
+        if ant_val is True and con_val is False:
+            return step
+    return None
+
+
+def _trace_location_ids(trace: list[dict]) -> list[int]:
+    """Extract the ordered list of QReach location ids from a parsed trace."""
+    return [int(step["state"]) for step in trace]
+
+
+def _identifier_for(ts, loc: int) -> str:
+    """Return the parser-generated identifier for a location, or '' if none."""
+    if hasattr(ts, "getIdentifier"):
+        return ts.getIdentifier(loc) or ""
+    try:
+        return ts.Locations[loc].getIdentifier() or ""
+    except Exception:
+        return ""
+
+
+def _labels_for(ts, loc: int) -> list[str]:
+    """Return the labels set on a location."""
+    try:
+        return list(ts.getLabels(loc))
+    except Exception:
+        return []
+
+
+def _analyse_counterexample(ts, cex_text: str, ctl_formula: str) -> dict | None:
+    """Parse a NuSMV counterexample and map it back to QReach locations.
+
+    Returns a dict with keys:
+      - ``trace``: list of {location, identifier, labels} for each step
+      - ``violating_location``: the first location where the implication fails
+      - ``violating_identifier``: its parser-generated identifier
+      - ``antecedent`` / ``consequent``: the two sides of the implication
+      - ``edge_labels``: list of relation names along the trace path
+    """
+    trace = _parse_counterexample_trace(cex_text)
+    if not trace:
+        return None
+
+    loc_ids = _trace_location_ids(trace)
+
+    # Heuristic: extract antecedent/consequent from CTL formulas of the form
+    #   AG (antecedent -> consequent)   or   AG (antecedent -> AX consequent)  etc.
+    ant, con = None, None
+    m = re.search(r"AG\s*\(\s*(\w+)\s*->\s*(?:\w+\s+)?(\w+)", ctl_formula)
+    if m:
+        ant, con = m.group(1), m.group(2)
+
+    violating_step = None
+    violating_loc = None
+    if ant and con:
+        violating_step = _find_violating_step(trace, ant, con)
+        if violating_step:
+            violating_loc = int(violating_step["state"])
+
+    trace_info: list[dict] = []
+    prev_loc: int | None = None
+    edge_labels: list[str] = []
+
+    for i, loc in enumerate(loc_ids):
+        step_info: dict = {
+            "step": i + 1,
+            "location": loc,
+            "identifier": _identifier_for(ts, loc),
+            "labels": _labels_for(ts, loc),
+        }
+        # Capture proposition values from NuSMV trace when available
+        if i < len(trace):
+            for key, val in trace[i].items():
+                if key not in ("state",):
+                    step_info.setdefault("propositions", {})[key] = val
+        trace_info.append(step_info)
+
+        if prev_loc is not None:
+            try:
+                edge_labels.append(ts.getRelationName(prev_loc, loc))
+            except Exception:
+                edge_labels.append("")
+        prev_loc = loc
+
+    result: dict = {
+        "trace": trace_info,
+        "edge_labels": edge_labels,
+    }
+
+    if violating_loc is not None:
+        result["violating_location"] = violating_loc
+        result["violating_identifier"] = _identifier_for(ts, violating_loc)
+        result["antecedent"] = ant
+        result["consequent"] = con
+
+    return result
+
+
+def _format_counterexample_analysis(analysis: dict | None) -> str:
+    """Render counterexample analysis as a human-readable string."""
+    if analysis is None:
+        return ""
+
+    lines: list[str] = []
+    viol = analysis.get("violating_location")
+    if viol is not None:
+        lines.append("=== Counterexample Analysis ===")
+        lines.append(
+            f"Violation: location {viol}"
+            f" (identifier: {analysis.get('violating_identifier', '')!r})"
+            f" satisfies {analysis.get('antecedent', '?')!r}"
+            f" but NOT {analysis.get('consequent', '?')!r}."
+        )
+        lines.append("")
+
+    lines.append("Trace (location → identifier → edge):")
+    trace = analysis.get("trace", [])
+    edges = analysis.get("edge_labels", [])
+    for i, step in enumerate(trace):
+        loc = step["location"]
+        ident = step.get("identifier", "")
+        edge = edges[i] if i < len(edges) else ""
+        marker = " *** VIOLATION ***" if loc == viol else ""
+        props = step.get("propositions", {})
+        prop_str = " ".join(f"{k}={v}" for k, v in sorted(props.items())) if props else ""
+        lines.append(
+            f"  Step {step['step']:2d}: location {loc:4d}"
+            f"  id={ident!r:30s}  --{edge}-->"
+            + (f"  [{prop_str}]" if prop_str else "")
+            + marker
+        )
+
+    return "\n".join(lines)
+
+
 def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='../../NuSMV-2.7.0-macos-universal/bin/NuSMV'):
     # ../NuSMV-2.7.0-linux64/bin/NuSMV
     smv_code = ts2SMV(ts, ctl_formula)
@@ -577,31 +760,38 @@ def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='.
     except subprocess.TimeoutExpired:
         output = 'Timeout: NuSMV took too long to respond.'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
     except FileNotFoundError:
         output = f'Error: {nusmv_cmd} not found. Please verify the path or ensure NuSMV is in PATH.'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
     except Exception as e:
         output = f'Error running NuSMV: {str(e)}'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
     finally:
         os.unlink(temp_file_name)
-    
+
     # Parse the output to check if the specification is satisfied
     match = re.search(r"-- specification (.+) is (true|false)", output, re.MULTILINE | re.DOTALL)
     if match:
         satisfied = match.group(2) == 'true'
         counterexample = None
+        analysis = None
         if not satisfied:
             # Extract counterexample if the specification is false
             cex_start = output.find("-- as demonstrated by the following execution sequence")
             if cex_start != -1:
                 cex_end = output.find("********", cex_start)  # counterexample ends with a line of asterisks
                 counterexample = output[cex_start:cex_end].strip() if cex_end != -1 else output[cex_start:].strip()
-        return {'satisfied': satisfied, 'counterexample': counterexample, 'output': output}
+            analysis = _analyse_counterexample(ts, counterexample, ctl_formula)
+        return {
+            'satisfied': satisfied,
+            'counterexample': counterexample,
+            'analysis': analysis,
+            'output': output,
+        }
     else:
         print(f"Unexpected NuSMV output:\n{output}")
-        return {'satisfied': None, 'counterexample': None, 'output': f'Unexpected output: {output}'}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': f'Unexpected output: {output}'}
 
