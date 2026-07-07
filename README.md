@@ -246,6 +246,7 @@ annotate_marker_operation(ts, parse_result, "after_h", quantum_state("+0"))
 APIs:
 
 ```python
+leaf_locations(ts, loc_list=None) -> list[int]
 annotate_leaf_state(ts, bitstring: str, *, loc_list=None) -> list[int]
 annotate_leaf_operation(ts, op: pyqreach.QOperation, *, loc_list=None) -> list[int]
 marker_locations(parse_result, marker: str) -> list[int]

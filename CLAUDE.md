@@ -4,21 +4,56 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project direction
 
-QReach is a quantum model-checking / reachability-analysis tool for quantum Markov chains and Qiskit programs. The original project direction emphasized CFLOBDD/QADD symbolic-DD optimization, but the current near-term goal is practical Qiskit program debugging and workflow tooling.
+QReach is a quantum model-checking / reachability-analysis tool for quantum Markov chains and Qiskit programs. The current phase focuses on six priorities:
 
-Prioritize:
+### 1. Lazy construction optimization (primary C++ focus)
 
-- Practical Python APIs for constructing useful `QOperation` propositions and subspaces.
-- Qiskit parsing, inline marks, location metadata, labelling, qCTL/SMV generation, and regression workflows.
-- Explicit transition-system usability and pragmatic optimization around `qts_naive::TransitionSystem`.
-- Small, testable workflow improvements that reduce boilerplate in scripts such as `python_pkg/test_qiskit_grammar.py`, `python_pkg/test_513_qiskit.py`, `python_pkg/test_parse_qasm.py`, and the newer `python_pkg/workflow_tests/` scripts.
+SymTS/QADD symbolic work is **shelved**. The active C++ path is `qts_naive::TransitionSystem` with lazy construction (`parse_qiskit_cir_lazy`), which propagates quantum post-images during parsing instead of deferring everything to `computingFixedPointPost()`.
 
-Deprioritize:
+Key optimizations already applied:
+- `knownUnitNorm` normalization skip for singleton post-image with unitary gates.
+- `unordered_map` for relation containers, `inQueue` set optimization.
+- Post-relation map lookup optimization.
 
-- New QADD symbolic optimization work from `plan.md` unless the user explicitly asks for it.
-- Large symbolic post-image redesigns before the explicit/Qiskit debugging workflow is comfortable.
+Known performance bottlenecks (see `docs/agent-handoffs/`):
+- **grover32-timeout-issue.md / grover32-timeout-localization-notes.md**: Root cause — CFLOBDD `Reduce` operation fragments at level=7 with H^⊗n initial state + nonlinear CCX qubit ordering + non-power-of-2 qubit count. `MatrixMultiplyV4WithInfoTopNode` evaluation loop (`c1_sz × c2_sz`) also contributes.
+- **benchpress-float-amplitude-explosion.md**: Root cause — parameterized rotation gates (rz/ry with float params) create incommensurate amplitudes that CFLOBDD cannot merge, causing `2^k` leaf-amplitude explosion. Distinct from Grover32: Grover32's bottleneck is Reduce, benchpress's is the evaluation loop.
 
-`transition_system_qadd.hpp`, `qadd.hpp`, and symbolic post-image code remain useful references/regression baselines, but do not assume they are the preferred implementation target.
+Both are deep CFLOBDD DAG issues — initial tactical fixes may help, but comprehensive solutions require architectural changes.
+
+### 2. Workflow automation & model-checking tooling (primary Python focus)
+
+Push toward a more automated, user-friendly quantum model checker:
+- Streamline Qiskit→TS→labelling→property-checking pipelines.
+- Expand `qctl.py` helpers for common model-checking patterns.
+- **Counterexample analysis**: Add automated counterexample-trace interpretation from NuSMV results back into QReach locations/states.
+
+### 3. Benchmark experiments
+
+Scale experiments already run on `benchpress-medium` and `converted_qasm`. Extend to remaining benchmarks under `python_pkg/benchmark/`:
+- `dqc_pe`, `dqc_qft`, `pe`, `qft` (phase estimation / QFT families).
+- `grover`, `quantum_teleportation`, `superdense_coding`.
+- `qrw_*`, `rus_*`, `testbigcliff`.
+
+Primary runner scripts: `python_pkg/workflow_tests/run_qasm_benchmarks_lazy.py`, `run_benchpress_qasm_lazy.py`.
+
+### 4. Performance bottleneck investigation
+
+See `docs/agent-handoffs/` — Grover32 CFLOBDD Reduce fragmentation and benchpress float-amplitude explosion. These are hard problems; initial tactical explorations (profiling, pattern documentation, workaround detection) are worthwhile even without full fixes.
+
+### 5. Tool packaging
+
+Package the project as an installable/distributable tool (pip, CLI entry points, or containerized).
+
+### 6. Additional backends
+
+Currently only CFLOBDD. Explore/integrate alternative quantum decision-diagram or simulation backends to broaden applicability (e.g., circuits with parameterized gates that CFLOBDD handles poorly).
+
+### Deprioritized
+
+- SymTS / QADD symbolic optimization (`transition_system_qadd.hpp`, `qadd.hpp`).
+- Large symbolic post-image redesigns.
+- New QADD internals unless explicitly requested.
 
 ## Current architecture
 
@@ -28,20 +63,17 @@ Deprioritize:
   - Core quantum terminal algebra over the CFLOBDD backend.
   - Defines `QOperation`, `QuantumGateTerm`, `SingleVecTerm`, subspace comparison, conjunction/disjunction/difference, pre/post image, and Gram-Schmidt normalization.
   - Current workflow-facing additions include simple product-state construction from strings containing `0`, `1`, `+`, `-`, and direct span construction via `SpanQOperations(...)`.
+  - `knownUnitNorm` flag, `isNormPreservingGate()`, and normalization-skip path for lazy post-image optimization.
 - `transition_system.hpp`
   - Explicit baseline namespace `qts_naive`.
   - `qts_naive::TransitionSystem` stores explicit `Location` objects, relation maps, pre/post adjacency, lower/upper quantum bounds, labels, and classical propositions.
-  - Treat this as the semantic reference and the preferred near-term optimization target.
-- `transition_system_qadd.hpp`
-  - Symbolic/QADD namespace `qts`.
-  - Provides `qts::TransitionSystem` / Python `SymTS` and QADD-backed relation/annotation handling.
-  - Maintain regressions, but do not extend this route by default.
-- `qadd.hpp`
-  - QADD node/unique-table/compute-table layer and generic `Apply` operations.
+  - **Active optimization target** — relation containers now use `unordered_map`; lazy construction propagates post-images during parsing.
+- `transition_system_qadd.hpp` — **SHELVED**: symbolic/QADD namespace `qts`. Maintain regressions only.
+- `qadd.hpp` — **SHELVED**: QADD node/unique-table/compute-table layer. Maintain regressions only.
 - `cl_proposition.hpp`
   - Classical propositions attached to transition-system locations.
 - `cflobdd/`
-  - Imported/modified CFLOBDD backend.
+  - Imported/modified CFLOBDD backend. Performance bottlenecks in `MatrixMultiplyV4WithInfoTopNode` (Reduce + evaluation loop) documented in `docs/agent-handoffs/`.
 
 ### Python workflow layer
 
@@ -49,18 +81,30 @@ Deprioritize:
   - Builds the `pyqreach` extension with pybind11.
   - Exposes `QOperation`, `ClassicalProposition`, explicit `TransitionSystem`/`Location`, symbolic `SymTS`, `pyqreach.span_qops(...)`, and selected `QOperation` methods such as `disjunction(...)`.
 - `python_pkg/parse_qiskit.py`
-  - Lowers Qiskit `QuantumCircuit` objects into explicit `pyqreach.TransitionSystem` via `parse_qiskit_cir(...)`.
+  - Lowers Qiskit `QuantumCircuit` objects into explicit `pyqreach.TransitionSystem` via `parse_qiskit_cir(...)` and `parse_qiskit_cir_lazy(...)` (lazy construction — propagates post-images during parsing).
   - Also contains symbolic parser support via `parse_qiskit_cir_sym(...)`.
   - Handles measurements, resets, classical-register bookkeeping, and Qiskit control flow such as `if_else`, `while_loop`, `for_loop`, and `switch_case`.
-  - Current explicit parser can return `ParseResult` metadata with inline marks when `return_metadata=True`.
+  - `ParseResult` metadata with inline marks when `return_metadata=True`.
+  - `QREACH_PARSE_PROFILE` env-gated per-instruction profiling.
 - `python_pkg/qctl.py`
   - User-facing workflow utilities: labelling, initial-state helpers, snapshot labelling, subspace span helpers, SMV/CTL generation, NuSMV invocation, and result parsing.
 - `python_pkg/annotations.py`
   - Built-in annotation keywords and `AnnotationRegistry`.
 - `python_pkg/inline_annotations.py`
   - Lightweight Qiskit wrapper `QReachCircuit` and `mark(...)` helper.
-- `python_pkg/test_*.py`
-  - Mostly executable regression/debug scripts, not pytest-style unit tests. Prefer running the script closest to the touched workflow.
+- `python_pkg/workflow_tests/`
+  - Workflow-oriented API tests and benchmark runners:
+    - `run_qasm_benchmarks_lazy.py` — batch runner for all benchmark families.
+    - `run_benchpress_qasm_lazy.py` — benchpress-medium batch runner.
+    - `qasm_workflow_runner.py` — shared utilities for QASM experiments.
+    - `debug_grover32_ccx_pathology.py` — prefix bisect/profiling for Grover32.
+    - `test_grover32_lazy_prefix_performance.py` — pytest regression for lazy parse timing.
+    - `test_grover.py`, `test_newapi.py`, `test_RUS.py` — workflow API smoke tests.
+    - `test_lazy_measurement.py` — lazy mode measurement regression.
+    - `test_bv_n14.py`, `test_bv_n14_lazy.py` — Bernstein-Vazirani workflows.
+    - `test_simulation_grover.py`, `test_simulation_qft.py` — simulation-style comparisons.
+- `python_pkg/benchmark/`
+  - QASM benchmark circuits organized by family: `grover/`, `dqc_pe/`, `dqc_qft/`, `pe/`, `qft/`, `benchpress-medium/`, `converted_qasm/`, `quantum_teleportation/`, `superdense_coding/`, `qrw_*.qasm`, `rus_*.qasm`, `testbigcliff.qasm`.
 
 ## Build and test commands
 
@@ -334,11 +378,12 @@ per_location # create separate labels per marked location
 
 ## Notes for future changes
 
-- Prefer extending explicit/Qiskit/qCTL workflows before adding new QADD internals.
+- **Primary focus**: lazy construction optimization (C++) and workflow automation + counterexample analysis (Python).
+- SymTS / QADD / symbolic post-image code is **shelved** — maintain regressions, do not extend. Do not add new QADD internals or SymTS features without explicit user request.
 - The main workflow bottleneck is often obtaining the desired `QOperation`, not merely labelling once it exists. Prioritize APIs that make useful quantum propositions/subspaces easy to construct.
-- `python_pkg/test_parse_qasm.py::generate_debug_info` and Grover-style examples are important references for proposition-builder improvements.
-- When modifying parser behavior, check explicit parser behavior first. Check symbolic helper branches only if the symbolic regression surface is affected.
-- Python-side explicit-vs-symbolic comparisons can be sensitive to repeated global transition-system initialization; use subprocess isolation when comparing both in one workflow.
+- CFLOBDD performance bottlenecks are documented in `docs/agent-handoffs/`. Tactical fixes (profiling, workaround detection, pattern documentation) are valuable; architectural changes (symbolic leaves, DAG sharing improvements) are high-risk and should be explicitly approved.
+- When modifying parser behavior, check explicit parser behavior (both lazy and non-lazy) first. Check symbolic helper branches only if the symbolic regression surface is affected.
+- Benchmark runs use `workflow_tests/run_qasm_benchmarks_lazy.py` and `run_benchpress_qasm_lazy.py`. When adding new benchmarks, integrate into these runner scripts.
 - Some standalone `pyqreach.QOperation(["..."])` calls may assert if the CFLOBDD/QReach environment has not been initialized. In normal parser/transition-system workflows this is usually avoided. Be cautious when writing tiny standalone smoke tests.
 - IDE diagnostics may report missing Boost/pybind11 includes or `BIG_COMPLEX_FLOAT` fallback issues if clangd lacks the Makefile include paths. Trust actual `make test` / pybind11 builds over unconfigured clangd diagnostics.
 - Keep README and CLAUDE.md aligned when adding user-facing workflow APIs.

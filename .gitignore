@@ -43,3 +43,5 @@ __pycache__/
 *.pdf
 
 /python_pkg/pyqreach.cpython-310-darwin.so.dSYM/
+
+*.pytest_cache/
