@@ -34,4 +34,7 @@ label_snapshot(ts, parse_result, "enc", "target")
 annotate(ts, ["leaf"])
 result = modelChecking(ts, 'AG (leaf -> target)')
 print("Output: ", result["output"])
-print("Model checking result:", result['satisfied'])
+# print("Model checking result:", result['satisfied'])
+if result.get('analysis'):
+    from qctl import _format_counterexample_analysis
+    print(_format_counterexample_analysis(result['analysis']))

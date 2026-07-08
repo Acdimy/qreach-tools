@@ -27,6 +27,14 @@ def quantum_state(bitstring: str) -> pyqreach.QOperation:
     return pyqreach.QOperation([bitstring])
 
 
+def zero_subspace(qnum: int) -> pyqreach.QOperation:
+    """Create a QOperation representing the zero-dimensional quantum subspace."""
+    return pyqreach.CreateZeroQO(qnum, False)
+
+def whole_subspace(qnum: int) -> pyqreach.QOperation:
+    """Create a QOperation representing the whole quantum subspace."""
+    return pyqreach.CreateIdentityQO(qnum, False)
+
 def span_qops(ops) -> pyqreach.QOperation:
     """Return the normalized span of several subspace QOperations.
 
@@ -527,8 +535,8 @@ def dict2SMV(dts, ctl_formula):
     smv += "  next(state) := case\n"
     for s in dts['locations']:
         next_states = [t.split('->')[1] for t in dts['relations'] if t.split('->')[0] == s]
-        if next_states:
-            smv += f"    state = {s} : {{ {', '.join(next_states)} }};\n"
+        targets = next_states if next_states else [s]
+        smv += f"    state = {s} : {{ {', '.join(targets)} }};\n"
     smv += "    TRUE : state;\n  esac;\n"
     # Collect labels that occured in the transition system
     prop_states = {}

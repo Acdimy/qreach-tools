@@ -52,3 +52,19 @@ ts = pyqreach.TransitionSystem()
 parse_result = parse_qiskit_cir(qc, qc.num_qubits, ts, return_metadata=True)
 set_initial_state(ts, "000")
 ts.computingFixedPointPost()
+
+# Specification 1: EF (Zero), where Zero is a zero-dimensional subspace.
+# EF (Zero) is true iff there exists a reachable location whose quantum state
+# became the zero subspace after fixed-point computation (i.e. an unreachable
+# location that is graph-reachable from the initial state).
+zero_op = zero_subspace(qc.num_qubits)
+tsLabelling(ts, zero_op, "Zero")
+result1 = modelChecking(ts, "EF (Zero)")
+print("Spec 1: EF (Zero)")
+print("  satisfied:", result1['satisfied'])
+if result1.get('analysis'):
+    from qctl import _format_counterexample_analysis
+    print(_format_counterexample_analysis(result1['analysis']))
+
+# Specification 2: AF (outloop -> s), where s is the subspace of
+# (|001> + i\sqrt(2)|011>), and outloop is the first location exiting the loop.
