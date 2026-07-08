@@ -27,6 +27,56 @@ def quantum_state(bitstring: str) -> pyqreach.QOperation:
     return pyqreach.QOperation([bitstring])
 
 
+# High-precision irrational constants for use in amplitude specifications.
+# These are double-precision approximations; symbolic handling of algebraic
+# numbers is a future direction.
+
+IRR_SQRT2 = 1.4142135623730951
+IRR_SQRT3 = 1.7320508075688772
+IRR_SQRT5 = 2.23606797749979
+IRR_SQRT6 = 2.449489742783178
+IRR_SQRT7 = 2.6457513110645907
+IRR_SQRT8 = 2.8284271247461903
+
+
+def amplitude_state(amplitudes: dict, qnum: int | None = None) -> pyqreach.QOperation:
+    """Create a QOperation from a dict of basis-state → complex-amplitude.
+
+    ``amplitudes`` maps bitstrings (e.g. ``"001"``) to ``complex`` values.  The
+    result is normalized before being returned.  ``qnum`` is inferred from the
+    bitstring length when not given.
+
+    Example::
+
+        s = amplitude_state({"001": 1+0j, "011": 1j * IRR_SQRT2})
+    """
+    if not amplitudes:
+        raise ValueError("amplitudes dict must not be empty")
+    if qnum is None:
+        qnum = len(next(iter(amplitudes)))
+    basis_size = 1 << qnum
+    # InitializeWithVector expects split format: first half = real parts,
+    # second half = imaginary parts (not interleaved (re,im) pairs).
+    amps = [0.0] * (2 * basis_size)
+    for bitstr, amp in amplitudes.items():
+        if len(bitstr) != qnum:
+            raise ValueError(
+                f"bitstring {bitstr!r} has length {len(bitstr)}, expected {qnum}"
+            )
+        idx = int(bitstr, 2)
+        amps[idx] = amp.real
+        amps[idx + basis_size] = amp.imag
+
+    norm = sum(v * v for v in amps)
+    if norm < 1e-30:
+        raise ValueError("amplitude vector has zero norm")
+
+    scale = 1.0 / (norm ** 0.5)
+    amps = [v * scale for v in amps]
+
+    return pyqreach.QOperation(amps, qnum)
+
+
 def zero_subspace(qnum: int) -> pyqreach.QOperation:
     """Create a QOperation representing the zero-dimensional quantum subspace."""
     return pyqreach.CreateZeroQO(qnum, False)

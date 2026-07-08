@@ -1187,18 +1187,31 @@ class QOperation {
         this->type = false;
         this->realqNum = qubits;
         this->qNum = std::pow(2, ceil(log2(qubits)));
-        // Tensor the amps to the next power of 2 with |0>s, that is, padding 0s after every elements. For example, qubits = 3, amps = [1,1,0,0,1,1,0,0], 
-        // then we tensor it to qubits = 4, amps = [1,0,1,0,0,0,0,0,1,0,1,0,0,0,0,0]
+        // InitializeWithVector expects split format: first half = real parts,
+        // second half = imaginary parts.  Pad each half independently, inserting
+        // zeros so that the new qubit starts in |0>.
+        unsigned int targetBasis = 1 << this->qNum;
+        unsigned int srcBasis = 1 << qubits;
+        unsigned int ratio = targetBasis / srcBasis;
+        unsigned int half = amps.size() / 2;
+        assert(half * 2 == amps.size());
         std::vector<double> newamps;
-        unsigned int targetSize = 2 * (1 << this->qNum);
-        for (unsigned int i = 0; i < amps.size(); i++) {
+        newamps.reserve(2 * targetBasis);
+        // Pad real half
+        for (unsigned int i = 0; i < half; i++) {
             newamps.push_back(amps[i]);
-            // padding
-            for (unsigned int j = 0; j < (targetSize / amps.size() - 1); j++) {
+            for (unsigned int j = 1; j < ratio; j++) {
                 newamps.push_back(0);
             }
         }
-        assert(newamps.size() == targetSize);
+        // Pad imag half
+        for (unsigned int i = 0; i < half; i++) {
+            newamps.push_back(amps[half + i]);
+            for (unsigned int j = 1; j < ratio; j++) {
+                newamps.push_back(0);
+            }
+        }
+        assert(newamps.size() == 2 * targetBasis);
         SingleVecTerm term(newamps, this->qNum);
         oplist.push_back(std::make_unique<SingleVecTerm>(term));
         this->normalized = true;
