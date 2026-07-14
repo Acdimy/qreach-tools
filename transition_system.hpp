@@ -434,7 +434,6 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
     Use the method QOperation::preImage
     Do the conjunction with the existed upperBound of preLocations (Use QOperation.conjunction).
     */
-    std::cout << this->Locations[loc].preLocations.size() << " pre locations for location " << loc << std::endl;
     for (unsigned int i = 0; i < this->Locations[loc].preLocations.size(); i++) {
         unsigned int preLocIdx = this->Locations[loc].preLocations[i];
         Location* preLoc = this->Locations.data() + preLocIdx; // Get the pointer to the preLocation
@@ -444,12 +443,9 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
         const QOperation& relation = relationIt->second;
         // If it is a self-loop and the relation is identity, skip it without appending currPreLoc.
         if (preLoc->idx == loc && relation.isIdentity) {
-            std::cout << "Skip self-loop for location " << loc << std::endl;
             continue;
         }
         if (this->computedTablePre.find(std::make_tuple(loc, this->Locations[loc].upperBound.oplist.size(), preLoc->idx, preLoc->upperBound.oplist.size())) == this->computedTablePre.end()) {
-            std::cout << relation.oplist.size() << " operations in relation from " << loc << " to " << preLoc->idx << std::endl;
-            // std::cout << relation.type << std::endl;
             int dimBefore;
             if (preLoc->flag < 0) {
                 QOperation preImage = this->Locations[loc].upperBound.preImage(relation);
@@ -457,7 +453,6 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 dimBefore = preLoc->upperBound.oplist.size(); // Upper bound: dimension 2^n as default
                 preLoc->upperBound = preLoc->upperBound.conjunction_simp(preImage); // TODO: Conjunction inline
             } else if (preLoc->flag == 0) {
-                std::cout << "Flag is 0 for location " << preLoc->idx << std::endl;
                 QOperation tempConjunction = this->Locations[loc].upperBound.conjunction_simp(relation);
                 preLoc->tempOperations.push_back(tempConjunction);
                 preLoc->flag = 1;
@@ -465,7 +460,6 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 continue; // Skip the conjunction for flag == 0, don't put a new location into list, until the other branch reaches here.
             } else if (preLoc->flag == 1) {
                 // The other branch has reached here, we can do the conjunction.
-                std::cout << "Flag is 1 for location " << preLoc->idx << std::endl;
                 QOperation tempConjunction2 = this->Locations[loc].upperBound.conjunction_simp(relation);
                 QOperation tempDisjunction = preLoc->tempOperations.back().disjunction(tempConjunction2);
                 preLoc->tempOperations.pop_back(); // Remove the last operation
@@ -478,7 +472,6 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 
             }
             if (visitedPre[preLoc->idx] == false) {
-                std::cout << "Visit a new pre location " << preLoc->idx << std::endl;
                 this->currPreLocs.push_back(preLoc->idx);
                 this->inPreQueue[preLoc->idx] = true;
                 visitedPre[preLoc->idx] = true;
@@ -486,16 +479,13 @@ void TransitionSystem::preConditionOneStep(unsigned int loc) {
                 // If the dimension of the upperBound is reduced, we need to recheck the pre-condition.
                 // TODO: Check it carefully!!
                 if (!this->inPreQueue[preLoc->idx]) {
-                    std::cout << "Pre condition for location " << preLoc->idx << " is updated from " << dimBefore << " to " << preLoc->lowerBound.oplist.size() << std::endl;
                     this->currPreLocs.push_back(preLoc->idx);
                     this->inPreQueue[preLoc->idx] = true;
                 }
             } else {
-                std::cout << "Pre condition for location " << preLoc->idx << " is not updated." << std::endl;
             }
         } else {}
     }
-    std::cout << "Pre condition for location " << loc << " computed." << std::endl;
 }
 
 void TransitionSystem::preConditions() {
@@ -515,7 +505,6 @@ void TransitionSystem::preConditions() {
         } else if (!this->locationBuf.empty()) {
             // If there are locations in locationBuf, we need to process them.
             // Arbitrarily select a location from locationBuf.
-            std::cout << "Processing location from locationBuf." << std::endl;
             auto it = this->locationBuf.begin();
             int loc = it->first;
             int postLoc = it->second;
@@ -589,12 +578,10 @@ void TransitionSystem::postConditionOneStep(unsigned int loc) {
         const QOperation& relation = *edge.relation;
         // If it is a self-loop and the relation is identity, skip it without appending currPostLocs.
         if (postLoc->idx == loc && relation.isIdentity) {
-            std::cout << "Skip self-loop for location " << loc << std::endl;
             continue;
         }
         // If (loc, locDim, postLoc, postLocDim) is not computed, compute it.
         if (this->computedTablePost.find(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size())) == this->computedTablePost.end()) {
-            // std::cout << relation.oplist.size() << " operations in relation from " << loc << " to " << postLoc->idx << std::endl;
             QOperation postImage = this->Locations[loc].lowerBound.postImage(relation);
             computedTablePost.insert(std::make_tuple(loc, this->Locations[loc].lowerBound.oplist.size(), postLoc->idx, postLoc->lowerBound.oplist.size()));
             int dimBefore = postLoc->lowerBound.oplist.size(); // Lower bound: dimension 0 as default

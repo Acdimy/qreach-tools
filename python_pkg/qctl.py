@@ -400,11 +400,12 @@ def labelling(ts: pyqreach.TransitionSystem, propositions: list):
 CTL_NUSMV_RESERVED = {
     # CTL / temporal operators (常见写法)
     "A","E","AX","EX","AF","EF","AG","EG","AU","EU",
-    "X","F","G","U","R",
+    "X","F","G","U","R","W","M",
     # 布尔 / 逻辑 / 常量
     "NOT","AND","OR","XOR","IMPLIES","TRUE","FALSE",
     # NuSMV / SMV 中常见关键字（预防被误识别）
-    "MODULE","VAR","DEFINE","SPEC","ASSIGN","INIT","NEXT","CASE","ESAC",
+    "MODULE","VAR","DEFINE","ASSIGN","INIT","NEXT","CASE","ESAC",
+    "LTLSPEC","SPEC","COMPASSION","JUSTICE","FAIRNESS",
     # 你在模型中可能会用到但不应当被当成原子命题的名字
     "state"
 }
@@ -412,17 +413,24 @@ CTL_NUSMV_RESERVED = {
 # 小写化的集合，便于不区分大小写匹配
 _reserved_lc = {w.lower() for w in CTL_NUSMV_RESERVED}
 
-def extract_atoms_from_ctl(ctl_formula: str, extra_reserved: set = None) -> set:
+def extract_atoms_from_formula(formula: str, extra_reserved: set = None) -> set:
     """
-    从 ctl_formula 中提取可能的原子命题标识符（不包含保留关键字）。
+    从 formula 中提取可能的原子命题标识符（不包含保留关键字）。
     返回一个标识符集合（原样大小写保留）。
+
+    Parameters
+    ----------
+    formula: str
+        CTL 或 LTL 公式字符串。
+    extra_reserved: set, optional
+        额外需要排除的标识符集合。
     """
     if extra_reserved is None:
         extra_reserved = set()
     extra_reserved_lc = {w.lower() for w in extra_reserved}
 
     # 匹配标识符的正则（以字母或下划线开头，后面字母数字或下划线）
-    tokens = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', ctl_formula))
+    tokens = set(re.findall(r'\b[A-Za-z_][A-Za-z0-9_]*\b', formula))
 
     atoms = set()
     for t in tokens:
@@ -437,13 +445,42 @@ def extract_atoms_from_ctl(ctl_formula: str, extra_reserved: set = None) -> set:
         atoms.add(t)
     return atoms
 
+# Backward-compatible alias
+extract_atoms_from_ctl = extract_atoms_from_formula
+
+
+def _is_ltl_formula(formula: str) -> bool:
+    """Detect whether *formula* uses LTL (linear-time) or CTL (branching-time) syntax.
+
+    CTL formulas use explicit path quantifiers ``A``/``E`` combined with
+    temporal operators: ``AX``, ``EX``, ``AF``, ``EF``, ``AG``, ``EG``,
+    ``A[...U...]``, ``E[...U...]``, etc.  LTL formulas use temporal
+    operators (``X``, ``F``, ``G``, ``U``, ``R``, ``W``, ``M``) **without**
+    path quantifiers.
+
+    Returns ``True`` if the formula looks like LTL, ``False`` if it looks
+    like CTL.
+    """
+    # Match CTL path-quantifier prefixes: AX, EX, AF, EF, AG, EG,
+    # or bracket forms A[...U...] / E[...U...] / A[...R...] etc.
+    # Use word-boundary-aware pattern: standalone AX/EX/AF/EF/AG/EG,
+    # or A/E followed by [ (e.g. A[valid U leaf]).
+    ctl_pattern = re.compile(
+        r'\b(AX|EX|AF|EF|AG|EG)\b'   # single-token CTL operators
+        r'|'
+        r'\b[AE]\s*\[',               # A[...] or E[...] bracket form
+        re.IGNORECASE
+    )
+    return not bool(ctl_pattern.search(formula))
+
+
 def ts2Dict(ts: pyqreach.TransitionSystem) -> dict:
     """
     Convert the transition system to a dictionary representation.
-    
+
     Args:
         ts (pyqreach.TransitionSystem): The transition system to convert.
-    
+
     Returns:
         dict: Dictionary representation of the transition system.
     """
@@ -579,7 +616,25 @@ def nx2Graph_hierarchical(G, filename="tree_layout"):
     plt.savefig(filename + '.pdf', dpi=300)    
     plt.close()
 
-def dict2SMV(dts, ctl_formula):
+def dict2SMV(dts, formula, logic='auto'):
+    """Convert a transition-system dict to SMV text.
+
+    Parameters
+    ----------
+    dts: dict
+        Transition system as returned by ``ts2Dict``.
+    formula: str
+        CTL or LTL formula to include as the SPEC/LTLSPEC.
+    logic: str
+        ``'auto'`` (default) -- auto-detect formula type.
+        ``'CTL'`` or ``'ctl'`` -- force ``SPEC``.
+        ``'LTL'`` or ``'ltl'`` -- force ``LTLSPEC``.
+    """
+    if logic == 'auto':
+        logic = 'LTL' if _is_ltl_formula(formula) else 'CTL'
+
+    spec_keyword = 'LTLSPEC' if logic.upper() == 'LTL' else 'SPEC'
+
     smv = "MODULE main\nVAR\n  state: {" + ", ".join(dts['locations']) + "};\n"
     smv += "ASSIGN\n  init(state) := " + dts['init_location'] + ";\n"
     smv += "  next(state) := case\n"
@@ -593,8 +648,8 @@ def dict2SMV(dts, ctl_formula):
     for s, props in dts['labels'].items():
         for p in props:
             prop_states.setdefault(p, []).append(s)
-    # Collect labels that never occured in TS but are in the ctl_formula
-    atoms_in_formula = extract_atoms_from_ctl(ctl_formula, extra_reserved={'state', 'init', 'next'})
+    # Collect labels that never occured in TS but are in the formula
+    atoms_in_formula = extract_atoms_from_formula(formula, extra_reserved={'state', 'init', 'next'})
     smv += "DEFINE\n"
     for p, states in prop_states.items():
         cond = " | ".join(f"state = {st}" for st in states)
@@ -603,27 +658,27 @@ def dict2SMV(dts, ctl_formula):
     missing_atoms = atoms_in_formula - set(prop_states.keys())
     for p in sorted(missing_atoms):
         smv += f"  {p} := FALSE;\n"
-    smv += f"SPEC\n  {ctl_formula};\n"
+    smv += f"{spec_keyword}\n  {formula};\n"
     return smv
 
-import subprocess
 
-def ts2SMV(ts: pyqreach.TransitionSystem, ctl_formula: str):
+def ts2SMV(ts: pyqreach.TransitionSystem, formula: str, logic: str = 'auto'):
     """
     Convert a transition system to SMV format and save it to a file.
-    
+
     Args:
         ts (pyqreach.TransitionSystem): The transition system to convert.
-        ctl_formula (str): The CTL formula to include in the SMV file.
-        filename (str): The name of the output file (without extension).
-    
+        formula (str): The CTL or LTL formula to include in the SMV file.
+        logic (str): ``'auto'`` (default), ``'CTL'``, or ``'LTL'``.
+
     Returns:
         str: The SMV content as a string.
     """
     dts = ts2Dict(ts)
-    smv_content = dict2SMV(dts, ctl_formula)
+    smv_content = dict2SMV(dts, formula, logic=logic)
     return smv_content
 
+import subprocess
 import tempfile
 import os
 
@@ -768,46 +823,239 @@ def _analyse_counterexample(ts, cex_text: str, ctl_formula: str) -> dict | None:
     return result
 
 
+def _parse_ltl_counterexample(cex_text: str) -> dict | None:
+    """Parse a NuSMV LTL counterexample (lasso: stem + loop) into a dict.
+
+    Returns a dict with:
+      - ``trace``: list of {state, ...} for the full finite prefix (stem+loop)
+      - ``stem``: list of states before the loop
+      - ``loop``: list of states forming the repeating cycle
+      - ``loop_start_index``: index in ``trace`` where the loop begins
+    """
+    if not cex_text:
+        return None
+
+    full_trace: list[dict] = []
+    stem: list[dict] = []
+    loop: list[dict] = []
+    loop_start_index: int | None = None
+
+    in_loop = False
+    loop_starts_on_next_state = False
+    current_entry: dict[str, object] = {}
+
+    for line in cex_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+
+        # Detect loop marker — the *next* state will be the loop start
+        if line.startswith("-- Loop starts here"):
+            loop_starts_on_next_state = True
+            continue
+
+        # Detect state boundary:  "-> State: 1.2 <-"
+        m_state = re.match(r"-> State: \d+\.\d+ <-", line)
+        if m_state:
+            if "state" in current_entry:
+                full_trace.append(current_entry)
+                if not in_loop:
+                    stem.append(current_entry)
+                else:
+                    loop.append(current_entry)
+                if loop_starts_on_next_state and not in_loop:
+                    loop_start_index = len(full_trace)
+                    in_loop = True
+                    loop_starts_on_next_state = False
+                current_entry = {}
+            continue
+
+        # Proposition line:  "prop = VALUE"
+        m = re.match(r"(\w+)\s*=\s*(TRUE|FALSE|\d+)", line)
+        if m:
+            key = m.group(1)
+            val_str = m.group(2)
+            if val_str == "TRUE":
+                current_entry[key] = True
+            elif val_str == "FALSE":
+                current_entry[key] = False
+            elif val_str.isdigit():
+                current_entry[key] = int(val_str)
+            else:
+                current_entry[key] = val_str
+
+    # Append the last entry
+    if "state" in current_entry:
+        full_trace.append(current_entry)
+        if not in_loop:
+            stem.append(current_entry)
+        else:
+            loop.append(current_entry)
+
+    if not full_trace:
+        return None
+
+    return {
+        "trace": full_trace,
+        "stem": stem,
+        "loop": loop,
+        "loop_start_index": loop_start_index if loop_start_index is not None else len(full_trace),
+    }
+
+
+def _analyse_ltl_counterexample(ts, cex_text: str, formula: str) -> dict | None:
+    """Parse an LTL counterexample and map it back to QReach locations.
+
+    Returns a dict with:
+      - ``trace``: list of {location, identifier, labels} for the full finite prefix
+      - ``stem``: same for the prefix before the loop
+      - ``loop``: same for the repeating cycle
+      - ``loop_start_step``: step number where the loop begins
+      - ``edge_labels``: list of relation names along the trace path
+    """
+    parsed = _parse_ltl_counterexample(cex_text)
+    if parsed is None:
+        return None
+
+    loc_ids = [int(step["state"]) for step in parsed["trace"]]
+    loop_start_step = parsed["loop_start_index"] + 1 if parsed["loop_start_index"] is not None else None
+
+    def _build_step_info(loc: int, step_num: int, trace_idx: int) -> dict:
+        info: dict = {
+            "step": step_num,
+            "location": loc,
+            "identifier": _identifier_for(ts, loc),
+            "labels": _labels_for(ts, loc),
+        }
+        if trace_idx < len(parsed["trace"]):
+            for key, val in parsed["trace"][trace_idx].items():
+                if key not in ("state",):
+                    info.setdefault("propositions", {})[key] = val
+        return info
+
+    trace_info: list[dict] = []
+    stem_info: list[dict] = []
+    loop_info: list[dict] = []
+    edge_labels: list[str] = []
+
+    prev_loc: int | None = None
+    for i, loc in enumerate(loc_ids):
+        step_info = _build_step_info(loc, i + 1, i)
+        trace_info.append(step_info)
+
+        is_stem = parsed["loop_start_index"] is not None and i < parsed["loop_start_index"]
+        if is_stem:
+            stem_info.append(step_info)
+        else:
+            loop_info.append(step_info)
+
+        if prev_loc is not None:
+            try:
+                edge_labels.append(ts.getRelationName(prev_loc, loc))
+            except Exception:
+                edge_labels.append("")
+        prev_loc = loc
+
+    return {
+        "trace": trace_info,
+        "stem": stem_info,
+        "loop": loop_info,
+        "loop_start_step": loop_start_step,
+        "edge_labels": edge_labels,
+    }
+
+
 def _format_counterexample_analysis(analysis: dict | None) -> str:
-    """Render counterexample analysis as a human-readable string."""
+    """Render counterexample analysis as a human-readable string.
+
+    Handles both CTL (finite-trace) and LTL (lasso: stem + loop) formats.
+    """
     if analysis is None:
         return ""
 
     lines: list[str] = []
-    viol = analysis.get("violating_location")
-    if viol is not None:
-        lines.append("=== Counterexample Analysis ===")
-        lines.append(
-            f"Violation: location {viol}"
-            f" (identifier: {analysis.get('violating_identifier', '')!r})"
-            f" satisfies {analysis.get('antecedent', '?')!r}"
-            f" but NOT {analysis.get('consequent', '?')!r}."
-        )
+
+    # --- LTL-specific: lasso trace ---
+    loop_start = analysis.get("loop_start_step")
+    if loop_start is not None:
+        lines.append("=== LTL Counterexample Analysis ===")
+        if analysis.get("stem"):
+            lines.append(f"Stem (prefix before loop): {len(analysis['stem'])} step(s)")
+        if analysis.get("loop"):
+            lines.append(f"Loop (repeating cycle): {len(analysis['loop'])} step(s)")
         lines.append("")
+    else:
+        # --- CTL-specific ---
+        viol = analysis.get("violating_location")
+        if viol is not None:
+            lines.append("=== Counterexample Analysis ===")
+            lines.append(
+                f"Violation: location {viol}"
+                f" (identifier: {analysis.get('violating_identifier', '')!r})"
+                f" satisfies {analysis.get('antecedent', '?')!r}"
+                f" but NOT {analysis.get('consequent', '?')!r}."
+            )
+            lines.append("")
 
     lines.append("Trace (location → identifier → edge):")
     trace = analysis.get("trace", [])
     edges = analysis.get("edge_labels", [])
+    viol = analysis.get("violating_location")
+
     for i, step in enumerate(trace):
         loc = step["location"]
         ident = step.get("identifier", "")
         edge = edges[i] if i < len(edges) else ""
-        marker = " *** VIOLATION ***" if loc == viol else ""
+
+        # Loop marker for LTL traces
+        loop_label = ""
+        if loop_start is not None and step["step"] == loop_start:
+            loop_label = "  <<< LOOP START"
+
+        is_viol = loc == viol
+        marker = " *** VIOLATION ***" if is_viol else ""
         props = step.get("propositions", {})
         prop_str = " ".join(f"{k}={v}" for k, v in sorted(props.items())) if props else ""
         lines.append(
             f"  Step {step['step']:2d}: location {loc:4d}"
             f"  id={ident!r:30s}  --{edge}-->"
             + (f"  [{prop_str}]" if prop_str else "")
+            + loop_label
             + marker
         )
 
     return "\n".join(lines)
 
 
-def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='../../NuSMV-2.7.0-macos-universal/bin/NuSMV'):
-    # ../NuSMV-2.7.0-linux64/bin/NuSMV
-    smv_code = ts2SMV(ts, ctl_formula)
+def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../../NuSMV-2.7.0-macos-universal/bin/NuSMV', logic: str = 'auto'):
+    """Run CTL or LTL model checking on *ts* against *formula*.
+
+    Parameters
+    ----------
+    ts: pyqreach.TransitionSystem
+        The transition system to check.
+    formula: str
+        A CTL or LTL formula.  Auto-detected by default; use *logic* to
+        force a specific type.
+    nusmv_path: str
+        Path to the NuSMV binary.
+    logic: str
+        ``'auto'`` (default) — detect from ``A``/``E`` path quantifiers
+        vs. plain temporal operators.
+        ``'CTL'`` — force ``SPEC``.
+        ``'LTL'`` — force ``LTLSPEC``.
+
+    Returns
+    -------
+    dict
+        Keys: ``satisfied`` (bool or None), ``counterexample`` (str or None),
+        ``analysis`` (dict or None), ``output`` (str).
+    """
+    if logic == 'auto':
+        logic = 'LTL' if _is_ltl_formula(formula) else 'CTL'
+
+    is_ltl = logic.upper() == 'LTL'
+    smv_code = ts2SMV(ts, formula, logic=logic)
     nusmv_cmd = nusmv_path if nusmv_path else 'NuSMV'
     with tempfile.NamedTemporaryFile(mode='w', suffix='.smv', delete=False) as temp_file:
         temp_file.write(smv_code)
@@ -840,9 +1088,12 @@ def modelChecking(ts: pyqreach.TransitionSystem, ctl_formula: str, nusmv_path='.
             # Extract counterexample if the specification is false
             cex_start = output.find("-- as demonstrated by the following execution sequence")
             if cex_start != -1:
-                cex_end = output.find("********", cex_start)  # counterexample ends with a line of asterisks
+                cex_end = output.find("********", cex_start)
                 counterexample = output[cex_start:cex_end].strip() if cex_end != -1 else output[cex_start:].strip()
-            analysis = _analyse_counterexample(ts, counterexample, ctl_formula)
+            if is_ltl:
+                analysis = _analyse_ltl_counterexample(ts, counterexample, formula)
+            else:
+                analysis = _analyse_counterexample(ts, counterexample, formula)
         return {
             'satisfied': satisfied,
             'counterexample': counterexample,

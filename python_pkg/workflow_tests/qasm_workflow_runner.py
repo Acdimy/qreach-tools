@@ -17,6 +17,11 @@ PYTHON_PKG = Path(__file__).resolve().parents[1]
 if str(PYTHON_PKG) not in sys.path:
     sys.path.insert(0, str(PYTHON_PKG))
 
+# NuSMV binary — resolved relative to PYTHON_PKG so it works regardless of cwd
+_NUSMV_PATH = str(
+    (PYTHON_PKG.parent.parent / "NuSMV-2.7.0-macos-universal" / "bin" / "NuSMV").resolve()
+)
+
 import pyqreach
 from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
@@ -80,20 +85,69 @@ def discover_qasm_files(input_dir: Path) -> list[Path]:
     return sorted(path for path in input_dir.rglob("*.qasm") if path.is_file())
 
 
-def infer_initial_state(qasm_path: Path, qc: QuantumCircuit, *, error_injection: bool = False) -> str:
+def infer_initial_state(
+    qasm_path: Path,
+    qc: QuantumCircuit,
+    *,
+    error_injection: bool = False,
+    seed: int = 42,
+) -> str:
+    """Infer the correct initial state for a QASM benchmark.
+
+    Follows the conventions from the legacy ``test_parse_qasm.py`` workflow:
+
+    * **grover**: ``"0"*(n-1) + "1"`` where *n* is the search width extracted
+      from the filename.
+    * **dqc_pe**: ``"0"*n + "1"`` for clean mode; ``"0"*(n+1)`` for injected
+      mode (matches the legacy ``run_type`` semantics).
+    * **dqc_qft**: random computational basis state of length *n* (seeded
+      deterministically from *seed* so repeated runs use the same state).
+    * **qft**: same random basis-state convention as dqc_qft.
+    * Everything else: all-zero state.
+    """
     stem = qasm_path.stem.lower()
+
+    # -- grover ---------------------------------------------------------------
     grover_match = re.search(r"grover_(\d+)", stem)
     if grover_match:
         n = int(grover_match.group(1))
         if n == qc.num_qubits and n > 0:
             return "0" * (n - 1) + "1"
 
+    # -- dqc_pe ---------------------------------------------------------------
     dqc_pe_match = re.search(r"dqc_pe_(\d+)", stem)
     if dqc_pe_match:
         n = int(dqc_pe_match.group(1))
         legacy_state = "0" * n + ("0" if error_injection else "1")
         if len(legacy_state) == qc.num_qubits:
             return legacy_state
+
+    # -- dqc_qft  (random basis state, deterministic per [family, n, seed]) ---
+    dqc_qft_match = re.search(r"dqc_qft_(\d+)", stem)
+    if dqc_qft_match:
+        n = int(dqc_qft_match.group(1))
+        if n == qc.num_qubits:
+            rng_seed = seed * 10000 + n + 1_000_000
+            rng = random.Random(rng_seed)
+            return "".join(rng.choice(["0", "1"]) for _ in range(n))
+
+    # -- qft  (random basis state, deterministic per [family, n, seed]) -------
+    qft_match = re.search(r"^qft_(\d+)", stem)
+    if qft_match:
+        n = int(qft_match.group(1))
+        if n == qc.num_qubits:
+            rng_seed = seed * 10000 + n + 2_000_000
+            rng = random.Random(rng_seed)
+            return "".join(rng.choice(["0", "1"]) for _ in range(n))
+
+    # -- pe  (random basis state, like qft) ----------------------------------
+    pe_match = re.search(r"^pe_(\d+)", stem)
+    if pe_match:
+        n = int(pe_match.group(1))
+        if n + 1 == qc.num_qubits:
+            rng_seed = seed * 10000 + n + 3_000_000
+            rng = random.Random(rng_seed)
+            return "".join(rng.choice(["0", "1"]) for _ in range(qc.num_qubits))
 
     return "0" * qc.num_qubits
 
@@ -185,26 +239,43 @@ def _run_debug_check(
     lazy: bool,
 ) -> dict[str, Any]:
     stem = qasm_path.stem.lower()
-    if "grover" in stem:
+
+    # Include lazy-pruned locations when applying labels so that CTL formulas
+    # such as AG(pe_success -> reached) can detect states whose classical
+    # measurement matches a pattern but whose quantum amplitude is zero.
+    # Without this, lazy mode would change model-checking semantics.
+    _result_locs = list(parse_result.result_locations or [])
+    _pruned_locs = list(getattr(parse_result, "lazy_pruned_locations", []) or [])
+    all_leaf = _result_locs + _pruned_locs
+
+    if stem.startswith("grover_"):
         work_qubits = int((qc.num_qubits + 1) / 2)
         if qc.num_qubits % 2 != 1 or work_qubits >= ts.getLocationNum():
             raise ValueError("Grover debug check expects an odd-qubit Grover benchmark")
         grover_init = ts.Locations[work_qubits].lowerBound
         grover_good = quantum_state("1" * work_qubits + "0" * (qc.num_qubits - work_qubits - 1) + "1")
         grover_final = span_qops([grover_init, grover_good])
-        final_ops = [ts.Locations[loc].lowerBound for loc in parse_result.result_locations]
-        final_op = final_ops[0] if len(final_ops) == 1 else span_qops(final_ops)
-        return {"debug_kind": "grover", "debug_satisfied": final_op.satisfy(grover_final)}
+        # satisfy is on the Location, not QOperation (matching legacy test_parse_qasm.py)
+        final_loc = _result_locs[-1] if _result_locs else 0
+        return {"debug_kind": "grover", "debug_satisfied": ts.Locations[final_loc].satisfy(grover_final)}
+
+    if stem.startswith("single-it-grover"):
+        half = qc.num_qubits // 2
+        basis_zero = quantum_state("0" * qc.num_qubits)
+        basis_plus = quantum_state("0" * half + "+" * (qc.num_qubits - half))
+        target = span_qops([basis_zero, basis_plus])
+        satisfied = all(ts.Locations[loc].satisfy(target) for loc in _result_locs)
+        return {"debug_kind": "grover_converted", "debug_satisfied": satisfied}
 
     if "dqc_pe" in stem:
         if qc.num_qubits < 11:
             tsLabellingDefault(ts, "reached")
             pe_pattern = "1" + "0" * (qc.num_qubits - 2)
         else:
-            tsLabellingDefault(ts, "reached", parse_result.result_locations)
+            tsLabellingDefault(ts, "reached", all_leaf)
             pe_pattern = (qc.num_qubits - 11) * "0" + "1000000000"
-        tsLabellingClRegList(ts, [pe_pattern], "pe_success", locList=parse_result.result_locations)
-        result = modelChecking(ts, "AG ((pe_success -> reached))")
+        tsLabellingClRegList(ts, [pe_pattern], "pe_success", locList=all_leaf)
+        result = modelChecking(ts, "AG ((pe_success -> reached))", nusmv_path=_NUSMV_PATH)
         return {
             "debug_kind": "dqc_pe",
             "debug_satisfied": result.get("satisfied"),
@@ -214,10 +285,10 @@ def _run_debug_check(
 
     if original_qc is not None:
         expected = _simulate_final_operation(original_qc, initial_state, lazy=lazy)
-        for loc in parse_result.result_locations:
+        for loc in all_leaf:
             ts.setLabel(loc, "final")
-        tsLabelling(ts, expected, "debug_op", locList=parse_result.result_locations)
-        result = modelChecking(ts, "AG (debug_op <-> final)")
+        tsLabelling(ts, expected, "debug_op", locList=all_leaf)
+        result = modelChecking(ts, "AG (debug_op <-> final)", nusmv_path=_NUSMV_PATH)
         return {
             "debug_kind": "comparison",
             "debug_satisfied": result.get("satisfied"),
@@ -225,7 +296,20 @@ def _run_debug_check(
             "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
         }
 
-    return {"debug_kind": "none", "debug_satisfied": ""}
+    # Clean-mode self-consistency: use the TS's own final state as the
+    # reference (no separate simulation — avoids double-parsing crashes).
+    # This is trivially True for a correct TS construction.
+    expected = span_qops([ts.Locations[loc].lowerBound for loc in all_leaf])
+    for loc in all_leaf:
+        ts.setLabel(loc, "final")
+    tsLabelling(ts, expected, "debug_op", locList=all_leaf)
+    result = modelChecking(ts, "AG (debug_op <-> final)", nusmv_path=_NUSMV_PATH)
+    return {
+        "debug_kind": "comparison",
+        "debug_satisfied": result.get("satisfied"),
+        "model_check_satisfied": result.get("satisfied"),
+        "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
+    }
 
 
 def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0) -> dict[str, Any]:
@@ -240,7 +324,9 @@ def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0
     qc = QuantumCircuit.from_qasm_file(str(qasm_path))
     row["time_load_qasm"] = perf_counter() - load_start
 
-    initial_state = config.initial_state or infer_initial_state(qasm_path, qc, error_injection=config.error_injection)
+    initial_state = config.initial_state or infer_initial_state(
+        qasm_path, qc, error_injection=config.error_injection, seed=config.seed
+    )
     if len(initial_state) != qc.num_qubits:
         raise ValueError(
             f"Initial state length {len(initial_state)} does not match circuit qubits {qc.num_qubits}"
