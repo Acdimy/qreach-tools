@@ -45,3 +45,5 @@ __pycache__/
 /python_pkg/pyqreach.cpython-310-darwin.so.dSYM/
 
 *.pytest_cache/
+
+*.DS_Store
