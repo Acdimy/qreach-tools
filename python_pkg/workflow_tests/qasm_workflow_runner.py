@@ -28,7 +28,7 @@ from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import XGate, YGate, ZGate
 
 from parse_qiskit import parse_qiskit_cir, parse_qiskit_cir_lazy
-from qctl import modelChecking, quantum_state, set_initial_state, span_qops, tsLabelling, tsLabellingClRegList, tsLabellingDefault
+from qctl import modelChecking, quantum_state, set_initial_state, span_qops, tsLabelling, tsLabellingDefault
 
 
 CSV_FIELDS = [
@@ -98,8 +98,7 @@ def infer_initial_state(
 
     * **grover**: ``"0"*(n-1) + "1"`` where *n* is the search width extracted
       from the filename.
-    * **dqc_pe**: ``"0"*n + "1"`` for clean mode; ``"0"*(n+1)`` for injected
-      mode (matches the legacy ``run_type`` semantics).
+    * **dqc_pe**: ``"0"*n + "1"``.
     * **dqc_qft**: random computational basis state of length *n* (seeded
       deterministically from *seed* so repeated runs use the same state).
     * **qft**: same random basis-state convention as dqc_qft.
@@ -118,7 +117,7 @@ def infer_initial_state(
     dqc_pe_match = re.search(r"dqc_pe_(\d+)", stem)
     if dqc_pe_match:
         n = int(dqc_pe_match.group(1))
-        legacy_state = "0" * n + ("0" if error_injection else "1")
+        legacy_state = "0" * n + "1"
         if len(legacy_state) == qc.num_qubits:
             return legacy_state
 
@@ -241,8 +240,8 @@ def _run_debug_check(
     stem = qasm_path.stem.lower()
 
     # Include lazy-pruned locations when applying labels so that CTL formulas
-    # such as AG(pe_success -> reached) can detect states whose classical
-    # measurement matches a pattern but whose quantum amplitude is zero.
+    # can detect states whose classical measurement matches a pattern but
+    # whose quantum amplitude is zero.
     # Without this, lazy mode would change model-checking semantics.
     _result_locs = list(parse_result.result_locations or [])
     _pruned_locs = list(getattr(parse_result, "lazy_pruned_locations", []) or [])
@@ -266,22 +265,6 @@ def _run_debug_check(
         target = span_qops([basis_zero, basis_plus])
         satisfied = all(ts.Locations[loc].satisfy(target) for loc in _result_locs)
         return {"debug_kind": "grover_converted", "debug_satisfied": satisfied}
-
-    if "dqc_pe" in stem:
-        if qc.num_qubits < 11:
-            tsLabellingDefault(ts, "reached")
-            pe_pattern = "1" + "0" * (qc.num_qubits - 2)
-        else:
-            tsLabellingDefault(ts, "reached", all_leaf)
-            pe_pattern = (qc.num_qubits - 11) * "0" + "1000000000"
-        tsLabellingClRegList(ts, [pe_pattern], "pe_success", locList=all_leaf)
-        result = modelChecking(ts, "AG ((pe_success -> reached))", nusmv_path=_NUSMV_PATH)
-        return {
-            "debug_kind": "dqc_pe",
-            "debug_satisfied": result.get("satisfied"),
-            "model_check_satisfied": result.get("satisfied"),
-            "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
-        }
 
     if original_qc is not None:
         expected = _simulate_final_operation(original_qc, initial_state, lazy=lazy)

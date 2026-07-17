@@ -2947,7 +2947,9 @@ namespace CFL_OBDD {
 							m1.AddToEnd(m0.Size());
 						}
 						else{
-							m1.AddToEnd(v);
+							// FIXME(qts-rollback): was m1.AddToEnd(v), old exit value instead of return_handle index.
+							// Masked when retMapSz<=2 (values 0,1 happen to equal their positions).
+							m1.AddToEnd(return_handle.LookupInv(v));
 						}
 					}
 					else
@@ -2963,7 +2965,9 @@ namespace CFL_OBDD {
 						}
 						if (return_handle.LookupInv(v2) == -1){
 							return_handle.AddToEnd(v2);
-							m1.AddToEnd(v2);
+							// FIXME(qts-rollback): was m1.AddToEnd(v2), old exit value instead of return_handle index.
+							// Masked when retMapSz<=2 (values 0,1 happen to equal their positions).
+							m1.AddToEnd(return_handle.LookupInv(v2));
 						}
 						else{
 							m1.AddToEnd(return_handle.LookupInv(v2));

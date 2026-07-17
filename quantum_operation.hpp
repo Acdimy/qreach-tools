@@ -987,7 +987,6 @@ class SingleVecTerm : public QuantumTerm {
 
     BIG_COMPLEX_FLOAT dot(const SingleVecTerm& other) const {
         /* bra(other) * ket(this) Note the complex number conjugation */
-        // assert(this->type == false && other.type == false);
         unsigned int level = ceil(log2(this->qNum));
         auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other.content);
         tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
@@ -1004,13 +1003,13 @@ class SingleVecTerm : public QuantumTerm {
     }
     CFLOBDD_COMPLEX_BIG normalize() const {
         // assert(this->type == false);
-        auto H = ApplyGateF(std::pow(2, content.root->level-1), 0, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
-        CFLOBDD_COMPLEX_BIG c1 = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, content);
-        CFLOBDD_COMPLEX_BIG c1_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(c1);
-        // VectorComplexFloatBoost::VectorPrintColumnHead(c1_conj, std::cout);
-        c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1_conj);
-        auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
+
+        // Compute <content|content> directly, following dot()'s pattern
+        CFLOBDD_COMPLEX_BIG c_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(content);
+        c_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c_conj);
+        auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c_conj, content);
         auto resMap = mulres.root->rootConnection.returnMapHandle;
+
         // Maybe #BUGS here!
         double dimfactor = std::pow(double(2), double(std::pow(2, content.root->level-1)-1));
         // double dimfactor = 1;
@@ -1022,15 +1021,14 @@ class SingleVecTerm : public QuantumTerm {
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
             // std::cout << "SingleVecTerm::normalize() factor = " << factor << std::endl;
-            c1 = (1/factor) * c1;
+            return (1/factor) * content;
         } else {
             std::cout << "Warning: SingleVecTerm::normalize() has only one factor!" << std::endl;
             // Here, assump the only factor is zero!
             amp = resMap[0];
             assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
-            c1 = VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
+            return VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
         }
-        return c1;
     }
     void normalizeInline() {
         this->content = this->normalize();
@@ -1611,15 +1609,17 @@ class QOperation {
         for (size_t i = begin; i <= end; i++) {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
             if (!ivec) {std::cout << "strange i nullptr";continue;}
+
             for (const auto& basis : orthogonalBasis) {
                 auto* jvec = dynamic_cast<SingleVecTerm*>(basis.get());
                 if (!jvec) {std::cout << "strange j nullptr";continue;}
-                ivec->content = ivec->content + (-1) * ivec->projectOnto(*jvec);
+
+                auto proj = ivec->projectOnto(*jvec);
+                auto neg_proj = (-1) * proj;
+                ivec->content = ivec->content + neg_proj;
             }
-            // if (!ivec->isZero()) {
             if (!checkifzero(ivec->content)) {
                 ivec->normalizeInline();
-                // the orthogonal basis must be normalized! make sure the other.dot(other) == 1 in the project onto function.
                 orthogonalBasis.push_back(std::move(this->oplist[i]));
             }
         }
@@ -1627,7 +1627,6 @@ class QOperation {
             this->oplist[begin+i] = std::move(orthogonalBasis[i]);
         }
         this->oplist.erase(this->oplist.begin() + begin + orthogonalBasis.size(), this->oplist.begin() + end + 1);
-        // this->oplist = std::move(orthogonalBasis);
         this->normalized = true;
         qoprof::on_gram_schmidt(input_terms, this->oplist.size());
     }
@@ -1884,9 +1883,7 @@ class QOperation {
         }
         assert(!other.oplist[0]->getType());
         QOperation res(*this, other);
-        // std::cout << "Disjunction: " << res.oplist.size() << std::endl;
         res.GramSchmidt(0, static_cast<int>(res.oplist.size())-1);
-        // std::cout << "Disjunction after GramSchmidt: " << res.oplist.size() << std::endl;
         return res;
     }
 
@@ -1978,6 +1975,7 @@ class QOperation {
                     auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                     if (!jgate) continue;
                     auto tmp = ivec->applyGate(*jgate, true);
+                    // qgatetrace::trace_after_gate(jgate->name, jgate->index, tmp);  // disabled — use GramSchmidt trace
                     // If tmp is non-trivial, we insert it to the res.
                     if (!checkifzero(tmp)) {
                         SingleVecTerm postVec(tmp);
