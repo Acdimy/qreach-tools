@@ -32,6 +32,8 @@
 #include <unordered_map>
 #include <tuple>
 #include <algorithm>
+#include <set>
+#include <vector>
 #include "matrix1234_node.h"
 #include "cflobdd_node.h"
 #include "reduction_map.h"
@@ -2873,11 +2875,11 @@ namespace CFL_OBDD {
 	} // MatrixShiftVocs13To24Node
 
 	std::pair<CFLOBDDNodeHandle, CFLOBDDReturnMapHandle>
-		MatrixTransposeNode(std::unordered_map<CFLOBDDNodeHandle, std::pair<CFLOBDDNodeHandle, CFLOBDDReturnMapHandle>, 
+		MatrixTransposeNode(std::unordered_map<CFLOBDDNodeHandle, std::pair<CFLOBDDNodeHandle, CFLOBDDReturnMapHandle>,
 		CFLOBDDNodeHandle::CFLOBDDNodeHandle_Hash>& hashMap,
 		CFLOBDDNodeHandle nh)
 	{
-		
+
 		if (hashMap.find(nh) != hashMap.end() && ((((CFLOBDDInternalNode *)(nh.handleContents))->GetRefCount() >= 2))) {  // Check if already processed
 			return hashMap[nh];
 		}
@@ -2999,37 +3001,78 @@ namespace CFL_OBDD {
 			}
 		}
 		else
-		{
-			auto a_handle = MatrixTransposeNode(hashMap, *(nhNode->AConnection.entryPointHandle));
-			n->AConnection = Connection(a_handle.first, nhNode->AConnection.returnMapHandle);
-			n->numBConnections = nhNode->numBConnections;
-			n->BConnection = new Connection[n->numBConnections];
-			n->numExits = 0;
-			std::unordered_map<unsigned int, unsigned int> reduction_map;
-			for (unsigned int i = 0; i < n->numBConnections; i++)
 			{
-				CFLOBDDNodeHandle btmp = *(nhNode->BConnection[a_handle.second[i]].entryPointHandle);
-				auto b_handle = MatrixTransposeNode(hashMap, btmp);
-				CFLOBDDReturnMapHandle m;
-				for (unsigned int j = 0; j < b_handle.second.Size(); j++){
-					CFLOBDDReturnMapHandle b_return_map_handle = nhNode->BConnection[a_handle.second[i]].returnMapHandle;
-					unsigned int val = b_return_map_handle[b_handle.second[j]];
-					if (reduction_map.find(val) == reduction_map.end()){
-						m.AddToEnd(n->numExits++);
-						reduction_map.emplace(val, n->numExits - 1);
-						return_handle.AddToEnd(val);
+				auto a_handle = MatrixTransposeNode(hashMap, *(nhNode->AConnection.entryPointHandle));
+				n->AConnection = Connection(a_handle.first, nhNode->AConnection.returnMapHandle);
+				n->numBConnections = nhNode->numBConnections;
+				n->BConnection = new Connection[n->numBConnections];
+				n->numExits = 0;
+
+				// FIX(qts-rollback, transpose-corruption):
+				// Two-pass approach: collect all vals first, then number new exits
+				// in ASCENDING order of original parent exit values.  This ensures
+				// return_handle is always [0,1,2,...] even when the original
+				// B-return-maps produce vals in non-ascending order (e.g., crossed
+				// maps like [1,0] from PairProduct/Reduce DAG topologies).
+				//
+				// The old single-pass code numbered exits in first-occurrence order,
+				// which could produce crossed return_handle [1,0].  The parent then
+				// interpreted "transposed exit 0 -> original exit 1", causing wrong
+				// routing and corrupting the column->row vector property (single-row
+				// constraint violated, leading to retMapSz>2 crash in normalize()).
+				//
+				// Collect: per B-connection, transposed child, and val sequence
+				struct BInfo {
+					CFLOBDDNodeHandle transposedChild;
+					std::vector<unsigned int> vals; // val per transposed exit j
+				};
+				std::vector<BInfo> binfos;
+				std::set<unsigned int> uniqueVals;
+
+				for (unsigned int i = 0; i < n->numBConnections; i++)
+				{
+					CFLOBDDNodeHandle btmp = *(nhNode->BConnection[a_handle.second[i]].entryPointHandle);
+					auto b_handle = MatrixTransposeNode(hashMap, btmp);
+					BInfo info;
+					info.transposedChild = b_handle.first;
+					CFLOBDDReturnMapHandle b_return_map_handle =
+						nhNode->BConnection[a_handle.second[i]].returnMapHandle;
+					for (unsigned int j = 0; j < b_handle.second.Size(); j++){
+						unsigned int val = b_return_map_handle[b_handle.second[j]];
+						info.vals.push_back(val);
+						uniqueVals.insert(val);
 					}
-					else{
-						m.AddToEnd(reduction_map[val]);
-					}
+					binfos.push_back(info);
 				}
-				m.Canonicalize();
-				n->BConnection[i] = Connection(b_handle.first, m);
+
+				// Number new exits in ascending order of original parent exit values,
+				// guaranteeing return_handle = [0,1,2,...] (identity mapping).
+				// This eliminates the crossed return_handle that propagated wrong
+				// routing to parent levels.
+				std::unordered_map<unsigned int, unsigned int> valToNewExit;
+				for (unsigned int val : uniqueVals) {
+					valToNewExit[val] = n->numExits;
+					return_handle.AddToEnd(val);
+					n->numExits++;
+				}
+				// end FIX(qts-rollback, transpose-corruption)
+
+				// Build B-return-maps using the new exit numbering
+				for (unsigned int i = 0; i < n->numBConnections; i++)
+				{
+					CFLOBDDReturnMapHandle m;
+					for (unsigned int j = 0; j < binfos[i].vals.size(); j++){
+						unsigned int val = binfos[i].vals[j];
+						m.AddToEnd(valToNewExit[val]);
+					}
+					m.Canonicalize();
+					n->BConnection[i] = Connection(binfos[i].transposedChild, m);
+				}
 			}
-		}
 
 		return_handle.Canonicalize();
 		n->numExits = nhNode->numExits;
+
 #ifdef PATH_COUNTING_ENABLED
 		n->InstallPathCounts();
 #endif

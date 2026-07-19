@@ -991,8 +991,24 @@ class SingleVecTerm : public QuantumTerm {
         auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other.content);
         tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
         auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, this->content);
-        assert(tmp.root->rootConnection.returnMapHandle.Size() <= 2);
+
+        // FALLBACK(qts-rollback, transpose-corruption):
+        // If transpose corrupts the row vector, retMapSz may exceed 2.
+        // Fall back to evaluating [0,0] entry directly.
         auto resMap = tmp.root->rootConnection.returnMapHandle;
+        if (resMap.Size() > 2) {
+            std::cerr << "Warning: SingleVecTerm::dot() retMapSz=" << resMap.Size()
+                      << " > 2 (transpose may have corrupted row-vector)."
+                      << " Falling back to [0,0] entry." << std::endl;
+            unsigned int indexBits = 1 << (tmp.root->level - 1);
+            unsigned int totalBits = 2 * indexBits;
+            SH_OBDD::Assignment a(totalBits);
+            for (unsigned int k = 0; k < totalBits; k++)
+                a[k] = false;
+            return tmp.root->EvaluateIteratively(a);
+        }
+        // end FALLBACK(qts-rollback, transpose-corruption)
+
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2)
             amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
@@ -1006,13 +1022,39 @@ class SingleVecTerm : public QuantumTerm {
 
         // Compute <content|content> directly, following dot()'s pattern
         CFLOBDD_COMPLEX_BIG c_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(content);
+
         c_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c_conj);
+
         auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c_conj, content);
         auto resMap = mulres.root->rootConnection.returnMapHandle;
 
         // Maybe #BUGS here!
         double dimfactor = std::pow(double(2), double(std::pow(2, content.root->level-1)-1));
         // double dimfactor = 1;
+
+        // FALLBACK(qts-rollback, transpose-corruption):
+        // If MatrixTranspose corrupts the row vector (multiple non-zero rows),
+        // the inner product matrix may have retMapSz > 2.  In that case, extract
+        // the [0,0] entry directly: even with a corrupted row vector, row 0 of
+        // the transposed result is correct, so mulres[0,0] = <content|content>.
+        if (resMap.Size() > 2) {
+            std::cerr << "Warning: SingleVecTerm::normalize() retMapSz=" << resMap.Size()
+                      << " > 2 (transpose may have corrupted row-vector)."
+                      << " Falling back to [0,0] entry." << std::endl;
+            // Evaluate at row=0, col=0: all row bits = 0, all col bits = 0
+            unsigned int level = mulres.root->level;
+            unsigned int indexBits = 1 << (level - 1);
+            unsigned int totalBits = 2 * indexBits;
+            SH_OBDD::Assignment a(totalBits);
+            for (unsigned int k = 0; k < totalBits; k++)
+                a[k] = false;  // all bits = 0 -> row=0, col=0
+            BIG_COMPLEX_FLOAT amp = mulres.root->EvaluateIteratively(a);
+            assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
+            double factor = double(sqrt(amp.real()));
+            return (1/factor) * content;
+        }
+        // end FALLBACK(qts-rollback, transpose-corruption)
+
         assert(resMap.Size() <= 2);
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2) {

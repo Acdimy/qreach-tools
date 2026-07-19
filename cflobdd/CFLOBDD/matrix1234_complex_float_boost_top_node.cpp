@@ -496,7 +496,7 @@ namespace CFL_OBDD {
 
 		CFLOBDDTopNodeComplexFloatBoostRefPtr MatrixTransposeTop(CFLOBDDTopNodeComplexFloatBoostRefPtr n)
 		{
-			std::unordered_map<CFLOBDDNodeHandle, std::pair<CFLOBDDNodeHandle, CFLOBDDReturnMapHandle>, 
+			std::unordered_map<CFLOBDDNodeHandle, std::pair<CFLOBDDNodeHandle, CFLOBDDReturnMapHandle>,
 				CFLOBDDNodeHandle::CFLOBDDNodeHandle_Hash> hashMap;
 			auto pc = MatrixTransposeNode(hashMap, *(n->rootConnection.entryPointHandle));
 			CFLOBDDNodeHandle temp = pc.first;
