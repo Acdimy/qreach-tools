@@ -219,7 +219,9 @@ def _parse_qiskit_for_config(
 
 
 def _simulate_final_operation(qc: QuantumCircuit, initial_state: str, *, lazy: bool):
-    ts = pyqreach.TransitionSystem()
+    # TransitionSystem(False) skips CFLOBDD global-table re-initialization,
+    # avoiding corruption of state from the first (injected-circuit) parse.
+    ts = pyqreach.TransitionSystem(False)
     result = _parse_qiskit_for_config(qc, ts, initial_state, lazy=lazy)
     ts.computingFixedPointPost()
     if len(result.result_locations) == 1:
@@ -267,10 +269,17 @@ def _run_debug_check(
         return {"debug_kind": "grover_converted", "debug_satisfied": satisfied}
 
     if original_qc is not None:
-        # Second parse shares CFLOBDD global state with first parse,
-        # causing SIGSEGV on some platforms (Linux).  Skip verification;
-        # timing and location counts are already captured.
-        return {"debug_kind": "none"}
+        expected = _simulate_final_operation(original_qc, initial_state, lazy=lazy)
+        for loc in all_leaf:
+            ts.setLabel(loc, "final")
+        tsLabelling(ts, expected, "debug_op", locList=all_leaf)
+        result = modelChecking(ts, "AG (debug_op <-> final)", nusmv_path=_NUSMV_PATH)
+        return {
+            "debug_kind": "comparison",
+            "debug_satisfied": result.get("satisfied"),
+            "model_check_satisfied": result.get("satisfied"),
+            "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
+        }
 
     # Clean mode with no reference circuit: skip verification.
     return {"debug_kind": "none"}
