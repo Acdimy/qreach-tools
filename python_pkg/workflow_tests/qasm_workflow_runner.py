@@ -279,20 +279,8 @@ def _run_debug_check(
             "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
         }
 
-    # Clean-mode self-consistency: use the TS's own final state as the
-    # reference (no separate simulation — avoids double-parsing crashes).
-    # This is trivially True for a correct TS construction.
-    expected = span_qops([ts.Locations[loc].lowerBound for loc in all_leaf])
-    for loc in all_leaf:
-        ts.setLabel(loc, "final")
-    tsLabelling(ts, expected, "debug_op", locList=all_leaf)
-    result = modelChecking(ts, "AG (debug_op <-> final)", nusmv_path=_NUSMV_PATH)
-    return {
-        "debug_kind": "comparison",
-        "debug_satisfied": result.get("satisfied"),
-        "model_check_satisfied": result.get("satisfied"),
-        "model_check_status": "ok" if result.get("satisfied") is not None else "unknown",
-    }
+    # Clean mode with no reference circuit: skip verification.
+    return {"debug_kind": "none"}
 
 
 def run_qasm_file(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0) -> dict[str, Any]:

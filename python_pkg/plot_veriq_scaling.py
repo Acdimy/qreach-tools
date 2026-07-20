@@ -29,14 +29,13 @@ SCALE_DEBUG_DIR = PYTHON_PKG / "eval" / "scale_debug"
 OUTPUT_DIR = PYTHON_PKG / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-TIMEOUT_S = 120.0  # mark rows at/above this as timed out
+TIMEOUT_S = 600.0  # mark rows at/above this as timed out
 
 FAMILY_LABEL: dict[str, str] = {
     "dqc_pe": "DQC-PE",
     "dqc_qft": "DQC-QFT",
     "qft": "QFT",
     "pe": "PE",
-    "grover": "Grover",
 }
 
 FAMILY_COLOR: dict[str, str] = {
@@ -44,7 +43,6 @@ FAMILY_COLOR: dict[str, str] = {
     "dqc_qft": "#377eb8",
     "qft": "#4daf4a",
     "pe": "#984ea3",
-    "grover": "#ff7f00",
 }
 
 FAMILY_MARKER: dict[str, str] = {
@@ -52,7 +50,6 @@ FAMILY_MARKER: dict[str, str] = {
     "dqc_qft": "s",
     "qft": "D",
     "pe": "^",
-    "grover": "v",
 }
 
 matplotlib.rcParams.update({
@@ -103,7 +100,7 @@ def plot_scaling(
 
     for ax, data, title in [
         (ax_clean, clean_data, "Clean (no error injection)"),
-        (ax_inj, injected_data, "Injected (random Pauli / wrong init)"),
+        (ax_inj, injected_data, "Injected (random Pauli)"),
     ]:
         for fam, rows in data.items():
             if fam not in FAMILY_LABEL:
@@ -140,7 +137,7 @@ def plot_scaling(
 
         # timeout reference line
         ax.axhline(y=TIMEOUT_S, color="grey", linestyle="--", linewidth=0.7, alpha=0.6)
-        ax.text(0.5, TIMEOUT_S * 1.02, "timeout (120s)", color="grey",
+        ax.text(0.5, TIMEOUT_S * 1.02, "timeout (600s)", color="grey",
                 fontsize=7, ha="right", transform=ax.get_yaxis_transform())
 
         ax.set_yscale("log")

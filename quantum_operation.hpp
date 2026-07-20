@@ -994,20 +994,17 @@ class SingleVecTerm : public QuantumTerm {
 
         // FALLBACK(qts-rollback, transpose-corruption):
         // If transpose corrupts the row vector, retMapSz may exceed 2.
-        // Fall back to evaluating [0,0] entry directly.
+        // Fall back to extracting the [0,0] entry directly.
         auto resMap = tmp.root->rootConnection.returnMapHandle;
         if (resMap.Size() > 2) {
-            std::cerr << "Warning: SingleVecTerm::dot() retMapSz=" << resMap.Size()
-                      << " > 2 (transpose may have corrupted row-vector)."
-                      << " Falling back to [0,0] entry." << std::endl;
-            unsigned int indexBits = 1 << (tmp.root->level - 1);
-            unsigned int totalBits = 2 * indexBits;
-            SH_OBDD::Assignment a(totalBits);
-            for (unsigned int k = 0; k < totalBits; k++)
-                a[k] = false;
+            std::cerr << "Warning: dot() retMapSz=" << resMap.Size()
+                      << " > 2, falling back to [0,0] entry." << std::endl;
+            unsigned int idxBits = 1 << (tmp.root->level - 1);
+            SH_OBDD::Assignment a(2 * idxBits);
+            for (unsigned int k = 0; k < 2 * idxBits; k++) a[k] = false;
             return tmp.root->EvaluateIteratively(a);
         }
-        // end FALLBACK(qts-rollback, transpose-corruption)
+        // end FALLBACK
 
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2)
@@ -1020,57 +1017,71 @@ class SingleVecTerm : public QuantumTerm {
     CFLOBDD_COMPLEX_BIG normalize() const {
         // assert(this->type == false);
 
-        // Compute <content|content> directly, following dot()'s pattern
-        CFLOBDD_COMPLEX_BIG c_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(content);
-
-        c_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c_conj);
-
-        auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c_conj, content);
+        // REVERT(qts-rollback): Restore the original H*content approach.
+        // The aa52325 change (conj(transpose(content))*content) introduced
+        // SIGSEGV on pe_7/qft_7 circuits because MatrixTranspose directly
+        // on GramSchmidt-produced DAGs creates corrupted row vectors that
+        // crash MatrixMultiplyV4 on larger (8+ qubit) CFLOBDDs.
+        // The old H*content path inserts an identity-matrix multiply first,
+        // which changes the DAG topology and avoids the SIGSEGV.
+        //
+        // If even this path produces retMapSz>2 (seen on dqc_pe_2), fall
+        // back to direct row-evaluation.
+        auto H = ApplyGateF(std::pow(2, content.root->level-1), 0,
+                            Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
+        CFLOBDD_COMPLEX_BIG c1 = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, content);
+        CFLOBDD_COMPLEX_BIG c1_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(c1);
+        c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1_conj);
+        auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
         auto resMap = mulres.root->rootConnection.returnMapHandle;
 
         // Maybe #BUGS here!
         double dimfactor = std::pow(double(2), double(std::pow(2, content.root->level-1)-1));
-        // double dimfactor = 1;
 
         // FALLBACK(qts-rollback, transpose-corruption):
-        // If MatrixTranspose corrupts the row vector (multiple non-zero rows),
-        // the inner product matrix may have retMapSz > 2.  In that case, extract
-        // the [0,0] entry directly: even with a corrupted row vector, row 0 of
-        // the transposed result is correct, so mulres[0,0] = <content|content>.
+        // If the H*content path also hits retMapSz>2, use direct row-evaluation.
         if (resMap.Size() > 2) {
-            std::cerr << "Warning: SingleVecTerm::normalize() retMapSz=" << resMap.Size()
-                      << " > 2 (transpose may have corrupted row-vector)."
-                      << " Falling back to [0,0] entry." << std::endl;
-            // Evaluate at row=0, col=0: all row bits = 0, all col bits = 0
-            unsigned int level = mulres.root->level;
+            std::cerr << "Warning: normalize() H*content retMapSz="
+                      << resMap.Size() << " > 2, using direct row-eval."
+                      << std::endl;
+            unsigned int level = content.root->level;
             unsigned int indexBits = 1 << (level - 1);
             unsigned int totalBits = 2 * indexBits;
+            unsigned long int numRows = 1UL << indexBits;
+            BIG_COMPLEX_FLOAT normsq = 0;
             SH_OBDD::Assignment a(totalBits);
-            for (unsigned int k = 0; k < totalBits; k++)
-                a[k] = false;  // all bits = 0 -> row=0, col=0
-            BIG_COMPLEX_FLOAT amp = mulres.root->EvaluateIteratively(a);
-            assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
-            double factor = double(sqrt(amp.real()));
-            return (1/factor) * content;
+            for (unsigned long int row = 0; row < numRows; row++) {
+                unsigned long int mask = 1UL;
+                for (int k = indexBits - 1; k >= 0; k--) {
+                    a[2 * k] = (row & mask) ? true : false;
+                    mask <<= 1;
+                }
+                for (unsigned int k = 0; k < indexBits; k++)
+                    a[2 * k + 1] = false;
+                BIG_COMPLEX_FLOAT val = content.root->EvaluateIteratively(a);
+                normsq += val.real() * val.real() + val.imag() * val.imag();
+            }
+            double factor = double(sqrt(normsq));
+            assert(factor > 0);
+            if (abs(factor - 1.0) < 1e-10) return content;
+            return (1.0 / factor) * content;
         }
-        // end FALLBACK(qts-rollback, transpose-corruption)
+        // end FALLBACK
 
         assert(resMap.Size() <= 2);
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2) {
             amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-            // std::cout << "SingleVecTerm::normalize() amp = " << amp << std::endl;
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
-            // std::cout << "SingleVecTerm::normalize() factor = " << factor << std::endl;
-            return (1/factor) * content;
+            c1 = (1/factor) * c1;
         } else {
             std::cout << "Warning: SingleVecTerm::normalize() has only one factor!" << std::endl;
-            // Here, assump the only factor is zero!
             amp = resMap[0];
             assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
-            return VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
+            c1 = VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
         }
+        return c1;
     }
     void normalizeInline() {
         this->content = this->normalize();
