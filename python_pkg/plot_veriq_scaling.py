@@ -149,7 +149,7 @@ def plot_scaling(
     ax_clean.legend(loc="upper left", framealpha=0.9, edgecolor="grey",
                     fontsize=7.5)
 
-    fig.suptitle("VeriQ-bench — Lazy QReach Scaling", fontsize=13, y=0.99)
+    fig.suptitle("VeriQ-bench — QisMC Scaling", fontsize=13, y=0.99)
     path = OUTPUT_DIR / "veriq_scaling.pdf"
     fig.savefig(path)
     fig.savefig(OUTPUT_DIR / "veriq_scaling.png")

@@ -3,9 +3,11 @@ from __future__ import annotations
 import argparse
 import csv
 import multiprocessing as mp
+import os
 import queue
 import random
 import re
+import shutil
 import sys
 import traceback
 from dataclasses import dataclass
@@ -17,10 +19,23 @@ PYTHON_PKG = Path(__file__).resolve().parents[1]
 if str(PYTHON_PKG) not in sys.path:
     sys.path.insert(0, str(PYTHON_PKG))
 
-# NuSMV binary — resolved relative to PYTHON_PKG so it works regardless of cwd
-_NUSMV_PATH = str(
-    (PYTHON_PKG.parent.parent / "NuSMV-2.7.0-macos-universal" / "bin" / "NuSMV").resolve()
-)
+def _resolve_nusmv_path() -> str | None:
+    env_path = os.environ.get("NUSMV_PATH")
+    if env_path:
+        return str(Path(env_path).expanduser().resolve())
+
+    candidate_roots = [PYTHON_PKG.parent, PYTHON_PKG.parent.parent]
+    candidate_dirs = ["NuSMV-2.7.0-linux64", "NuSMV-2.7.0-macos-universal"]
+    for root in candidate_roots:
+        for dirname in candidate_dirs:
+            candidate = root / dirname / "bin" / "NuSMV"
+            if candidate.exists():
+                return str(candidate.resolve())
+
+    return shutil.which("NuSMV")
+
+
+_NUSMV_PATH = _resolve_nusmv_path()
 
 import pyqreach
 from qiskit import QuantumCircuit

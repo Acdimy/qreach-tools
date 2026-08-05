@@ -3,12 +3,14 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import matplotlib
 import matplotlib.pyplot as plt
 import pandas as pd
 
 CSV_PATH = Path("eval/qai_grover_case_qismc.csv")
 OUTPUT_DIR = Path("output/qai_grover_runtime")
 OUTPUT_BASENAME = "qai_grover_runtime_qismc"
+TIMEOUT_S = 600.0
 
 PATTERN = re.compile(
     r"single-it-grover(?P<size>\d+)-(?P<oracle>plus|zero)(?P<linear>-linear)?\.qasm$"
@@ -34,6 +36,18 @@ VARIANT_MARKERS = {
     "zero-linear": "D",
 }
 
+matplotlib.rcParams.update(
+    {
+        "font.family": "serif",
+        "font.size": 10,
+        "axes.labelsize": 11,
+        "legend.fontsize": 8,
+        "figure.dpi": 150,
+        "savefig.bbox": "tight",
+        "savefig.pad_inches": 0.05,
+    }
+)
+
 
 def parse_variant(name: str) -> pd.Series:
     match = PATTERN.match(name)
@@ -57,24 +71,15 @@ def load_plot_data(csv_path: Path) -> pd.DataFrame:
     df["timeout_seconds"] = pd.to_numeric(df["timeout_seconds"], errors="coerce")
     df["plot_time_seconds"] = df["time_total"]
 
-    timeout_mask = df["status"].eq("timeout")
-    df.loc[timeout_mask, "plot_time_seconds"] = df.loc[timeout_mask, "timeout_seconds"]
+    timeout_mask = df["status"].eq("timeout") | (df["time_total"] >= TIMEOUT_S)
+    df.loc[timeout_mask, "status"] = "timeout"
+    df.loc[timeout_mask, "plot_time_seconds"] = TIMEOUT_S
 
     return df.sort_values(["variant", "problem_size"]).reset_index(drop=True)
 
 
 def build_figure(df: pd.DataFrame) -> plt.Figure:
     plt.style.use("default")
-    plt.rcParams.update(
-        {
-            "font.size": 11,
-            "axes.labelsize": 12,
-            "axes.titlesize": 13,
-            "legend.fontsize": 10,
-            "xtick.labelsize": 10,
-            "ytick.labelsize": 10,
-        }
-    )
 
     fig, ax = plt.subplots(figsize=(8.6, 4.8))
 
@@ -83,64 +88,58 @@ def build_figure(df: pd.DataFrame) -> plt.Figure:
         if subset.empty:
             continue
 
-        ax.plot(
-            subset["problem_size"],
-            subset["plot_time_seconds"],
-            label=VARIANT_LABELS[variant],
-            color=VARIANT_COLORS[variant],
-            marker=VARIANT_MARKERS[variant],
-            linewidth=2.0,
-            markersize=6,
-        )
+        xs = subset["problem_size"].tolist()
+        ys = subset["plot_time_seconds"].tolist()
+        if xs:
+            ax.plot(
+                xs,
+                ys,
+                label=VARIANT_LABELS[variant],
+                color=VARIANT_COLORS[variant],
+                marker=VARIANT_MARKERS[variant],
+                linewidth=1.2,
+                markersize=4,
+                zorder=3,
+            )
 
         timeout_subset = subset[subset["status"] == "timeout"]
         if not timeout_subset.empty:
+            tx = timeout_subset["problem_size"].tolist()
+            ty = [TIMEOUT_S] * len(tx)
             ax.scatter(
-                timeout_subset["problem_size"],
-                timeout_subset["plot_time_seconds"],
+                tx,
+                ty,
                 marker="x",
-                s=80,
-                linewidths=2.0,
+                s=36,
+                linewidths=1.2,
                 color=VARIANT_COLORS[variant],
                 zorder=4,
             )
-            for _, row in timeout_subset.iterrows():
-                ax.annotate(
-                    f"timeout ({int(row['timeout_seconds'])}s)",
-                    (row["problem_size"], row["plot_time_seconds"]),
-                    textcoords="offset points",
-                    xytext=(6, 8),
-                    ha="left",
-                    fontsize=9,
-                    color=VARIANT_COLORS[variant],
-                )
 
-    timeout_reference = float(df["timeout_seconds"].dropna().max())
     ax.axhline(
-        timeout_reference,
-        color="#6C757D",
+        y=TIMEOUT_S,
+        color="grey",
         linestyle="--",
-        linewidth=1.0,
-        alpha=0.7,
+        linewidth=0.7,
+        alpha=0.6,
     )
     ax.text(
-        df["problem_size"].max(),
-        timeout_reference,
-        f" timeout threshold = {int(timeout_reference)}s",
-        va="bottom",
+        0.98,
+        TIMEOUT_S * 1.02,
+        f"timeout ({int(TIMEOUT_S)}s)",
+        color="grey",
+        fontsize=7,
         ha="right",
-        fontsize=9,
-        color="#6C757D",
+        transform=ax.get_yaxis_transform(),
     )
 
     ax.set_xlabel("Grover problem size")
     ax.set_ylabel("Runtime (s)")
-    ax.set_title("QisMC runtime on QAI Grover benchmarks")
+    ax.set_title("QisMC runtime on QAI Grover benchmarks", fontsize=11, pad=6)
     ax.set_yscale("log")
     ax.set_xticks(sorted(df["problem_size"].unique()))
-    ax.grid(True, which="major", linestyle="--", alpha=0.35)
-    ax.grid(True, which="minor", linestyle=":", alpha=0.18)
-    ax.legend(loc="upper left", frameon=False, ncol=2)
+    ax.grid(True, which="both", alpha=0.25, linewidth=0.5)
+    ax.legend(loc="lower right", framealpha=0.9, edgecolor="grey", fontsize=7.5, ncol=2)
 
     fig.tight_layout()
     return fig

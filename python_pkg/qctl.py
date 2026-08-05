@@ -1027,7 +1027,7 @@ def _format_counterexample_analysis(analysis: dict | None) -> str:
     return "\n".join(lines)
 
 
-def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../../NuSMV-2.7.0-macos-universal/bin/NuSMV', logic: str = 'auto'):
+def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../../NuSMV-2.7.0-linux64/bin/NuSMV', logic: str = 'auto'):
     """Run CTL or LTL model checking on *ts* against *formula*.
 
     Parameters
