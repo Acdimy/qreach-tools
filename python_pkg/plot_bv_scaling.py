@@ -33,9 +33,9 @@ def generate_bv_scale_figure(
 
     # Batch results are written in filename order, so sort numerically for scaling plots.
     df = df.sort_values("num_qubits").reset_index(drop=True)
-    df = df[(df["num_qubits"] >= 5) & (df["num_qubits"] % 5 == 0)].reset_index(drop=True)
+    df = df[(df["num_qubits"] >= 5) & ((df["num_qubits"] - 5) % 4 == 0)].reset_index(drop=True)
     if df.empty:
-        raise ValueError("No BV rows found for qubit counts 5, 10, 15, ..., 100")
+        raise ValueError("No rows found for qubit counts 5, 9, 13, ...")
 
     x_vals = df["num_qubits"]
     x_idx = np.arange(len(x_vals))
