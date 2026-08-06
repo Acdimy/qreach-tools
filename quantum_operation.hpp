@@ -2023,14 +2023,22 @@ class QOperation {
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) continue;
-                if (checkifzero(ivec->content)) continue; // A key optimization!
+                // When input is known unit-norm, skip the zero check even
+                // when amplitudes are small (CFLOBDD representation artifact).
+                if (!ivec->knownUnitNorm && checkifzero(ivec->content)) continue;
                 for (size_t j = 0; j < other.oplist.size(); j++) {
                     auto* jgate = dynamic_cast<QuantumGateTerm*>(other.oplist[j].get());
                     if (!jgate) continue;
                     auto tmp = ivec->applyGate(*jgate, true);
                     // qgatetrace::trace_after_gate(jgate->name, jgate->index, tmp);  // disabled — use GramSchmidt trace
                     // If tmp is non-trivial, we insert it to the res.
-                    if (!checkifzero(tmp)) {
+                    // When input is known unit-norm and gate is norm-preserving,
+                    // the result cannot be zero.  (Small return-map amplitudes are
+                    // a CFLOBDD representation artifact for large-qubit product
+                    // states.)  Skip the zero check in that case to avoid false
+                    // positives; otherwise use checkifzero.
+                    bool guaranteed_nonzero = ivec->knownUnitNorm && jgate->isNormPreservingGate();
+                    if (guaranteed_nonzero || !checkifzero(tmp)) {
                         SingleVecTerm postVec(tmp);
                         postVec.knownUnitNorm = this->normalized && input_terms == 1 && gate_terms == 1 &&
                                                  ivec->knownUnitNorm && jgate->isNormPreservingGate();
@@ -2096,7 +2104,7 @@ class QOperation {
             auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
             if (!ivec) continue;
             const auto input_zero_check_start = std::chrono::steady_clock::now();
-            const bool input_is_zero = checkifzero(ivec->content);
+            const bool input_is_zero = ivec->knownUnitNorm ? false : checkifzero(ivec->content);
             const auto input_zero_check_end = std::chrono::steady_clock::now();
             input_zero_check_us += qgateprof::elapsed_us(input_zero_check_start, input_zero_check_end);
             if (input_is_zero) continue; // A key optimization!
@@ -2108,8 +2116,9 @@ class QOperation {
                 const auto apply_end = std::chrono::steady_clock::now();
                 apply_us += qgateprof::elapsed_us(apply_start, apply_end);
                 // If tmp is non-trivial, we insert it to the res.
+                bool guaranteed_nonzero = ivec->knownUnitNorm && jgate->isNormPreservingGate();
                 const auto result_zero_check_start = std::chrono::steady_clock::now();
-                const bool result_is_zero = checkifzero(tmp);
+                const bool result_is_zero = guaranteed_nonzero ? false : checkifzero(tmp);
                 const auto result_zero_check_end = std::chrono::steady_clock::now();
                 result_zero_check_us += qgateprof::elapsed_us(result_zero_check_start, result_zero_check_end);
                 if (!result_is_zero) {
