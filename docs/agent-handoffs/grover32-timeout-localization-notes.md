@@ -17,13 +17,13 @@
 ### Grover32 Zero
 - No failing prefix through 179 instructions. `time_parse=0.08474900003056973`.
 - CCX-heavy region (indices 96-104: `ccx [60,61,62]` etc.) parses rapidly.
-- Initial state |0⟩^63 = single nonzero amplitude → CFLOBDD stays compact.
+- **⚠️ FALSE FAST (BV bug):** Initial state |0⟩^63 = single nonzero amplitude → fast parsing. BUT subsequent H gates create H^⊗n superposition which checkifzero incorrectly drops. **With BV fix, also times out.**
 
 ### Grover32 Plus Linear
 - Prefix 102: `time_parse=0.02s`. Symmetric linear qubit ordering → DAG sharing.
 
 ### Grover64 Plus
-- Full parse fast. Level=8 (qNum=127→128), different CFLOBDD topology.
+- **⚠️ FALSE FAST (BV bug):** Originally measured at 0.254s — but this was because `checkifzero` dropped the H^⊗128 state. **With BV fix, also >30s timeout.** Level=8 (qNum=127→128) has same Reduce fragmentation issue as Grover32-plus.
 
 ## Phase 2: CFLOBDD Matrix Multiply Investigation (Complete)
 
@@ -104,17 +104,47 @@ The **Reduce** operation (`CFLOBDDNodeHandle::Reduce`, called at the end of `Mat
 - Any fix would require deep CFLOBDD architecture changes
 
 ### Practical workarounds
-- Use Grover32-zero when the initial state is |0⟩^n (most common case)
-- Use Grover32-plus-linear with explicit q[64] for symmetric ordering
-- Use Grover64 (naturally at level=8, fast)
-- For circuits that must use H^⊗n with nonlinear qubit ordering at non-power-of-2 qubit counts, expect CFLOBDD performance issues
+- Use Grover32-plus-linear with explicit q[64] for symmetric CCX ordering (power-of-2 qubit count) — **the ONLY genuinely fast case with H^⊗n**
+- For circuits that must use non-power-of-2 qubit counts with H^⊗n: expect CFLOBDD performance issues
+- **⚠️ Grover32-zero and Grover64-plus are NOT workarounds** — they appeared fast only due to the BV `checkifzero` bug (see Phase 3)
 
-## Files Modified for Investigation
+## Phase 3: BV Bug — False "Fast" Results Corrected (Complete)
+
+**Last updated:** 2026-08-08
+
+### Discovery
+
+The BV scalability bug (`30c2e25`) revealed that two of the "fast" cases in Phase 1 were false positives:
+
+**Root cause of false positives:** `checkifzero` in `quantum_operation.hpp` uses a 1e-8 threshold to determine whether a CFLOBDD return-map amplitude is effectively zero. For large-qubit product states, the amplitude of each basis state in H^⊗n is `1/√(2^n)`, which falls below 1e-8 for n ≥ 54 (√(2^54) = 2^27 ≈ 1.34×10^8 → 1/√(2^54) ≈ 7.5×10^-9 < 1e-8). This caused `checkifzero` to incorrectly classify valid H^⊗n states as zero, silently dropping them during `postImage`.
+
+**Fix:** `knownUnitNorm`-aware `checkifzero` skip — if the input `SingleVecTerm` has `knownUnitNorm==true`, it represents a unit-norm state and cannot be zero, so `checkifzero` is bypassed entirely.
+
+### Corrected performance (with BV fix, knownUnitNorm-aware checkifzero)
+
+| Circuit | Qubits | Gates | Lazy Parse | Status |
+|---------|--------|-------|-----------|--------|
+| Grover32-plus | 63 (→64) | 478 | >120s | **TIMEOUT** — Reduce frag |
+| Grover32-zero | 63 (→64) | 446 | >30s | **TIMEOUT** — H gates in diffusion trigger same path |
+| Grover32-plus-linear | 64 | 482 | 0.164s ✅ | **FAST** — symmetric CCX ordering, power-of-2 |
+| Grover64-plus | 127 (→128) | 958 | >30s | **TIMEOUT** — also hits Reduce (was falsely "0.25s" pre-fix) |
+| Grover64-zero | 127 (→128) | — | >30s | **TIMEOUT** — same as 32-zero |
+
+### Key takeaway
+
+The ONLY genuinely fast case with H^⊗n initial state is **Grover32-plus-linear** (explicit 64 qubits, power-of-2, symmetric qubit ordering). ALL other Grover variants (32-plus, 32-zero, 64-plus, 64-zero) timeout due to CFLOBDD Reduce fragmentation. The `checkifzero` threshold bug was masking this reality.
+
+### Corrected workarounds
+
+- Use Grover32-plus-linear with explicit `q[64]` for symmetric CCX ordering (power-of-2 qubit count)
+- For circuits that must use non-power-of-2 qubit counts with H^⊗n: expect CFLOBDD performance issues
+- ~~Use Grover32-zero~~ — **invalid**, also times out with correct `checkifzero`
+- ~~Use Grover64~~ — **invalid**, also times out with correct `checkifzero`
 
 | File | Status | Purpose |
 |------|--------|---------|
 | `cflobdd/CFLOBDD/matrix1234_complex_float_boost_top_node.cpp` | **temporary** | Added `<chrono>`, timing instrumentation for recurse/eval/reduce breakdown |
-| `quantum_operation.hpp` | **committed** | `knownUnitNorm` flag, `isNormPreservingGate()`, normalization skip, fallback propagation |
+| `quantum_operation.hpp` | **committed** | `knownUnitNorm` flag, `isNormPreservingGate()`, normalization skip, fallback propagation, **knownUnitNorm-aware checkifzero (BV fix, `30c2e25`)** |
 | `python_pkg/parse_qiskit.py` | **committed** | `QREACH_PARSE_PROFILE` env-gated parser profiling |
 | `python_pkg/workflow_tests/debug_grover32_ccx_pathology.py` | **committed** | Prefix timing, bisect, timeout worker |
 | `python_pkg/workflow_tests/test_grover32_lazy_prefix_performance.py` | **committed** | Focused pytest regression |
@@ -125,6 +155,7 @@ The temporary profiling instrumentation in `matrix1234_complex_float_boost_top_n
 ## Next Steps
 
 1. **Revert** the temporary CFLOBDD profiling instrumentation in `matrix1234_complex_float_boost_top_node.cpp`
-2. **Clean up** the `scripts/patch_multiply_top_node.py` helper script
-3. **Document** the pathological pattern: H^⊗n initial state + nonlinear CCX at non-power-of-2 qubit count
+2. **Document** the pathological pattern: H^⊗n initial state + nonlinear CCX at non-power-of-2 qubit count
+3. **Multi-backend refactoring** — the CFLOBDD Reduce fragmentation is fundamental; the path forward is a pluggable backend architecture (see `docs/agent-handoffs/backend-replacement-qreach-refactoring.md`)
+4. **WCFLOBDD** — investigated on `wcflobdd-migration` branch; syncs and compiles but has an upstream bug at Level ≥4 MatrixMultiplyV4 (see `docs/agent-handoffs/wcflobdd-migration-handoff.md`)
 4. **Investigate other bad cases** to see if they share the same root cause
