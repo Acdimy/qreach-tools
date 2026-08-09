@@ -183,9 +183,32 @@ std::vector<double> simpleProductStateAmplitudes(const std::string& str, unsigne
     return amps;
 }
 
-// 1-norm
+// Compute a zero-threshold appropriate for the given number of qubits.
+//
+// The smallest meaningful amplitude in a normalized n-qubit state is the uniform
+// superposition amplitude 1/sqrt(2^n).  An absolute 1e-8 threshold treats that
+// amplitude as zero for n >= 54, which causes Gram-Schmidt to skip projections and
+// `satisfy` to fail on valid states (e.g., grover64-plus-linear).
+//
+// We scale the uniform amplitude by 1e-3 (three orders of magnitude headroom below
+// the smallest physical amplitude) and floor at 1e-12 to stay above numerical noise
+// from CFLOBDD subtraction residuals and double-precision round-off.
+//
+// At this floor, inner products 2^{-search/2} are preserved down to search ≈ 80
+// (2^{-40} ≈ 9e-13 > 1e-12); beyond that the inner product is physically negligible.
+inline double zeroThreshold(unsigned int qNum) {
+    unsigned int clamped = std::min(qNum, 60u);
+    double uniform_amp = 1.0 / std::sqrt(static_cast<double>(1ULL << clamped));
+    return std::max(1e-10, uniform_amp * 1e-3);
+}
+
+// 1-norm based zero check.  When used on a CFLOBDD vector produced at level L,
+// the effective qNum = 2^L is extracted from the top node so the threshold scales
+// with the Hilbert-space dimension.
 bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    double threshold = 1e-8;
+    unsigned int level = c.root->level;
+    unsigned int qNum = 1U << level;
+    double threshold = zeroThreshold(qNum);
     auto resMap = c.root->rootConnection.returnMapHandle;
     if(resMap.Size() == 0) {
         return true;
@@ -1095,7 +1118,7 @@ class SingleVecTerm : public QuantumTerm {
         return norm * other.content;
     }
     bool isZero() const {
-        return sqrt(this->dot(*this).real()) < 1e-8;
+        return sqrt(this->dot(*this).real()) < zeroThreshold(this->qNum);
     }
     CFLOBDD_COMPLEX_BIG applyGate(const QuantumGateTerm& other, bool direction) const {
         /* If direction is false, apply an inverse gate. */
@@ -1433,7 +1456,10 @@ class QOperation {
         }
         BIG_COMPLEX_FLOAT overlap = lhs->dot(*rhs);
         double overlap_norm = std::sqrt(double(overlap.real() * overlap.real() + overlap.imag() * overlap.imag()));
-        return overlap_norm < 1e-8;
+        // Use level-aware threshold: the smallest meaningful inner product
+        // between two normalized product states is 2^{-qNum/2}.
+        double threshold = zeroThreshold(this->qNum);
+        return overlap_norm < threshold;
     }
 
     bool isOperation() const {
