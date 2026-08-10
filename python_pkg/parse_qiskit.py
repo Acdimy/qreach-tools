@@ -1084,7 +1084,6 @@ def parse_qiskit_cir_lazy(
         startNodes = [loc0]
     for loc in startNodes:
         _set_lower_bound(ts, loc, initial_op)
-        ts.Locations[loc].upperBound = initial_op
 
     parse_result = ParseResult(result_locations=[], lazy=True)
     result = parse_qiskit_cir(

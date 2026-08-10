@@ -108,6 +108,19 @@ PYBIND11_MODULE(pyqreach, m) {
     m.def("CreateZeroQO", &CreateZeroQO, "Create a zero quantum operation");
     m.def("span_qops", &SpanQOperations, py::arg("ops"), "Construct the normalized span of subspace QOperations");
 
+    m.def("dump_cflobdd", [](const QOperation& op) {
+        if (op.oplist.empty()) {
+            std::cerr << "QOperation has no terms" << std::endl;
+            return;
+        }
+        auto* term = dynamic_cast<SingleVecTerm*>(op.oplist[0].get());
+        if (!term) {
+            std::cerr << "First term is not a SingleVecTerm" << std::endl;
+            return;
+        }
+        dumpCflobddStructure(term->content, std::cerr);
+    }, py::arg("op"), "Dump the CFLOBDD DAG structure of a QOperation's first term");
+
     py::class_<ClassicalProposition>(m, "ClassicalProposition")
         .def(py::init<>())
         .def(py::init<unsigned int>())

@@ -1,126 +1,113 @@
 ---
 name: cflobdd-transpose-dag-corruption
-description: CFLOBDD MatrixTranspose corrupts column→row vector conversion for GramSchmidt-produced DAGs — three failure modes, two mitigated via H*content trick + fallbacks
+description: CFLOBDD DAG corruption bugs — transpose return-map routing, MatrixMultiplyV4 coefficient overflow, and post_image chain DAG damage. GramSchmidt mitigated via H×content trick; V4 overflow fixed via convert_to<double>; level≥9 post_image remains.
 metadata:
   type: project
-  status: mitigated
+  status: partially-fixed
   branch: qts-rollback
   date: 2026-08-10
+  updated: 2026-08-10
 ---
 
-# CFLOBDD Transpose DAG Corruption Bug
+# CFLOBDD DAG Corruption Bugs
 
 ## Summary
 
-`MatrixTranspose` corrupts the column→row vector conversion for CFLOBDD column vectors
-with DAG topologies produced by GramSchmidt's PairProduct/MatrixPlus path.  A full
-algorithmic fix to `MatrixTransposeNode` has not been found, but the bug is **mitigated**
-in both `normalize()` and `dot()` by using an **identity-multiply (H×content) trick**
-that transforms the CFLOBDD into a "safe" DAG topology before applying transpose,
-plus fallbacks to `[0,0]` entry extraction.
+Multiple CFLOBDD bugs prevent correct operation at higher levels (≥7).
+Two are **fixed/mitigated**; one remains at level ≥ 9.
 
-## Three Failure Modes
+| Bug | Operation | Symptom | Level | Status |
+|-----|-----------|---------|-------|--------|
+| **A/B** (transpose) | `MatrixTransposeNode` | retMapSz>2 / SIGSEGV | ≥3 (4q) | ✅ mitigated (H×content trick) |
+| **C** (transpose) | `MatrixTranspose` | dot() row 0 destroyed | ≥8 (128q) | ✅ mitigated (H×content trick in dot()) |
+| **D** (V4 coeff overflow) | `MatrixMultiplyV4TopNode` | dot() returns 0 instead of 1.0 | ≥7 (64q) | ✅ **fixed** (`convert_to<double>`) |
+| **E** (post_image DAG) | `MatrixMultiplyV4WithInfo` | satisfy(self)=False, wrong dot values | ≥9 (256q) | ❌ remaining |
 
-| Type | Symptom | retMapSz | [0,0] entry | Triggered by | Mitigation |
-|------|---------|----------|-------------|-------------|------------|
-| **A** | Assertion `retMapSz<=2` | > 2 | ✅ correct | dqc_pe_2 (4q) | H×content in normalize() + [0,0] fallback |
-| **B** | SIGSEGV in `MatrixMultiplyV4` | N/A | N/A | pe_7/qft_7 (7-8+q) | H×content in normalize() |
-| **C** | `dot()` returns 0 (row 0 destroyed) | == 1 | ❌ 0 | level ≥ 8 (128+q) | H×content in dot() |
+The most significant remaining issue is **Type E**: at CFLOBDD level ≥ 9,
+`MatrixMultiplyV4WithInfo` (used in `post_image` / gate application) produces
+states with corrupted amplitudes, causing self-consistency failures and
+incorrect inner products.
 
-**Type C is the most severe**: even direct `EvaluateIteratively` at `[0,0]` returns 0 —
-the matrix entry is genuinely destroyed.  No fallback can recover from this.
+## Bug D: MatrixMultiplyV4 Coefficient Overflow (FIXED)
 
-## Root Cause
+### Root Cause
 
-`MatrixTransposeNode` at level≥2 uses original B-return-maps to route transposed exits.
-After variable swap (voc1↔voc2), the original maps route to semantically wrong parent
-exits because the partition of assignments has changed.  The corruption severity
-increases with CFLOBDD level (structure size).
+`MatrixMultiplyV4TopNode` evaluates bilinear polynomials by converting
+coefficients from `cpp_int` to `unsigned long long int`.  The coefficients
+grow doubly-exponentially with CFLOBDD level:
 
-See `memory/cflobdd-transpose-dag-corruption-analysis.md` for the detailed DAG trace.
+| Level | Coefficient | Fits in uint64? |
+|-------|-------------|-----------------|
+| 6 | 2^32 | ✅ |
+| 7 | 2^64 | ❌ (ULLONG_MAX = 2^64 - 1) |
+| 8 | 2^128 | ❌ |
+| 9 | 2^256 | ❌ |
 
-## Fix Applied: H×content Identity-Multiply Trick
+At level 7 (64 qubits), the coefficient `2^64` overflows `unsigned long long int`,
+wrapping to 0.  This causes `dot(self,self)` to return 0 instead of 1.0.
 
-### normalize() — H×content revert (REVERT qts-rollback)
+### Fix
 
-The aa52325 commit changed normalize() from:
+`matrix1234_complex_float_boost_top_node.cpp` line 937:
 ```cpp
-// OLD (safe for pe_7):
-c1 = MatrixMultiplyV4WithInfo(H, content);  // I × content
-// then conj(transpose(c1)) * c1
-```
-To:
-```cpp
-// NEW (SIGSEGV on pe_7):
-c_conj = MatrixConjugate(content);
-c_conj = MatrixTranspose(c_conj);    // transpose directly on content
-// then c_conj * content
-```
+// Before (broken at level ≥7):
+auto factor = j.second.convert_to<unsigned long long int>();
 
-The change introduced Type B crashes (SIGSEGV on pe_7).  **Reverted** to H×content
-approach because the identity-multiply inserts an intermediate CFLOBDD with a
-different internal DAG topology that `MatrixTranspose` handles safely.
-
-If even the H×content path produces `retMapSz > 2`, a fallback extracts the `[0,0]`
-entry via `EvaluateIteratively`.
-
-Key code location: `quantum_operation.hpp` normalize(), tagged `REVERT(qts-rollback)`.
-
-### dot() — H×content applied (REVERT qts-rollback)
-
-Same trick applied to `dot()` to prevent Type C (level-8 row 0 destruction):
-```cpp
-// Before:
-tmpVec = MatrixTranspose(other.content);           // direct transpose — DESTROYS row 0 at level≥8
-// After:
-auto other_safe = MatrixMultiplyV4WithInfo(H, other.content);  // I × other.content
-tmpVec = MatrixTranspose(other_safe);              // transpose on safe DAG
+// After (fixed up to level 8):
+auto factor = j.second.convert_to<double>();
 ```
 
-If even the safe path produces `retMapSz > 2`, a fallback extracts the `[0,0]` entry.
+`double` exactly represents all power-of-2 coefficients and the final
+`factor × amplitude_product` is always O(1).
 
-Key code location: `quantum_operation.hpp` dot(), tagged `REVERT(qts-rollback)`.
+### Verification
 
-Both `normalize()` and `dot()` now scale the original `content` (not the intermediate
-`c1`/`other_safe`) in their return paths, minimizing risk from the I×content DAG wrapper.
+`repro_postimage_corruption.py`: n=32,64,96,128 all pass.
+n=256 still fails (Type E).
 
-## Reproducers
+## Bug E: Level-9 post_image DAG Corruption (REMAINING)
 
-| Script | Circuit | What it tests | Status |
-|--------|---------|---------------|--------|
-| `python_pkg/repro_minimal.py` | dqc_pe_2 (4q) | Type A — retMapSz assertion | ✅ pass |
-| `python_pkg/repro_tslabelling_crash.py` | pe_7 (8q) | Type B — SIGSEGV | ✅ pass |
-| `python_pkg/workflow_tests/repro_transpose_bug.py` | synthetic (32-256q) | Type C — level-8 row 0 destruction | ⚠️ Test 1 pass, Test 2 fails |
+At CFLOBDD level ≥ 9 (256+ qubits), `MatrixMultiplyV4WithInfo`
+(gate application via `post_image`) produces states where:
 
-## Remaining Issue: Level-8 GramSchmidt Pipeline
+- Amplitudes are wrong (e.g., 5.3e-23 instead of 2^{-128} for |+>^256)
+- `dot(self,self)` returns garbage (e.g., 1.8e16 instead of 1.0)
+- `satisfy(self)` returns False
 
-With the H×content trick in `dot()`, Type C (row 0 destruction) is **prevented** —
-dot() now returns correct inner-product values at all levels.  However,
-`repro_transpose_bug.py` Test 2 (`|0> ∈ span(|0>, |+>^k|0>^(n-k))` for k=1..64, n≥128)
-still fails.  The failure is no longer in `dot()` but in subsequent GramSchmidt
-pipeline steps: `projectOnto` (scalar×vector), `MatrixPlus` (`ivec + neg_proj`),
-`checkifzero()`, or `normalizeInline()` — one of these operations is affected by
-DAG topology issues at level ≥ 8.
+This is distinct from the coefficient overflow (Bug D) — the underlying
+CFLOBDD DAG structure produced by `MatrixMultiplyV4WithInfo` is incorrect
+at level 9.
 
-## Modified Files
+### Affected Circuits
 
-### `quantum_operation.hpp`
-- `normalize()`: H×content revert (lines ~1060-1070) + [0,0] fallback + returns scaled `content`
-- `dot()`: H×content identity-multiply (lines ~1014-1025) + [0,0] fallback
+- grover128-plus-linear (256q): ❌ fail
+- grover150-plus-linear (300q → qNum=512, level 10): ❌ fail
+- grover128-zero-linear: ✅ pass (final state = |0⟩, trivial DAG)
+- repro_postimage_corruption n=256: ❌ fail
 
-### `cflobdd/CFLOBDD/matrix1234_node.cpp`
-- Line 2951, 2969: `// FIXME(qts-rollback)` — `m1.AddToEnd(v)` → `m1.AddToEnd(return_handle.LookupInv(v))`
-  Fixes a real level-1 transpose bug (old exit values used instead of return_handle indices).
-  Not the root cause of the current transpose corruption.
+### Investigation Trail
 
-## Key Files
+1. CFLOBDD DAG node-by-node dump shows correct static structure at level 7
+2. `MatrixMultiplyV4Node` (recursive symbolic multiply) produces correct
+   `cpp_int` bilinear polynomial coefficients (`2^64` at level 7)
+3. The damage is in `MatrixMultiplyV4WithInfoNode`'s DAG construction,
+   not in the multiply evaluation
+4. "Warmup" (calling Gram-Schmidt on any unrelated state before gate
+   application) changes the CFLOBDD global unique-table state, which
+   alters `MatrixMultiplyV4WithInfoNode`'s hash-consing behavior and
+   produces a different DAG — confirming the root cause is in the
+   unique-table / canonicalization interaction at high levels
 
-- `quantum_operation.hpp` — `normalize()`, `dot()`, `GramSchmidt()` (all fix sites)
-- `cflobdd/CFLOBDD/matrix1234_node.cpp` — `MatrixTransposeNode` (root cause)
-- `cflobdd/CFLOBDD/matrix1234_complex_float_boost_top_node.cpp` — `MatrixTransposeTop`
-- `python_pkg/repro_minimal.py` — Type A reproducer
-- `python_pkg/repro_tslabelling_crash.py` — Type B reproducer
-- `python_pkg/workflow_tests/repro_transpose_bug.py` — Type C / level-8 reproducer
-- `docs/agent-handoffs/cflobdd-level8-transpose-bug.md` — Level-8 specific analysis
-- `memory/cflobdd-transpose-dag-corruption-analysis.md` — Deep DAG analysis
-- `memory/cflobdd-transpose-dag-corruption-fix.md` — Fix history
+## Other Fixes Applied
+
+### satisfy() semantics preserved
+
+Investigation confirmed `satisfy()` logic (`lowerBound ⊆ spec ⊆ upperBound`)
+is correct.  The test failure was caused by `parse_qiskit_cir_lazy` setting
+`upperBound = initial_op` (overwriting the default Identity), which broke
+the `spec ⊆ upperBound` check.  Fix: removed the line.
+
+### Reproducer improvements
+
+- `repro_transpose_bug.py`: covers Gram-Schmidt / dot / normalize correctness
+- `repro_postimage_corruption.py`: covers post_image chain self-consistency

@@ -934,7 +934,7 @@ namespace CFL_OBDD {
 				for (auto &j : r.mapContents->map){
 					unsigned int index1 = j.first.first;
 					unsigned int index2 = j.first.second;
-					auto factor = j.second.convert_to<unsigned long long int>();
+					auto factor = j.second.convert_to<double>();
 					val = val + (factor * (c1->rootConnection.returnMapHandle[index1] * c2->rootConnection.returnMapHandle[index2])).convert_to<std::complex<double>>();
 				}
 				if (reductionMap.find(val) == reductionMap.end()){
@@ -995,7 +995,7 @@ namespace CFL_OBDD {
 					unsigned int index1 = j.first.first;
 					unsigned int index2 = j.first.second;
 					if (index1 != -1 && index2 != -1){
-						auto factor = j.second.convert_to<unsigned long long int>();
+						auto factor = j.second.convert_to<double>();
 						val = val + (factor * (c1->rootConnection.returnMapHandle[index1] * c2->rootConnection.returnMapHandle[index2]));
 					}
 				}

@@ -1,13 +1,29 @@
-# CFLOBDD Level 8+ Transpose Bug — Root Cause of grover128/150 Verification Failures
+# CFLOBDD Level 7+ Bugs — Root Cause of grover128/150 Verification Failures
 
 **Date:** 2026-08-10
-**Status:** Root cause localized to `MatrixTranspose` destroying row 0 at CFLOBDD level ≥ 8.
+**Status:** Partially fixed. Two distinct bugs identified: transpose routing (mitigated), MatrixMultiplyV4 coefficient overflow (**fixed** for level≤8). Level≥9 post_image DAG corruption remains.
 
 ## Executive Summary
 
-The grover128/150 `-linear` debug-check failures are caused by a **CFLOBDD `MatrixTranspose` bug** that corrupts row 0 of the transposed vector at level ≥ 8 (qNum ≥ 128).  This is NOT a precision/threshold issue — `[0,0]` extraction via `EvaluateIteratively` also returns 0, confirming that the matrix entry itself is destroyed.
+The grover128/150 `-linear` debug-check failures have multiple root causes:
 
-The damage propagates through two key code paths:
+1. **`MatrixTranspose` bug** (mitigated): corrupts row 0 of the transposed vector at level ≥ 8. Mitigated by H×content identity-multiply trick in `normalize()` and `dot()`.
+
+2. **`MatrixMultiplyV4TopNode` coefficient overflow** (**FIXED**): `convert_to<unsigned long long int>()` overflows at level ≥ 7 (coefficient `2^64` > `ULLONG_MAX`). Fixed by `convert_to<double>()`.
+
+3. **Level≥9 post_image DAG corruption** (REMAINING): `MatrixMultiplyV4WithInfo` produces incorrect state amplitudes at CFLOBDD level ≥ 9 (256+ qubits), causing `dot(self,self)` to return garbage values (e.g., 1.8e16 instead of 1.0).
+
+## Updated Impact Matrix
+
+| Circuit | Level | status | Why |
+|---------|-------|--------|-----|
+| grover32-plus/zero-linear (64q) | 7 | ✅ PASS | V4 overflow fix + warm DAG |
+| grover64-plus/zero-linear (128q) | 7 | ✅ PASS | V4 overflow fix |
+| grover128-zero-linear (256q) | 8 | ✅ PASS | Final state = \|0⟩, trivial DAG |
+| grover128-plus-linear (256q) | 8 | ✅ PASS (after fix) | V4 overflow fix |
+| grover128-plus-linear (256q) | 9 | ✗ FAIL | Level≥9 post_image DAG corruption |
+| grover150-plus-linear (300q) | 10 | ✗ FAIL | Level≥10 post_image DAG corruption |
+| grover150-zero-linear (300q) | 10 | ✅ PASS | Final state = \|0⟩, trivial DAG |
 1. **`dot()`** — uses `MatrixTranspose` directly → always hits the bug
 2. **`normalize()`** — uses `I × content` (Identity-multiply trick) → **avoids** transpose → works correctly
 

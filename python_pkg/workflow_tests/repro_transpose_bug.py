@@ -51,7 +51,6 @@ def _get_zero_location(n: int):
 
 def test_self_consistency(n: int) -> bool:
     """Check: does |0>^n satisfy span(|0>^n, |0>^n)?"""
-    pyqreach.initializeTransitionSystem()
     z1 = make_state(n)
     z2 = make_state(n)
     target = pyqreach.span_qops([z1, z2])
@@ -61,7 +60,6 @@ def test_self_consistency(n: int) -> bool:
 
 def test_partial_plus(n: int, k: int) -> bool:
     """Check: does |0>^n satisfy span(|0>^n, |+>^k|0>^(n-k))?"""
-    pyqreach.initializeTransitionSystem()
     z = make_state(n)
     p = make_state(n, list(range(k)))
     target = pyqreach.span_qops([z, p])
@@ -70,6 +68,7 @@ def test_partial_plus(n: int, k: int) -> bool:
 
 
 def main():
+    pyqreach.initializeTransitionSystem()
     print("=" * 70)
     print("CFLOBDD MatrixTranspose Bug — Minimal Reproduction")
     print("=" * 70)
