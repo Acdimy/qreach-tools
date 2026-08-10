@@ -1011,13 +1011,24 @@ class SingleVecTerm : public QuantumTerm {
     BIG_COMPLEX_FLOAT dot(const SingleVecTerm& other) const {
         /* bra(other) * ket(this) Note the complex number conjugation */
         unsigned int level = ceil(log2(this->qNum));
-        auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other.content);
+
+        // REVERT(qts-rollback): Wrap other.content in identity-multiply
+        // (I × other.content) before transpose — same trick used in normalize().
+        // This avoids the CFLOBDD MatrixTranspose corruption that destroys row 0
+        // at level >= 8, which caused dot() to return 0 for non-zero inner products.
+        // The identity-multiply changes the internal DAG topology to a "safe" form
+        // that transpose handles correctly.
+        auto H = ApplyGateF(std::pow(2, other.content.root->level - 1), 0,
+                            Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
+        CFLOBDD_COMPLEX_BIG other_safe =
+            Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, other.content);
+
+        auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other_safe);
         tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
         auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, this->content);
 
         // FALLBACK(qts-rollback, transpose-corruption):
-        // If transpose corrupts the row vector, retMapSz may exceed 2.
-        // Fall back to extracting the [0,0] entry directly.
+        // If even the safe path produces retMapSz>2, extract [0,0] entry.
         auto resMap = tmp.root->rootConnection.returnMapHandle;
         if (resMap.Size() > 2) {
             std::cerr << "Warning: dot() retMapSz=" << resMap.Size()
@@ -1068,17 +1079,19 @@ class SingleVecTerm : public QuantumTerm {
         // This is O(1) via EvaluateIteratively at row=0,col=0 — the same
         // approach used in dot()'s fallback.
         if (resMap.Size() > 2) {
-            std::cerr << "Warning: normalize() H*content retMapSz="
-                      << resMap.Size() << " > 2, extracting [0,0] entry."
-                      << std::endl;
             unsigned int totalBits = 2 * (1 << (content.root->level - 1));
             SH_OBDD::Assignment a(totalBits);
             for (unsigned int k = 0; k < totalBits; k++) a[k] = false;
             BIG_COMPLEX_FLOAT amp = mulres.root->EvaluateIteratively(a);
+            std::cerr << "DEBUG normalize() retMapSz=" << resMap.Size() << " > 2:"
+                      << " level=" << content.root->level
+                      << " dimfactor=" << dimfactor
+                      << " mulres[0,0]=" << amp
+                      << " mulres[0,0]*dimfactor=" << (amp.real()*dimfactor)
+                      << std::endl;
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
-            c1 = (1/factor) * c1;
-            return c1;
+            return (1.0 / factor) * content;   // scale original content, not c1
         }
         // end FALLBACK
 
@@ -1086,16 +1099,32 @@ class SingleVecTerm : public QuantumTerm {
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2) {
             amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
+            std::cerr << "DEBUG normalize() retMapSz=2:"
+                      << " level=" << content.root->level
+                      << " resMap[0]=" << resMap[0] << " resMap[1]=" << resMap[1]
+                      << " amp=" << amp << " amp*df=" << (amp.real()*dimfactor)
+                      << std::endl;
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
-            c1 = (1/factor) * c1;
+            return (1.0 / factor) * content;   // scale original content, not c1
         } else {
-            std::cout << "Warning: SingleVecTerm::normalize() has only one factor!" << std::endl;
+            // DEBUG: extract [0,0] directly to see if it differs from resMap[0]
+            unsigned int dbg_totalBits = 2 * (1 << (content.root->level - 1));
+            SH_OBDD::Assignment dbg_a(dbg_totalBits);
+            for (unsigned int dbg_k = 0; dbg_k < dbg_totalBits; dbg_k++) dbg_a[dbg_k] = false;
+            BIG_COMPLEX_FLOAT dbg_amp00 = mulres.root->EvaluateIteratively(dbg_a);
             amp = resMap[0];
+            std::cerr << "DEBUG normalize() resMapSz=1:"
+                      << " level=" << content.root->level
+                      << " dimfactor=" << dimfactor
+                      << " resMap[0]=" << amp
+                      << " resMap[0]*dimfactor=" << (amp.real()*dimfactor)
+                      << " mulres[0,0]=" << dbg_amp00
+                      << " mulres[0,0]*dimfactor=" << (dbg_amp00.real()*dimfactor)
+                      << std::endl;
             assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
-            c1 = VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
+            return VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
         }
-        return c1;
     }
     void normalizeInline() {
         this->content = this->normalize();

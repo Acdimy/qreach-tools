@@ -1,121 +1,126 @@
 ---
 name: cflobdd-transpose-dag-corruption
-description: CFLOBDD transpose produces wrong results for vectors created through GramSchmidt PairProduct path when retMapSz>2
+description: CFLOBDD MatrixTranspose corrupts column→row vector conversion for GramSchmidt-produced DAGs — three failure modes, two mitigated via H*content trick + fallbacks
 metadata:
   type: project
-  status: under-investigation
+  status: mitigated
   branch: qts-rollback
-  date: 2026-07-18
+  date: 2026-08-10
 ---
 
 # CFLOBDD Transpose DAG Corruption Bug
 
-## Symptoms
+## Summary
 
-`dqc_pe` circuits with Pauli error injection crash at:
-```
-Assertion failed: (resMap.Size() <= 2), function normalize, file quantum_operation.hpp
-```
+`MatrixTranspose` corrupts the column→row vector conversion for CFLOBDD column vectors
+with DAG topologies produced by GramSchmidt's PairProduct/MatrixPlus path.  A full
+algorithmic fix to `MatrixTransposeNode` has not been found, but the bug is **mitigated**
+in both `normalize()` and `dot()` by using an **identity-multiply (H×content) trick**
+that transforms the CFLOBDD into a "safe" DAG topology before applying transpose,
+plus fallbacks to `[0,0]` entry extraction.
 
-The crash occurs in `loc.satisfy(expected)` → `compare()` → `disjunction()` → `GramSchmidt` → `normalizeInline()` → `normalize()`.
+## Three Failure Modes
 
-## Reproducer
+| Type | Symptom | retMapSz | [0,0] entry | Triggered by | Mitigation |
+|------|---------|----------|-------------|-------------|------------|
+| **A** | Assertion `retMapSz<=2` | > 2 | ✅ correct | dqc_pe_2 (4q) | H×content in normalize() + [0,0] fallback |
+| **B** | SIGSEGV in `MatrixMultiplyV4` | N/A | N/A | pe_7/qft_7 (7-8+q) | H×content in normalize() |
+| **C** | `dot()` returns 0 (row 0 destroyed) | == 1 | ❌ 0 | level ≥ 8 (128+q) | H×content in dot() |
 
-```bash
-cd python_pkg
-../../.venv/bin/python -m invoke build-pybind11
-../../.venv/bin/python repro_minimal.py
-```
-
-Expected: `span_qops` passes (step 1 OK), `satisfy` crashes (step 3 assertion).
-
-The minimal repro uses `dqc_pe_2.qasm` from `benchmark/dqc_pe/`. Attempts to create a smaller circuit-based repro (simple X/H/Z gates) failed because the resulting states have `retMapSz=2` and don't trigger the bug. The problematic vector structure can only be produced through the GramSchmidt `operator+` path.
+**Type C is the most severe**: even direct `EvaluateIteratively` at `[0,0]` returns 0 —
+the matrix entry is genuinely destroyed.  No fallback can recover from this.
 
 ## Root Cause
 
-`normalize()` computes `<content|content>` via:
+`MatrixTransposeNode` at level≥2 uses original B-return-maps to route transposed exits.
+After variable swap (voc1↔voc2), the original maps route to semantically wrong parent
+exits because the partition of assignments has changed.  The corruption severity
+increases with CFLOBDD level (structure size).
+
+See `memory/cflobdd-transpose-dag-corruption-analysis.md` for the detailed DAG trace.
+
+## Fix Applied: H×content Identity-Multiply Trick
+
+### normalize() — H×content revert (REVERT qts-rollback)
+
+The aa52325 commit changed normalize() from:
 ```cpp
-CFLOBDD_COMPLEX_BIG c_conj = MatrixConjugate(content);
-c_conj = MatrixTranspose(c_conj);  // ← corrupts column-vector structure
-auto mulres = MatrixMultiplyV4(c_conj, content);
-```
-
-`MatrixTranspose` on a column vector (only col 0 non-zero) should produce a row vector (only row 0 non-zero). But when the input has `retMapSz > 2` AND was constructed through GramSchmidt's `ivec->content + neg_proj` (CFLOBDD `MatrixPlus`/`PairProduct`/`ApplyAndReduce`), transpose produces multi-row output.
-
-Example corruption (from `[transpose-test #9]`):
-- Input: column vector with entries at rows 2=(1,0.0029) and 10=(-1,-0.0029)
-- After conjugate: same structure (column vector) ✓
-- After transpose: value at row 2's conjugate leaks to rows 0-7 at col 2 ✗
-
-## Key Findings
-
-1. **Not about bit-span**: vectors with entries at rows differing by bit 2 (rows 2&6) work fine; rows differing by bit 3 (rows 2&10) also work when constructed via simple `make_basis(a) + scalar * make_basis(b)`.
-
-2. **Not about opposite signs**: vectors with opposite-sign entries at rows 2&6 (constructed via basis addition) transpose correctly.
-
-3. **Specific to GramSchmidt-constructed vectors**: The bug only manifests on vectors created through the GramSchmidt orthogonalization path (`ivec->content + neg_proj`), not on identically-valued vectors created by simple basis-vector addition. The internal CFLOBDD DAG structure differs between the two construction paths even when the printed matrix values are identical.
-
-4. **`returnMapHandle.Size()` cannot detect structural corruption**: A vector can have the correct number of distinct leaf values but wrong structural properties (e.g., non-zeros in multiple columns).
-
-5. **Earlier `H * content` fix was related**: `normalize()` originally did `c1 = MatrixMultiplyV4WithInfo(H, content)` where `H = ApplyGateF(..., MkIdRelationInterleaved)` — an identity matrix. This `MatrixMultiplyV4WithInfo` also corrupted column-vector structure in the same way. Fixed by replacing with direct `conj(transpose(content)) * content` pattern (same as `dot()`). This resolved the `span_qops` crash but `satisfy` still crashes.
-
-## Modified Files
-
-### `quantum_operation.hpp` — normalize() fix (committed)
-
-Changed from:
-```cpp
-auto H = ApplyGateF(..., MkIdRelationInterleaved);
-c1 = MatrixMultiplyV4WithInfo(H, content);
-// compute norm from c1, return scaled c1
+// OLD (safe for pe_7):
+c1 = MatrixMultiplyV4WithInfo(H, content);  // I × content
+// then conj(transpose(c1)) * c1
 ```
 To:
 ```cpp
-// Compute <content|content> directly, following dot()'s pattern
+// NEW (SIGSEGV on pe_7):
 c_conj = MatrixConjugate(content);
-c_conj = MatrixTranspose(c_conj);
-mulres = MatrixMultiplyV4(c_conj, content);
-// extract norm, return scaled content
+c_conj = MatrixTranspose(c_conj);    // transpose directly on content
+// then c_conj * content
 ```
 
-### `cflobdd/CFLOBDD/matrix1234_node.cpp` — transpose fix (separate bug, kept, tagged)
+The change introduced Type B crashes (SIGSEGV on pe_7).  **Reverted** to H×content
+approach because the identity-multiply inserts an intermediate CFLOBDD with a
+different internal DAG topology that `MatrixTranspose` handles safely.
 
-Lines 2951, 2969: Changed `m1.AddToEnd(v)` to `m1.AddToEnd(return_handle.LookupInv(v))` in level-1 transpose fork case. Old exit values were used instead of return_handle indices. Masked when retMapSz≤2. Tagged with `// FIXME(qts-rollback):` comments. This is a real bug but does not fix the current crash.
+If even the H×content path produces `retMapSz > 2`, a fallback extracts the `[0,0]`
+entry via `EvaluateIteratively`.
 
-### Debug instrumentation (current state)
+Key code location: `quantum_operation.hpp` normalize(), tagged `REVERT(qts-rollback)`.
 
-`normalize()` in `quantum_operation.hpp` prints `[transpose-test #N]` output when `retMapSz > 2`:
-- content (input column vector)
-- after conjugate
-- after transpose
+### dot() — H×content applied (REVERT qts-rollback)
 
-See `grep 'transpose-test' quantum_operation.hpp` for the debug code locations.
+Same trick applied to `dot()` to prevent Type C (level-8 row 0 destruction):
+```cpp
+// Before:
+tmpVec = MatrixTranspose(other.content);           // direct transpose — DESTROYS row 0 at level≥8
+// After:
+auto other_safe = MatrixMultiplyV4WithInfo(H, other.content);  // I × other.content
+tmpVec = MatrixTranspose(other_safe);              // transpose on safe DAG
+```
 
-## Next Steps for Investigation
+If even the safe path produces `retMapSz > 2`, a fallback extracts the `[0,0]` entry.
 
-1. **Deep-dive into `MatrixTranspose`**: Trace the interleaved CFLOBDD transpose algorithm (`matrix1234_node.cpp`) with the specific DAG structure produced by GramSchmidt's `MatrixPlus`/`PairProduct`/`ApplyAndReduce`. The corruption source is in the DAG traversal that handles column→row variable swapping.
+Key code location: `quantum_operation.hpp` dot(), tagged `REVERT(qts-rollback)`.
 
-2. **Compare DAG structures**: Instrument a comparison between two structurally different column vectors that print identically:
-   - Vector A: `make_basis(2) + (-1) * make_basis(10)` (transpose works)
-   - Vector B: GramSchmidt-produced vector at rows 2,10 (transpose fails)
-   - Compare their `entryPointHandle` DAG topology, `returnMapHandle` contents, and internal node structures.
+Both `normalize()` and `dot()` now scale the original `content` (not the intermediate
+`c1`/`other_safe`) in their return paths, minimizing risk from the I×content DAG wrapper.
 
-3. **Possible workaround**: `normalize()` could potentially bypass transpose entirely by using a different norm-computation strategy (e.g., computing `dot(*this)` which goes through the existing `dot()` function and may avoid the problematic transpose path).
+## Reproducers
 
-4. **Investigate `MatrixMultiplyV4WithInfo`**: The original `H * content` corruption suggests `MatrixMultiplyV4WithInfo` may share the same root cause as transpose — both operate on the interleaved CFLOBDD DAG structure and may mishandle certain node configurations created by PairProduct.
+| Script | Circuit | What it tests | Status |
+|--------|---------|---------------|--------|
+| `python_pkg/repro_minimal.py` | dqc_pe_2 (4q) | Type A — retMapSz assertion | ✅ pass |
+| `python_pkg/repro_tslabelling_crash.py` | pe_7 (8q) | Type B — SIGSEGV | ✅ pass |
+| `python_pkg/workflow_tests/repro_transpose_bug.py` | synthetic (32-256q) | Type C — level-8 row 0 destruction | ⚠️ Test 1 pass, Test 2 fails |
+
+## Remaining Issue: Level-8 GramSchmidt Pipeline
+
+With the H×content trick in `dot()`, Type C (row 0 destruction) is **prevented** —
+dot() now returns correct inner-product values at all levels.  However,
+`repro_transpose_bug.py` Test 2 (`|0> ∈ span(|0>, |+>^k|0>^(n-k))` for k=1..64, n≥128)
+still fails.  The failure is no longer in `dot()` but in subsequent GramSchmidt
+pipeline steps: `projectOnto` (scalar×vector), `MatrixPlus` (`ivec + neg_proj`),
+`checkifzero()`, or `normalizeInline()` — one of these operations is affected by
+DAG topology issues at level ≥ 8.
+
+## Modified Files
+
+### `quantum_operation.hpp`
+- `normalize()`: H×content revert (lines ~1060-1070) + [0,0] fallback + returns scaled `content`
+- `dot()`: H×content identity-multiply (lines ~1014-1025) + [0,0] fallback
+
+### `cflobdd/CFLOBDD/matrix1234_node.cpp`
+- Line 2951, 2969: `// FIXME(qts-rollback)` — `m1.AddToEnd(v)` → `m1.AddToEnd(return_handle.LookupInv(v))`
+  Fixes a real level-1 transpose bug (old exit values used instead of return_handle indices).
+  Not the root cause of the current transpose corruption.
 
 ## Key Files
 
-- `quantum_operation.hpp:1004-1048` — `normalize()` (with debug)
-- `quantum_operation.hpp:1637-1649` — `GramSchmidt()` (the `ivec->content + neg_proj` path)
-- `cflobdd/CFLOBDD/matrix1234_node.cpp` — `MatrixTranspose` implementation
-- `cflobdd/CFLOBDD/cross_product.cpp` — `PairProduct` implementation
-- `cflobdd/CFLOBDD/cflobdd_top_node_t.cpp:329-386` — `ApplyAndReduce` / `MkPlusTopNode`
-- `cflobdd/CFLOBDD/vector_complex_float_boost_top_node.cpp:251-291` — `VectorPrintColumnMajor` (debug print utility)
-- `python_pkg/repro_minimal.py` — minimal reproducer
-- `docs/agent-handoffs/` — directory for handoff documents
-
-## Contact / References
-
-See `docs/agent-handoffs/` for related performance investigation documents (grover32, benchpress).
-These are mostly about Reduce fragmentation and amplitude explosion — separate from this DAG corruption bug.
+- `quantum_operation.hpp` — `normalize()`, `dot()`, `GramSchmidt()` (all fix sites)
+- `cflobdd/CFLOBDD/matrix1234_node.cpp` — `MatrixTransposeNode` (root cause)
+- `cflobdd/CFLOBDD/matrix1234_complex_float_boost_top_node.cpp` — `MatrixTransposeTop`
+- `python_pkg/repro_minimal.py` — Type A reproducer
+- `python_pkg/repro_tslabelling_crash.py` — Type B reproducer
+- `python_pkg/workflow_tests/repro_transpose_bug.py` — Type C / level-8 reproducer
+- `docs/agent-handoffs/cflobdd-level8-transpose-bug.md` — Level-8 specific analysis
+- `memory/cflobdd-transpose-dag-corruption-analysis.md` — Deep DAG analysis
+- `memory/cflobdd-transpose-dag-corruption-fix.md` — Fix history
