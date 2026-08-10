@@ -1062,32 +1062,23 @@ class SingleVecTerm : public QuantumTerm {
         double dimfactor = std::pow(double(2), double(std::pow(2, content.root->level-1)-1));
 
         // FALLBACK(qts-rollback, transpose-corruption):
-        // If the H*content path also hits retMapSz>2, use direct row-evaluation.
+        // If the H*content path produces retMapSz>2 (transpose corrupts the
+        // row vector), extract the [0,0] entry directly.  Even with a corrupted
+        // row vector, row 0 is correct, so mulres[0,0] = <content|content>.
+        // This is O(1) via EvaluateIteratively at row=0,col=0 — the same
+        // approach used in dot()'s fallback.
         if (resMap.Size() > 2) {
             std::cerr << "Warning: normalize() H*content retMapSz="
-                      << resMap.Size() << " > 2, using direct row-eval."
+                      << resMap.Size() << " > 2, extracting [0,0] entry."
                       << std::endl;
-            unsigned int level = content.root->level;
-            unsigned int indexBits = 1 << (level - 1);
-            unsigned int totalBits = 2 * indexBits;
-            unsigned long int numRows = 1UL << indexBits;
-            BIG_COMPLEX_FLOAT normsq = 0;
+            unsigned int totalBits = 2 * (1 << (content.root->level - 1));
             SH_OBDD::Assignment a(totalBits);
-            for (unsigned long int row = 0; row < numRows; row++) {
-                unsigned long int mask = 1UL;
-                for (int k = indexBits - 1; k >= 0; k--) {
-                    a[2 * k] = (row & mask) ? true : false;
-                    mask <<= 1;
-                }
-                for (unsigned int k = 0; k < indexBits; k++)
-                    a[2 * k + 1] = false;
-                BIG_COMPLEX_FLOAT val = content.root->EvaluateIteratively(a);
-                normsq += val.real() * val.real() + val.imag() * val.imag();
-            }
-            double factor = double(sqrt(normsq));
-            assert(factor > 0);
-            if (abs(factor - 1.0) < 1e-10) return content;
-            return (1.0 / factor) * content;
+            for (unsigned int k = 0; k < totalBits; k++) a[k] = false;
+            BIG_COMPLEX_FLOAT amp = mulres.root->EvaluateIteratively(a);
+            assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
+            double factor = double(sqrt(amp.real()));
+            c1 = (1/factor) * c1;
+            return c1;
         }
         // end FALLBACK
 
