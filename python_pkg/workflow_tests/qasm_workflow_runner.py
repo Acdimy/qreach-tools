@@ -283,6 +283,15 @@ def _run_debug_check(
         satisfied = all(ts.Locations[loc].satisfy(target) for loc in _result_locs)
         return {"debug_kind": "grover_converted", "debug_satisfied": satisfied}
 
+    if stem.startswith("ghz"):
+        # GHZ state = (|00...0> + |11...1>) / sqrt(2)
+        # Final state must lie in span({|00...0>, |11...1>})
+        basis_zero = quantum_state("0" * qc.num_qubits)
+        basis_one = quantum_state("1" * qc.num_qubits)
+        target = span_qops([basis_zero, basis_one])
+        satisfied = all(ts.Locations[loc].satisfy(target) for loc in _result_locs)
+        return {"debug_kind": "ghz", "debug_satisfied": satisfied}
+
     if original_qc is not None:
         expected = _simulate_final_operation(original_qc, initial_state, lazy=lazy)
         for loc in all_leaf:

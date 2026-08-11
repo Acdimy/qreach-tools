@@ -1083,12 +1083,7 @@ class SingleVecTerm : public QuantumTerm {
             SH_OBDD::Assignment a(totalBits);
             for (unsigned int k = 0; k < totalBits; k++) a[k] = false;
             BIG_COMPLEX_FLOAT amp = mulres.root->EvaluateIteratively(a);
-            std::cerr << "DEBUG normalize() retMapSz=" << resMap.Size() << " > 2:"
-                      << " level=" << content.root->level
-                      << " dimfactor=" << dimfactor
-                      << " mulres[0,0]=" << amp
-                      << " mulres[0,0]*dimfactor=" << (amp.real()*dimfactor)
-                      << std::endl;
+            // Diag output removed — was: std::cerr << "DEBUG normalize() retMapSz=" << ...
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
             return (1.0 / factor) * content;   // scale original content, not c1
@@ -1099,29 +1094,13 @@ class SingleVecTerm : public QuantumTerm {
         BIG_COMPLEX_FLOAT amp;
         if(resMap.Size() == 2) {
             amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-            std::cerr << "DEBUG normalize() retMapSz=2:"
-                      << " level=" << content.root->level
-                      << " resMap[0]=" << resMap[0] << " resMap[1]=" << resMap[1]
-                      << " amp=" << amp << " amp*df=" << (amp.real()*dimfactor)
-                      << std::endl;
+            // Diag output removed
             assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
             double factor = double(sqrt(amp.real()));
             return (1.0 / factor) * content;   // scale original content, not c1
         } else {
-            // DEBUG: extract [0,0] directly to see if it differs from resMap[0]
-            unsigned int dbg_totalBits = 2 * (1 << (content.root->level - 1));
-            SH_OBDD::Assignment dbg_a(dbg_totalBits);
-            for (unsigned int dbg_k = 0; dbg_k < dbg_totalBits; dbg_k++) dbg_a[dbg_k] = false;
-            BIG_COMPLEX_FLOAT dbg_amp00 = mulres.root->EvaluateIteratively(dbg_a);
             amp = resMap[0];
-            std::cerr << "DEBUG normalize() resMapSz=1:"
-                      << " level=" << content.root->level
-                      << " dimfactor=" << dimfactor
-                      << " resMap[0]=" << amp
-                      << " resMap[0]*dimfactor=" << (amp.real()*dimfactor)
-                      << " mulres[0,0]=" << dbg_amp00
-                      << " mulres[0,0]*dimfactor=" << (dbg_amp00.real()*dimfactor)
-                      << std::endl;
+            // Diag output removed
             assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
             return VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
         }

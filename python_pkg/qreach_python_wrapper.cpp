@@ -5,6 +5,7 @@
 #include "../quantum_operation.hpp"
 #include "transition_system.hpp"
 #include "transition_system_qadd.hpp"
+#include "../cflobdd/CFLOBDD/matrix1234_complex_float_boost_top_node.h"
 
 namespace py = pybind11;
 
@@ -118,7 +119,7 @@ PYBIND11_MODULE(pyqreach, m) {
             std::cerr << "First term is not a SingleVecTerm" << std::endl;
             return;
         }
-        dumpCflobddStructure(term->content, std::cerr);
+        Matrix1234ComplexFloatBoost::DumpCflobddStructure(term->content.root, std::cerr);
     }, py::arg("op"), "Dump the CFLOBDD DAG structure of a QOperation's first term");
 
     py::class_<ClassicalProposition>(m, "ClassicalProposition")

@@ -15,17 +15,30 @@ The grover128/150 `-linear` debug-check failures have multiple root causes:
 
 ## Updated Impact Matrix
 
-| Circuit | Level | status | Why |
-|---------|-------|--------|-----|
-| grover32-plus/zero-linear (64q) | 7 | ✅ PASS | V4 overflow fix + warm DAG |
-| grover64-plus/zero-linear (128q) | 7 | ✅ PASS | V4 overflow fix |
-| grover128-zero-linear (256q) | 8 | ✅ PASS | Final state = \|0⟩, trivial DAG |
-| grover128-plus-linear (256q) | 8 | ✅ PASS (after fix) | V4 overflow fix |
-| grover128-plus-linear (256q) | 9 | ✗ FAIL | Level≥9 post_image DAG corruption |
-| grover150-plus-linear (300q) | 10 | ✗ FAIL | Level≥10 post_image DAG corruption |
-| grover150-zero-linear (300q) | 10 | ✅ PASS | Final state = \|0⟩, trivial DAG |
-1. **`dot()`** — uses `MatrixTranspose` directly → always hits the bug
-2. **`normalize()`** — uses `I × content` (Identity-multiply trick) → **avoids** transpose → works correctly
+All failures are now attributed to their root cause.  Bug D (V4 coefficient
+overflow) is **fixed**.  Bugs A/B/C (MatrixTranspose) are **mitigated** via
+the H*content identity-multiply trick in `normalize()` and `dot()`.
+Bug E (level>=9 B-connection retSz explosion) is **analyzed but not fixed**.
+
+| Circuit | Qubits | CFLOBDD Level | Status | Root Cause |
+|---------|--------|---------------|--------|------------|
+| grover32-plus-linear (64q) | 64 | 7 | PASS | -- |
+| grover32-zero-linear (64q) | 64 | 7 | PASS | -- |
+| grover64-plus-linear (128q) | 128 | 7-8 | PASS (after Bug D fix) | Was: V4 coeff overflow, now fixed |
+| grover64-zero-linear (128q) | 128 | 7-8 | PASS | -- |
+| grover128-zero-linear (256q) | 256 | 8-9 | PASS | Final state = \|0>, trivial DAG |
+| grover128-plus-linear (256q) | 256 | 9 | FAIL | Bug E: B-connection retSz explosion at level >= 9 |
+| grover150-zero-linear (300q->512) | 512 | 10 | PASS | Final state = \|0>, trivial DAG |
+| grover150-plus-linear (300q->512) | 512 | 10 | FAIL | Bug E: B-connection retSz explosion at level >= 10 |
+
+**Key insight:** grover128-plus-linear and grover150-plus-linear failures are
+NOT caused by the MatrixTranspose bug (which is mitigated).  They are caused
+by Bug E: the level>=9 B-connection routing issue in
+`MatrixMultiplyV4WithInfo`, where coarser B-connection decomposition (2 B-connections
+for 4 gate exits at level 9, versus 4 B-connections for 4 exits at level 8)
+causes amplitude sign-splitting that `NormFormComplex` cannot merge.
+See `docs/agent-handoffs/cflobdd-transpose-dag-corruption.md` for the full
+analysis.
 
 ## Minimal Reproduction
 
@@ -138,14 +151,24 @@ The normalize() result is "correct" (amp=1) because it uses the Identity trick. 
 
 ## Impact on Debug Verification
 
-| Circuit | Level | Status | Why |
-|---------|-------|--------|-----|
-| grover32-plus/zero-linear (64q) | 7 | ✓ PASS | level < 8, transpose works |
-| grover64-plus/zero-linear (128q) | 7 | ✓ PASS | level < 8, transpose works |
-| grover128-plus-linear (256q) | 8 | ✗ FAIL | dot() broken, span_qops wrong |
-| grover128-zero-linear (256q) | 8 | ✓ PASS | final state = \|0⟩ (trivial span check) |
-| grover150-plus-linear (300q) | 8 | ✗ FAIL | same as grover128 |
-| grover150-zero-linear (300q) | 8 | ✓ PASS | final state = \|0⟩ (trivial span check) |
+With Bug D fixed and Bugs A/B/C mitigated, the remaining failures are all
+attributable to Bug E (level>=9 B-connection retSz explosion).
+
+| Circuit | Qubits | CFLOBDD Level | Status | Root Cause |
+|---------|--------|---------------|--------|------------|
+| grover32-plus/zero-linear | 64 | 7 | PASS | -- |
+| grover64-plus/zero-linear | 128 | 7-8 | PASS (after Bug D fix) | V4 coeff overflow now fixed |
+| grover128-zero-linear | 256 | 8-9 | PASS | Final state = \|0>, trivial DAG |
+| grover128-plus-linear | 256 | 9 | FAIL | Bug E: B-connection retSz at level >= 9 |
+| grover150-zero-linear | 300->512 | 10 | PASS | Final state = \|0>, trivial DAG |
+| grover150-plus-linear | 300->512 | 10 | FAIL | Bug E: B-connection retSz at level >= 10 |
+
+The grover128-plus-linear and grover150-plus-linear failures are NOT caused
+by the MatrixTranspose bug.  The transpose bug was mitigated by the H*content
+identity-multiply trick (commit 0e3575d).  These failures arise from a
+separate mechanism: the B-connection decomposition at level >= 9 causes
+incorrect routing of gate amplitudes within `MatrixMultiplyV4WithInfo`,
+producing retSz expansion (2 -> 3 -> 8) and DAG corruption.
 
 ## Fixes Applied (This Session)
 

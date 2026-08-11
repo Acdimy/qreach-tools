@@ -1039,6 +1039,16 @@ namespace CFL_OBDD {
 			//return(new CFLOBDDTopNodeFloatBoost(reduced_tempHandle, inducedReturnMap));
 			return(new CFLOBDDTopNodeComplexFloatBoost(reduced_tempHandle, v));
 		}
+
+		void DumpCflobddStructure(CFLOBDDTopNodeComplexFloatBoostRefPtr n, std::ostream & out) {
+			out << "[CFLOBDD L=" << n->level
+			    << " retSz=" << n->rootConnection.returnMapHandle.Size() << "]" << std::endl;
+			out << "  retVals: ";
+			for (unsigned int i = 0; i < n->rootConnection.returnMapHandle.Size(); i++) {
+				out << n->rootConnection.returnMapHandle[i] << " ";
+			}
+			out << std::endl;
+		}
 	}
 }
 

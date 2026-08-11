@@ -1,0 +1,2 @@
+filename,relative_filename,status,error,timeout_seconds,num_qubits,num_gates,num_locations,num_result_locations,lazy,lazy_pruned_locations,lazy_check_passed,time_total,time_load_qasm,time_prepare_ts,time_fixed_point_post,verification_time,error_injection,injection_position,injection_qubit,injection_gate,debug_enabled,debug_kind,debug_satisfied,model_check_satisfied,model_check_status
+/Users/ftdac/thu/qreach-tools/python_pkg/benchmark/converted_from_qai_ghz/ghz250.qasm,.,error,worker exited with code -6 without returning a result,300.0,,,,,True,,,,,,,,False,,,,False,,,,

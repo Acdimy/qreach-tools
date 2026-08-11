@@ -84,6 +84,8 @@ namespace CFL_OBDD {
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MatrixMultiplyV4TopNode(CFLOBDDTopNodeComplexFloatBoostRefPtr c1, CFLOBDDTopNodeComplexFloatBoostRefPtr c2);
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MatrixMultiplyV4WithInfoTopNode(CFLOBDDTopNodeComplexFloatBoostRefPtr c1, CFLOBDDTopNodeComplexFloatBoostRefPtr c2);
 
+		extern void DumpCflobddStructure(CFLOBDDTopNodeComplexFloatBoostRefPtr n, std::ostream & out);
+
 		// Subroutines for Discrete Fourier Transform
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkCFLOBDDMatrixEqVoc14Top(unsigned int i);
 		extern CFLOBDDTopNodeComplexFloatBoostRefPtr MkFourierDiagonalComponentTop(unsigned int i);
