@@ -145,8 +145,16 @@ bool hasHadamardBasisSymbol(const std::string& str) {
 std::vector<double> simpleProductStateAmplitudes(const std::string& str, unsigned int physicalQubits) {
     assert(isSimpleProductStateString(str));
     assert(physicalQubits >= str.size());
+    // Use size_t for shifts to avoid 32-bit overflow.
+    // Still limited to physicalQubits < 32 in practice because
+    // 2^physicalQubits entries won't fit in memory beyond that.
+    if (physicalQubits >= 32) {
+        std::cerr << "simpleProductStateAmplitudes: physicalQubits=" << physicalQubits
+                  << " >= 32, cannot allocate 2^" << physicalQubits << " entries" << std::endl;
+        std::abort();
+    }
     std::string padded = stringPadding(str, physicalQubits);
-    unsigned int basisSize = 1 << physicalQubits;
+    size_t basisSize = size_t(1) << physicalQubits;
     std::vector<double> realAmps(basisSize, 0.0);
 
     unsigned int hadamardCount = 0;
@@ -155,7 +163,7 @@ std::vector<double> simpleProductStateAmplitudes(const std::string& str, unsigne
             ++hadamardCount;
         }
     }
-    double baseAmp = 1.0 / std::sqrt(static_cast<double>(1 << hadamardCount));
+    double baseAmp = 1.0 / std::sqrt(static_cast<double>(size_t(1) << hadamardCount));
 
     for (unsigned int basis = 0; basis < basisSize; ++basis) {
         double amp = baseAmp;
@@ -987,9 +995,9 @@ class SingleVecTerm : public QuantumTerm {
         // qubits is the realQubits, qNum is the total physical qubits.
         unsigned level = ceil(log2(qubits));
         this->qNum = std::pow(2, level);
-        assert(amp.size() == 2 * (1 << qubits));
+        assert(amp.size() == 2 * (size_t(1) << qubits));
         // Padding the amp to 2^(this->qNum) with 0s
-        while(amp.size() < (1 << this->qNum)) {
+        while(amp.size() < (size_t(1) << this->qNum)) {
             amp.push_back(0);
         }
         CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
