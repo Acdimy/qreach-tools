@@ -6,7 +6,7 @@ metadata:
   status: partially-fixed
   branch: qts-rollback
   date: 2026-08-10
-  updated: 2026-08-10
+  updated: 2026-08-11
 ---
 
 # CFLOBDD DAG Corruption Bugs
@@ -19,7 +19,7 @@ Two are **fixed/mitigated**; one remains at level ≥ 9.
 | Bug | Operation | Symptom | Level | Status |
 |-----|-----------|---------|-------|--------|
 | **A/B** (transpose) | `MatrixTransposeNode` | retMapSz>2 / SIGSEGV | ≥3 (4q) | ✅ mitigated (H×content trick) |
-| **C** (transpose) | `MatrixTranspose` | dot() row 0 destroyed | ≥8 (128q) | ✅ mitigated (H×content trick in dot()) |
+| **C** (transpose) | `MatrixTranspose` | dot() row 0 destroyed | ≥8 (128q) | ⚠️ partially mitigated — platform-dependent (see §Platform Dependence) |
 | **D** (V4 coeff overflow) | `MatrixMultiplyV4TopNode` | dot() returns 0 instead of 1.0 | ≥7 (64q) | ✅ **fixed** (`convert_to<double>`) |
 | **E** (post_image DAG) | `MatrixMultiplyV4WithInfo` | B-connection retSz explosion, satisfy(self)=False | ≥9 (256q) | 🔍 analyzed, not fixed |
 
@@ -254,6 +254,80 @@ through the same connection.  Potential approaches:
 4. **Tactical workaround: force lower level** -- for 256-qubit circuits,
    it may be possible to force CFLOBDD level 8 (which works correctly) by
    adjusting qubit padding.  This is a stopgap, not a fix.
+
+## Platform Dependence: Hash-Consing Sensitivity to Memory Layout
+
+### Discovery (2026-08-11)
+
+The **GHZ benchmark suite** (`benchmark/converted_from_qai_ghz/`) revealed that
+Bug C manifests **platform-dependently** at CFLOBDD level 8:
+
+| Platform | ghz002–200 (L≤8) | ghz250–500 (L=8) | ghz550–800 (L≥9) |
+|----------|:---:|:---:|:---:|
+| macOS (Apple Silicon) | ✅ PASS | ❌ normalize() assert | ❌ float_next<double> overflow |
+| Linux (x86-64) | ✅ PASS | ✅ PASS | ❌ float_next<double> overflow |
+
+On macOS, ghz250–500 crash at `quantum_operation.hpp` in `normalize()`:
+```
+assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8)
+```
+The Identity-multiply trick produces `retMapSz=1` with a garbled non-zero
+amplitude — the transpose corruption destroys row 0 of the intermediate matrix.
+
+On Linux, the same circuits pass.  The state produced by the identical gate
+sequence is self-consistent.
+
+### Root Cause
+
+CFLOBDD relies on **hash-consing** (pointer-based hashing of internal DAG
+nodes) for canonicalization.  Hash values depend on heap addresses returned
+by `malloc`.  macOS and Linux use different `malloc` implementations
+(macOS: nanomalloc; Linux: ptmalloc), producing different address layouts
+and therefore **different hash-consing decisions**.
+
+This means the *same* CFLOBDD operation can produce **different internal
+DAG topologies** on different platforms.  Some topologies happen to route
+`MatrixTranspose` assignments to correct exits; others route them to wrong
+exits, destroying row 0.
+
+### Connection to the Warmup Effect
+
+This is the same mechanism as the documented **warmup effect** (Bug E
+investigation trail, point 4): running Gram-Schmidt on an unrelated state
+before the post_image chain changes the unique-table state, which changes
+which internal DAG nodes get hash-consed.  Different warmup states produce
+different corruption patterns.
+
+Cross-platform memory layouts are simply a different source of unique-table
+state variation, leading to the same class of non-deterministic behavior.
+
+### Implication
+
+Bug C is **not fixed** by the Identity-multiply trick.  The trick changes
+the DAG topology in a way that *reduces* the probability of hitting the
+corruption, but the underlying `MatrixTranspose` routing bug remains.
+Whether a given circuit hits the corruption depends on:
+
+1. CFLOBDD level (≥8 required)
+2. Physical qubit count and gate sequence (determines DAG structure)
+3. Heap memory layout (platform + allocator state)
+4. Unique-table fill level (prior computation history)
+
+### GHZ Circuit as a Bug C Detector
+
+The GHZ circuit is a particularly effective detector for Bug C because:
+
+- It has a "star" CNOT structure (all CNOTs target the same qubit),
+  creating a distinctive CFLOBDD DAG topology at level 8
+- The state after init H gates (`|+⟩^k|0⟩`) is a product state whose
+  `normalize()` path exercises the Identity-multiply → transpose code path
+- The transition between working (ghz200, k=199) and broken (ghz250, k=249)
+  on macOS shows the sensitivity to physical qubit count within the same
+  CFLOBDD level
+
+On macOS, the threshold is between 200 and 250 physical qubits (both at
+qNum=256, level 8).  On Linux, the threshold is above 500 physical qubits
+(moving from level 8 to level 9, where Bug E takes over).
 
 ## Other Fixes Applied
 
