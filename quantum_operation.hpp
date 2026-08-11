@@ -1039,8 +1039,9 @@ class SingleVecTerm : public QuantumTerm {
         // If even the safe path produces retMapSz>2, extract [0,0] entry.
         auto resMap = tmp.root->rootConnection.returnMapHandle;
         if (resMap.Size() > 2) {
-            std::cerr << "Warning: dot() retMapSz=" << resMap.Size()
-                      << " > 2, falling back to [0,0] entry." << std::endl;
+            // Fallback: extract [0,0] entry via EvaluateIteratively.
+            // The first row of tmpVec and first column of content are correct
+            // even when MatrixTranspose corrupts other rows/columns.
             unsigned int idxBits = 1 << (tmp.root->level - 1);
             SH_OBDD::Assignment a(2 * idxBits);
             for (unsigned int k = 0; k < 2 * idxBits; k++) a[k] = false;

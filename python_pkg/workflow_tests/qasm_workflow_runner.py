@@ -276,9 +276,21 @@ def _run_debug_check(
         return {"debug_kind": "grover", "debug_satisfied": ts.Locations[final_loc].satisfy(grover_final)}
 
     if stem.startswith("single-it-grover"):
-        half = qc.num_qubits // 2
+        # These circuits have ndata = (n+1)//2 data qubits and nanc = n//2 ancilla qubits.
+        # Data qubits carry the |+> superposition; ancilla qubits are |0>.
+        ndata = (qc.num_qubits + 1) // 2
+        nanc = qc.num_qubits // 2
         basis_zero = quantum_state("0" * qc.num_qubits)
-        basis_plus = quantum_state("0" * half + "+" * (qc.num_qubits - half))
+        if qc.num_qubits < 31:
+            basis_plus = quantum_state("+" * ndata + "0" * nanc)
+        else:
+            # Build |+>^ndata|0>^nanc via post_image chain to avoid
+            # simpleProductStateAmplitudes overflow for qNum >= 32.
+            basis_plus = pyqreach.QOperation(["0" * qc.num_qubits])
+            for i in range(ndata):
+                basis_plus = basis_plus.post_image(
+                    pyqreach.QOperation("H", qc.num_qubits, [i], [])
+                )
         target = span_qops([basis_zero, basis_plus])
         satisfied = all(ts.Locations[loc].satisfy(target) for loc in _result_locs)
         return {"debug_kind": "grover_converted", "debug_satisfied": satisfied}
