@@ -114,9 +114,9 @@ def infer_initial_state(
     * **grover**: ``"0"*(n-1) + "1"`` where *n* is the search width extracted
       from the filename.
     * **dqc_pe**: ``"0"*n + "1"``.
-    * **dqc_qft**: random computational basis state of length *n* (seeded
-      deterministically from *seed* so repeated runs use the same state).
-    * **qft**: same random basis-state convention as dqc_qft.
+    * **pe**: ``"0"*n + "1"`` (same as dqc_pe — eigenstate qubit = |1⟩).
+    * **dqc_qft**: ``"1"*n`` (all-ones — maximally dense entanglement for CFLOBDD stress).
+    * **qft**: ``"1"*n`` (all-ones — same reason).
     * Everything else: all-zero state.
     """
     stem = qasm_path.stem.lower()
@@ -136,32 +136,27 @@ def infer_initial_state(
         if len(legacy_state) == qc.num_qubits:
             return legacy_state
 
-    # -- dqc_qft  (random basis state, deterministic per [family, n, seed]) ---
+    # -- dqc_qft  (all-ones for maximal CFLOBDD stress) ---
     dqc_qft_match = re.search(r"dqc_qft_(\d+)", stem)
     if dqc_qft_match:
         n = int(dqc_qft_match.group(1))
         if n == qc.num_qubits:
-            rng_seed = seed * 10000 + n + 1_000_000
-            rng = random.Random(rng_seed)
-            return "".join(rng.choice(["0", "1"]) for _ in range(n))
+            return "1" * n
 
-    # -- qft  (random basis state, deterministic per [family, n, seed]) -------
+    # -- qft  (all-ones for maximal CFLOBDD stress) -------
     qft_match = re.search(r"^qft_(\d+)", stem)
     if qft_match:
         n = int(qft_match.group(1))
         if n == qc.num_qubits:
-            rng_seed = seed * 10000 + n + 2_000_000
-            rng = random.Random(rng_seed)
-            return "".join(rng.choice(["0", "1"]) for _ in range(n))
+            return "1" * n
 
-    # -- pe  (random basis state, like qft) ----------------------------------
+    # -- pe  (0^n 1 — eigenstate qubit = |1⟩) ----------------------------------
     pe_match = re.search(r"^pe_(\d+)", stem)
     if pe_match:
         n = int(pe_match.group(1))
-        if n + 1 == qc.num_qubits:
-            rng_seed = seed * 10000 + n + 3_000_000
-            rng = random.Random(rng_seed)
-            return "".join(rng.choice(["0", "1"]) for _ in range(qc.num_qubits))
+        legacy_state = "0" * n + "1"
+        if len(legacy_state) == qc.num_qubits:
+            return legacy_state
 
     return "0" * qc.num_qubits
 
