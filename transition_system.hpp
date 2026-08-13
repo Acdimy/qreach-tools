@@ -10,8 +10,6 @@
 //TODO: check the unique table and the computing table
 // It seems that CFLOBDD does not provide the two tables.
 
-using namespace CFL_OBDD;
-
 // Provide hash specializations for relation/cache keys.
 namespace std {
     template <>
@@ -198,13 +196,8 @@ std::vector<std::string> Location::unsatisfyBit(std::vector<unsigned int> indexs
 
 void initializeTransitionSystem()
 {
-    CFLOBDDNodeHandle::InitNoDistinctionTable();
-    CFLOBDDNodeHandle::InitAdditionInterleavedTable();
-    CFLOBDDNodeHandle::InitReduceCache();
-    InitPairProductCache();
-    InitTripleProductCache();
-    Matrix1234ComplexFloatBoost::Matrix1234Initializer();
-    VectorComplexFloatBoost::VectorInitializer();
+    DDMatrix::Initialize();
+    DDVector::Initialize();
 }
 
 /***
@@ -242,23 +235,13 @@ public:
     
 public:
     TransitionSystem() {
-        CFLOBDDNodeHandle::InitNoDistinctionTable();
-        CFLOBDDNodeHandle::InitAdditionInterleavedTable();
-        CFLOBDDNodeHandle::InitReduceCache();
-        InitPairProductCache();
-        InitTripleProductCache();
-        Matrix1234ComplexFloatBoost::Matrix1234Initializer();
-        VectorComplexFloatBoost::VectorInitializer();
+        DDMatrix::Initialize();
+        DDVector::Initialize();
     };
     TransitionSystem(bool init) {
         if (init) {
-            CFLOBDDNodeHandle::InitNoDistinctionTable();
-            CFLOBDDNodeHandle::InitAdditionInterleavedTable();
-            CFLOBDDNodeHandle::InitReduceCache();
-            InitPairProductCache();
-            InitTripleProductCache();
-            Matrix1234ComplexFloatBoost::Matrix1234Initializer();
-            VectorComplexFloatBoost::VectorInitializer();
+            DDMatrix::Initialize();
+            DDVector::Initialize();
         }
     };
     ~TransitionSystem();
