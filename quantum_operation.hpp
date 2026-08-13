@@ -1,8 +1,7 @@
 #ifndef _QUANTUM_OPERATION
 #define _QUANTUM_OPERATION
 
-#include "cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
-#include "cflobdd/CFLOBDD/vector_complex_float_boost.h"
+#include "dd_backend.hpp"
 #include <random>
 #include <queue>
 #include <vector>
@@ -18,106 +17,7 @@
 #include <sstream>
 #include <chrono>
 
-using namespace CFL_OBDD;
-
-CFLOBDD_COMPLEX_BIG ApplyGateF(unsigned int n, unsigned int i, CFLOBDD_COMPLEX_BIG(*f)(unsigned int))
-{
-    // i is the index of the applied qubit
-    if (n == 1)
-    {
-        // but here i is the level
-        return f(1);
-    }
-    else {
-        int level = ceil(log2(n/2));
-        if (i < n/2)
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            CFLOBDD_COMPLEX_BIG H = ApplyGateF(n/2, i, f);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(H, T);
-        }
-        else
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(T, ApplyGateF(n/2, i - n/2, f)); 
-        }
-    }
-}
-
-CFLOBDD_COMPLEX_BIG ApplyGateFWithParam(unsigned int n, unsigned int i, CFLOBDD_COMPLEX_BIG(*f)(unsigned int, double), double theta)
-{
-    if (n == 1)
-    {
-        return f(1, theta);
-    }
-    else {
-        int level = ceil(log2(n/2));
-        if (i < n/2)
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            CFLOBDD_COMPLEX_BIG H = ApplyGateFWithParam(n/2, i, f, theta);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(H, T);
-        }
-        else
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(T, ApplyGateFWithParam(n/2, i - n/2, f, theta)); 
-        }
-    }
-}
-
-CFLOBDD_COMPLEX_BIG ApplyGateFWithParamVec(unsigned int n, unsigned int i, CFLOBDD_COMPLEX_BIG(*f)(unsigned int, std::vector<double>), std::vector<double> v)
-{
-    if (n == 1)
-    {
-        return f(1, v);
-    }
-    else {
-        int level = ceil(log2(n/2));
-        if (i < n/2)
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            CFLOBDD_COMPLEX_BIG H = ApplyGateFWithParamVec(n/2, i, f, v);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(H, T);
-        }
-        else
-        {
-            CFLOBDD_COMPLEX_BIG T = Matrix1234ComplexFloatBoost::MkIdRelationInterleaved(level + 1);
-            return Matrix1234ComplexFloatBoost::KroneckerProduct2Vocs(T, ApplyGateFWithParamVec(n/2, i - n/2, f, v)); 
-        }
-    }
-}
-
-CFLOBDD_COMPLEX_BIG InitializeWithVector(unsigned int qnum, std::vector<double> vec_raw) {
-    // The length of vec must be a power of 2
-    // TODO: the qubits of the vector may not be a power of 2!!!
-    unsigned int n = vec_raw.size();
-    assert((n & (n - 1)) == 0 && n != 0);
-    // assert(n == 4);
-    assert(2 * (1 << qnum) == n);
-    std::vector<std::complex<double>> vec(n/2);
-    for (unsigned int i = 0; i < n/2; i++) {
-        vec[i] = std::complex<double>(vec_raw[i], vec_raw[i+n/2]);
-    }
-    // assert vec is normalized
-    double norm = 0;
-    for (unsigned int i = 0; i < n/2; i++) {
-        norm += std::norm(vec[i]);
-    }
-    assert(abs(norm - 1.0) < 1e-8);
-    unsigned int level = ceil(log2(qnum));
-    CFLOBDD_COMPLEX_BIG res = VectorComplexFloatBoost::NoDistinctionNode(level, 0);
-    for (unsigned int i = 0; i < n/2; i++) {
-        if (abs(vec[i]) > 1e-10) {
-            auto basisVec = VectorComplexFloatBoost::MkBasisVector(level, i);
-            auto scaledVec = BIG_COMPLEX_FLOAT(vec[i]) * basisVec;
-            res = res + scaledVec;
-        }
-    }
-    res = VectorComplexFloatBoost::VectorToMatrixInterleaved(res);
-    // VectorComplexFloatBoost::VectorPrintColumnHead(res, std::cout);
-    return res;
-}
+using namespace qreach;
 
 std::string stringPadding(std::string str, unsigned int length) {
     if (str.length() >= length) {
@@ -184,22 +84,8 @@ std::vector<double> simpleProductStateAmplitudes(const std::string& str, unsigne
 }
 
 // 1-norm
-bool checkifzero(CFLOBDD_COMPLEX_BIG c) {
-    double threshold = 1e-8;
-    auto resMap = c.root->rootConnection.returnMapHandle;
-    if(resMap.Size() == 0) {
-        return true;
-    }
-    auto sum = abs(resMap[0].real()) + abs(resMap[0].imag());
-    for(int i = 1; i < resMap.Size(); i++) {
-        // Hide an inequality!
-        sum += (abs(resMap[i].real()) + abs(resMap[i].imag()));
-        // std::cout << "checkifzero: " << sum << std::endl;
-        if(sum > threshold) {
-            return false;
-        }
-    }
-    return true;
+bool checkifzero(DD c) {
+    return DDVector::IsApproximatelyZero(c, 1e-8);
 }
 
 std::string toLower(const std::string& input) {
@@ -589,7 +475,7 @@ class QuantumTerm {
     // bool type;
     unsigned int qNum;
     
-    CFLOBDD_COMPLEX_BIG content;
+    DD content;
     public:
     virtual ~QuantumTerm() {}
     virtual bool getType() const = 0;
@@ -617,7 +503,7 @@ class QuantumGateTerm : public QuantumTerm {
         // Make sure the qNum is exp.
         this->level = ceil(log2(qNum)) + 1;
         this->qNum = std::pow(2, this->level-1);
-        content = VectorComplexFloatBoost::NoDistinctionNode(1, 0);
+        content = DDVector::NoDistinctionNode(1, 0);
     }
     QuantumGateTerm(bool setconstant) {
         if (setconstant) {
@@ -644,45 +530,44 @@ class QuantumGateTerm : public QuantumTerm {
                lname == "cz" || lname == "cp" || lname == "ccx";
     }
 
-    CFLOBDD_COMPLEX_BIG concretize() const {
+    DD concretize() const {
         std::string name = toLower(this->name);
         unsigned index = this->index[0];
-        CFLOBDD_COMPLEX_BIG res;
-        // std::pow(2, this->content.root->level-1);
+        DD res;
         // unsigned int level = ceil(log2(numQubits)) + 1;
         if (name == "x") {
-            auto X = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkNegationMatrixInterleaved);
+            auto X = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkNegation);
             res = X;
         } else if (name == "y") {
-            auto Y = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkPauliYMatrixInterleaved);
+            auto Y = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkPauliY);
             res = Y;
         } else if (name == "z") {
-            auto Z = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkPauliZMatrixInterleaved);
+            auto Z = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkPauliZ);
             res = Z;
         } else if (name == "h") {
-            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            auto H = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkWalsh);
             res = H;
         } else if (name == "i") {
-            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
+            auto H = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkIdRelation);
             res = H;
         } else if (name == "s") {
-            auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
+            auto S = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkSGate);
             res = S;
         } else if (name == "sdg") {
-            auto Sdg = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, -0.5);
+            auto Sdg = DDMatrix::MkSingleQubitGateOnNWithParam(this->qNum, index, DDMatrix::MkPhaseShift, -0.5);
             res = Sdg;
         } else if (name == "t") {
-            auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, 0.25);
+            auto S = DDMatrix::MkSingleQubitGateOnNWithParam(this->qNum, index, DDMatrix::MkPhaseShift, 0.25);
             res = S; 
         } else if (name == "p") {
             double theta = this->vars[0];
-            auto S = ApplyGateFWithParam(this->qNum, index, Matrix1234ComplexFloatBoost::MkPhaseShiftGateInterleaved, theta);
+            auto S = DDMatrix::MkSingleQubitGateOnNWithParam(this->qNum, index, DDMatrix::MkPhaseShift, theta);
             res = S;
         } else if (name == "sx") {
-            auto H = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
-            auto S = ApplyGateF(this->qNum, index, Matrix1234ComplexFloatBoost::MkSGateInterleaved);
-            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, S);
-            S = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, H);
+            auto H = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkWalsh);
+            auto S = DDMatrix::MkSingleQubitGateOnN(this->qNum, index, DDMatrix::MkSGate);
+            S = DDMatrix::MatrixMultiply(H, S);
+            S = DDMatrix::MatrixMultiply(S, H);
             res = S;
         } else if (name == "cx") {
             assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
@@ -693,15 +578,15 @@ class QuantumGateTerm : public QuantumTerm {
     
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controller, controlled);
+                auto C = DDMatrix::MkCNOT(state_level, std::pow(2, state_level - 1), controller, controlled);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller);
+                auto C = DDMatrix::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
         } else if (name == "csx") {
@@ -712,22 +597,22 @@ class QuantumGateTerm : public QuantumTerm {
             unsigned int state_level = ceil(log2(this->qNum)) + 1;
             assert(controller != controlled);
 
-            auto H = ApplyGateF(this->qNum, controlled, Matrix1234ComplexFloatBoost::MkWalshInterleaved);
+            auto H = DDMatrix::MkSingleQubitGateOnN(this->qNum, controlled, DDMatrix::MkWalsh);
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1/2);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
+                auto C = DDMatrix::MkCP(state_level, controller, controlled, 1/2);
+                C = DDMatrix::MatrixMultiply(H, C);
+                C = DDMatrix::MatrixMultiply(C, H);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1/2);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, C);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, H);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller);
+                auto C = DDMatrix::MkCP(state_level, controlled, controller, 1/2);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
+                C = DDMatrix::MatrixMultiply(H, C);
+                C = DDMatrix::MatrixMultiply(C, H);
                 res = C;
             }
         } else if (name == "u3") {
@@ -737,30 +622,30 @@ class QuantumGateTerm : public QuantumTerm {
             double phi = this->vars[1];
             double lambda = this->vars[2];
             v.push_back(theta); v.push_back(phi); v.push_back(lambda);
-            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkU3GateInterleaved, v);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkU3, v);
             res = U;
         } else if (name == "arb") {
             assert(this->vars.size() == 8);
-            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, this->vars);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkArbitrary, this->vars);
             res = U;
         } else if (name == "meas0") {
             std::vector<double> v{1,0,0,0,0,0,0,0};
-            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkArbitrary, v);
             res = U;
         } else if (name == "meas1") {
             std::vector<double> v{0,0,0,0,0,0,1,0};
-            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkArbitrary, v);
             res = U;
         } else if (name == "reset0") {
             // Reset the index qubit to |0>
             std::vector<double> v{0,0,1,0,0,0,0,0};
-            auto U = ApplyGateFWithParamVec(this->qNum, index, Matrix1234ComplexFloatBoost::MkArbitraryGateInterleaved, v);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkArbitrary, v);
             res = U;
         } else if (name == "resetall") {
-            CFLOBDD_COMPLEX_BIG U = VectorComplexFloatBoost::NoDistinctionNode(ceil(log2(this->qNum)), 1);
-            U = VectorComplexFloatBoost::VectorToMatrixInterleaved(U);
-            U = Matrix1234ComplexFloatBoost::MatrixConjugate(U);
-            U = Matrix1234ComplexFloatBoost::MatrixTranspose(U);
+            DD U = DDVector::NoDistinctionNode(ceil(log2(this->qNum)), 1);
+            U = DDVector::VectorToMatrixInterleaved(U);
+            U = DDMatrix::Conjugate(U);
+            U = DDMatrix::Transpose(U);
             res = U;
         } else if (name == "init") {
             // Assume the state is in a tensor state, all indexed qubits are |0>
@@ -770,13 +655,13 @@ class QuantumGateTerm : public QuantumTerm {
             unsigned int numVars = this->vars.size();
             assert(numVars && (numVars & (numVars - 1)) == 0);
             // stateVec: [a+bi, c+di]
-            // auto stateVec = InitializeWithVector(1, this->vars);
+            // auto stateVec = DDVector::InitializeWithAmplitudes(1, this->vars);
             // Prepare the projecor |init><0|
-            // stateVec = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVec);
+            // stateVec = DDVector::VectorToMatrixInterleaved(stateVec);
             // Append this->vars with zeros, as the imaginary part, double the size to vec_raw.
             auto vec_raw = this->vars;
             vec_raw.resize(2 * vec_raw.size(), 0.0);
-            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, vec_raw);
+            auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDVector::InitializeWithAmplitudes, vec_raw);
             // Check the indexes that before and after the applied indexes, padding them (through tensor) with identity
             res = U;
             
@@ -788,12 +673,12 @@ class QuantumGateTerm : public QuantumTerm {
             assert(index1 != index2);
             if (index1 < index2)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index1, index2);
+                auto C = DDMatrix::MkSwap(state_level, index1, index2);
                 res = C;
             }
             else
             {
-                auto C = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, index2, index1);
+                auto C = DDMatrix::MkSwap(state_level, index2, index1);
                 res = C;
             }
         } else if (name == "iswap") {
@@ -804,12 +689,12 @@ class QuantumGateTerm : public QuantumTerm {
             assert(index1 != index2);
             if (index1 < index2)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index1, index2);
+                auto C = DDMatrix::MkiSwap(state_level, index1, index2);
                 res = C;
             }
             else
             {
-                auto C = Matrix1234ComplexFloatBoost::MkiSwapGate(state_level, index2, index1);
+                auto C = DDMatrix::MkiSwap(state_level, index2, index1);
                 res = C;
             }
         } else if (name == "cz") {
@@ -822,15 +707,15 @@ class QuantumGateTerm : public QuantumTerm {
     
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, 1.0);
+                auto C = DDMatrix::MkCP(state_level, controller, controlled, 1.0);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, 1.0);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller);
+                auto C = DDMatrix::MkCP(state_level, controlled, controller, 1.0);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
         } else if (name == "cp") {
@@ -843,15 +728,15 @@ class QuantumGateTerm : public QuantumTerm {
 
             if (controller < controlled)
             {
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controller, controlled, theta);
+                auto C = DDMatrix::MkCP(state_level, controller, controlled, theta);
                 res = C;
             }
             else
             {
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller);
-                auto C = Matrix1234ComplexFloatBoost::MkCPGate(state_level, controlled, controller, theta);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller);
+                auto C = DDMatrix::MkCP(state_level, controlled, controller, theta);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
         } else if (name == "cs") {
@@ -868,51 +753,51 @@ class QuantumGateTerm : public QuantumTerm {
             if (controller1 < controller2 && controller2 < controlled)
             {
                 // a b c
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controller2, controlled);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controller2, controlled);
                 res = C;
             }
             else if (controller1 < controlled && controlled < controller2)
             {
                 // a c b   
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controlled, controller2);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller2);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controlled, controller2);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
             else if (controller2 < controller1 && controller1 < controlled)
             {
                 // b a c
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controller1, controlled);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controller1, controlled);
                 res = C;
             }
             else if (controller2 < controlled && controlled < controller1)
             {
                 // b c a
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controlled, controller1);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller1);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controlled, controller1);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
             else if (controlled < controller1 && controller1 < controller2)
             {
                 // c a b
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller2);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller2);
                 // b a c
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller1, controller2);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller1, controller2);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
             else if (controlled < controller2 && controller2 < controller1)
             {
                 // c b a
-                auto S = Matrix1234ComplexFloatBoost::MkSwapGate(state_level, controlled, controller1);
+                auto S = DDMatrix::MkSwap(state_level, controlled, controller1);
                 // a b c
-                auto C = Matrix1234ComplexFloatBoost::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller2, controller1);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(C, S);
-                C = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(S, C);
+                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller2, controller1);
+                C = DDMatrix::MatrixMultiply(C, S);
+                C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
         }
@@ -925,7 +810,7 @@ class QuantumGateTerm : public QuantumTerm {
 
     void concretizeInline() {
         this->isConcret = true;
-        if (this->content.root->level != 1) {
+        if (DDVector::GetLevel(this->content) != 1) {
             this->content = this->concretize();
         }
     }
@@ -951,12 +836,11 @@ class SingleVecTerm : public QuantumTerm {
     SingleVecTerm() {}
     SingleVecTerm(unsigned int qubits) {this->qNum = qubits;}
     SingleVecTerm(std::string s, unsigned int qubits) {
-        // auto tmp = CFLOBDDNodeHandle::CFLOBDDForkNodeHandle;
         // s.size() is the realQubits, qNum is the total physical qubits.
         unsigned int level = ceil(log2(qubits));
         this->qNum = std::pow(2, level);
-        CFLOBDD_COMPLEX_BIG stateVector = VectorComplexFloatBoost::MkBasisVector(level, s);
-        stateVector = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVector);
+        DD stateVector = DDVector::MkBasisVector(level, s);
+        stateVector = DDVector::VectorToMatrixInterleaved(stateVector);
         this->content = stateVector;
         this->knownUnitNorm = true;
     }
@@ -969,15 +853,15 @@ class SingleVecTerm : public QuantumTerm {
         while(amp.size() < (1 << this->qNum)) {
             amp.push_back(0);
         }
-        CFLOBDD_COMPLEX_BIG stateVector = InitializeWithVector(this->qNum, amp);
+        DD stateVector = DDVector::InitializeWithAmplitudes(this->qNum, amp);
         this->content = stateVector;
         this->knownUnitNorm = false;
     }
-    SingleVecTerm(CFLOBDD_COMPLEX_BIG x) {
+    SingleVecTerm(DD x) {
         // Need copy?
         // type = false;
         this->content = x;
-        this->qNum = std::pow(2, x.root->level-1);
+        this->qNum = std::pow(2, DDVector::GetLevel(x)-1);
     }
     bool getType() const override {return false;}
     std::unique_ptr<QuantumTerm> clone() const override {
@@ -985,151 +869,60 @@ class SingleVecTerm : public QuantumTerm {
         return std::make_unique<SingleVecTerm>(*this);
     }
 
-    BIG_COMPLEX_FLOAT dot(const SingleVecTerm& other) const {
+    DDComplex dot(const SingleVecTerm& other) const {
         /* bra(other) * ket(this) Note the complex number conjugation */
-        unsigned int level = ceil(log2(this->qNum));
-        auto tmpVec = Matrix1234ComplexFloatBoost::MatrixTranspose(other.content);
-        tmpVec = Matrix1234ComplexFloatBoost::MatrixConjugate(tmpVec);
-        auto tmp = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(tmpVec, this->content);
-
-        // FALLBACK(qts-rollback, transpose-corruption):
-        // If transpose corrupts the row vector, retMapSz may exceed 2.
-        // Fall back to extracting the [0,0] entry directly.
-        auto resMap = tmp.root->rootConnection.returnMapHandle;
-        if (resMap.Size() > 2) {
-            std::cerr << "Warning: dot() retMapSz=" << resMap.Size()
-                      << " > 2, falling back to [0,0] entry." << std::endl;
-            unsigned int idxBits = 1 << (tmp.root->level - 1);
-            SH_OBDD::Assignment a(2 * idxBits);
-            for (unsigned int k = 0; k < 2 * idxBits; k++) a[k] = false;
-            return tmp.root->EvaluateIteratively(a);
-        }
-        // end FALLBACK
-
-        BIG_COMPLEX_FLOAT amp;
-        if(resMap.Size() == 2)
-            amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-        else
-            amp = resMap[0];
-        // amp = conj(amp);
-        return amp;
+        return DDVector::InnerProduct(other.content, this->content);
     }
-    CFLOBDD_COMPLEX_BIG normalize() const {
-        // assert(this->type == false);
-
-        // REVERT(qts-rollback): Restore the original H*content approach.
-        // The aa52325 change (conj(transpose(content))*content) introduced
-        // SIGSEGV on pe_7/qft_7 circuits because MatrixTranspose directly
-        // on GramSchmidt-produced DAGs creates corrupted row vectors that
-        // crash MatrixMultiplyV4 on larger (8+ qubit) CFLOBDDs.
-        // The old H*content path inserts an identity-matrix multiply first,
-        // which changes the DAG topology and avoids the SIGSEGV.
-        //
-        // If even this path produces retMapSz>2 (seen on dqc_pe_2), fall
-        // back to direct row-evaluation.
-        auto H = ApplyGateF(std::pow(2, content.root->level-1), 0,
-                            Matrix1234ComplexFloatBoost::MkIdRelationInterleaved);
-        CFLOBDD_COMPLEX_BIG c1 = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(H, content);
-        CFLOBDD_COMPLEX_BIG c1_conj = Matrix1234ComplexFloatBoost::MatrixConjugate(c1);
-        c1_conj = Matrix1234ComplexFloatBoost::MatrixTranspose(c1_conj);
-        auto mulres = Matrix1234ComplexFloatBoost::MatrixMultiplyV4(c1_conj, c1);
-        auto resMap = mulres.root->rootConnection.returnMapHandle;
-
-        // Maybe #BUGS here!
-        double dimfactor = std::pow(double(2), double(std::pow(2, content.root->level-1)-1));
-
-        // FALLBACK(qts-rollback, transpose-corruption):
-        // If the H*content path also hits retMapSz>2, use direct row-evaluation.
-        if (resMap.Size() > 2) {
-            std::cerr << "Warning: normalize() H*content retMapSz="
-                      << resMap.Size() << " > 2, using direct row-eval."
-                      << std::endl;
-            unsigned int level = content.root->level;
-            unsigned int indexBits = 1 << (level - 1);
-            unsigned int totalBits = 2 * indexBits;
-            unsigned long int numRows = 1UL << indexBits;
-            BIG_COMPLEX_FLOAT normsq = 0;
-            SH_OBDD::Assignment a(totalBits);
-            for (unsigned long int row = 0; row < numRows; row++) {
-                unsigned long int mask = 1UL;
-                for (int k = indexBits - 1; k >= 0; k--) {
-                    a[2 * k] = (row & mask) ? true : false;
-                    mask <<= 1;
-                }
-                for (unsigned int k = 0; k < indexBits; k++)
-                    a[2 * k + 1] = false;
-                BIG_COMPLEX_FLOAT val = content.root->EvaluateIteratively(a);
-                normsq += val.real() * val.real() + val.imag() * val.imag();
-            }
-            double factor = double(sqrt(normsq));
-            assert(factor > 0);
-            if (abs(factor - 1.0) < 1e-10) return content;
-            return (1.0 / factor) * content;
-        }
-        // end FALLBACK
-
-        assert(resMap.Size() <= 2);
-        BIG_COMPLEX_FLOAT amp;
-        if(resMap.Size() == 2) {
-            amp = (resMap[0] != 0) ? resMap[0] : resMap[1];
-            assert(abs(amp.imag()*dimfactor) < 1e-8 && amp.real() > 0);
-            double factor = double(sqrt(amp.real()));
-            c1 = (1/factor) * c1;
-        } else {
-            std::cout << "Warning: SingleVecTerm::normalize() has only one factor!" << std::endl;
-            amp = resMap[0];
-            assert(abs(amp.imag()*dimfactor) < 1e-8 && abs(amp.real()*dimfactor) < 1e-8);
-            c1 = VectorComplexFloatBoost::NoDistinctionNode(content.root->level, 0);
-        }
-        return c1;
+    DD normalize() const {
+        return DDVector::Normalize(this->content);
     }
     void normalizeInline() {
         this->content = this->normalize();
     }
-    CFLOBDD_COMPLEX_BIG projectOnto(const SingleVecTerm& other) const {
+    DD projectOnto(const SingleVecTerm& other) const {
         /* project this onto other, \ket(other)\bra(other)\ket(this) == \bra(other)\ket(this)\ket(other) */
         // The result is not a normalized vector.
         // assert(this->type == false);
         // No need for other.dot(other)!!
-        BIG_COMPLEX_FLOAT norm = this->dot(other) / other.dot(other);
+        DDComplex norm = this->dot(other) / other.dot(other);
         return norm * other.content;
     }
     bool isZero() const {
         return sqrt(this->dot(*this).real()) < 1e-8;
     }
-    CFLOBDD_COMPLEX_BIG applyGate(const QuantumGateTerm& other, bool direction) const {
+    DD applyGate(const QuantumGateTerm& other, bool direction) const {
         /* If direction is false, apply an inverse gate. */
         /* This function is INPLACE! */
         const bool profile = qgateprof::enabled();
         if (!profile) {
-            CFLOBDD_COMPLEX_BIG operand = other.concretize();
-            CFLOBDD_COMPLEX_BIG res ;
+            DD operand = other.concretize();
+            DD res ;
             if (direction) {
                 // Forward induction
                 // Temporarily use the content as the operand.
 
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+                res = DDMatrix::MatrixMultiplyWithVector(operand, this->content);
             } else {
                 // Backward induction
-                operand = Matrix1234ComplexFloatBoost::MatrixConjugate(operand);
-                operand = Matrix1234ComplexFloatBoost::MatrixTranspose(operand);
-                res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+                operand = DDMatrix::Conjugate(operand);
+                operand = DDMatrix::Transpose(operand);
+                res = DDMatrix::MatrixMultiplyWithVector(operand, this->content);
             }
             return res;
         }
 
         const auto total_start = std::chrono::steady_clock::now();
         const auto concretize_start = std::chrono::steady_clock::now();
-        CFLOBDD_COMPLEX_BIG operand = other.concretize();
+        DD operand = other.concretize();
         const auto concretize_end = std::chrono::steady_clock::now();
         long long conjugate_transpose_us = 0;
-        CFLOBDD_COMPLEX_BIG res ;
+        DD res ;
         if (direction) {
             // Forward induction
             // Temporarily use the content as the operand.
 
             const auto multiply_start = std::chrono::steady_clock::now();
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            res = DDMatrix::MatrixMultiplyWithVector(operand, this->content);
             const auto multiply_end = std::chrono::steady_clock::now();
             qgateprof::on_apply_gate(
                 other.name,
@@ -1143,12 +936,12 @@ class SingleVecTerm : public QuantumTerm {
         } else {
             // Backward induction
             const auto conjugate_transpose_start = std::chrono::steady_clock::now();
-            operand = Matrix1234ComplexFloatBoost::MatrixConjugate(operand);
-            operand = Matrix1234ComplexFloatBoost::MatrixTranspose(operand);
+            operand = DDMatrix::Conjugate(operand);
+            operand = DDMatrix::Transpose(operand);
             const auto conjugate_transpose_end = std::chrono::steady_clock::now();
             conjugate_transpose_us = qgateprof::elapsed_us(conjugate_transpose_start, conjugate_transpose_end);
             const auto multiply_start = std::chrono::steady_clock::now();
-            res = Matrix1234ComplexFloatBoost::MatrixMultiplyV4WithInfo(operand, this->content);
+            res = DDMatrix::MatrixMultiplyWithVector(operand, this->content);
             const auto multiply_end = std::chrono::steady_clock::now();
             qgateprof::on_apply_gate(
                 other.name,
@@ -1238,7 +1031,7 @@ class QOperation {
         this->type = false;
         this->realqNum = qubits;
         this->qNum = std::pow(2, ceil(log2(qubits)));
-        // InitializeWithVector expects split format: first half = real parts,
+        // DDVector::InitializeWithAmplitudes expects split format: first half = real parts,
         // second half = imaginary parts.  Pad each half independently, inserting
         // zeros so that the new qubit starts in |0>.
         unsigned int targetBasis = 1 << this->qNum;
@@ -1420,7 +1213,7 @@ class QOperation {
         if (!lhs || !rhs) {
             return false;
         }
-        BIG_COMPLEX_FLOAT overlap = lhs->dot(*rhs);
+        DDComplex overlap = lhs->dot(*rhs);
         double overlap_norm = std::sqrt(double(overlap.real() * overlap.real() + overlap.imag() * overlap.imag()));
         return std::abs(overlap_norm - 1.0) < 1e-8;
     }
@@ -1431,7 +1224,7 @@ class QOperation {
         if (!lhs || !rhs) {
             return false;
         }
-        BIG_COMPLEX_FLOAT overlap = lhs->dot(*rhs);
+        DDComplex overlap = lhs->dot(*rhs);
         double overlap_norm = std::sqrt(double(overlap.real() * overlap.real() + overlap.imag() * overlap.imag()));
         return overlap_norm < 1e-8;
     }
@@ -1624,7 +1417,7 @@ class QOperation {
             assert(vec.getType() == false);
             assert(this->oplist[0]->qNum == vec.qNum);
             unsigned int level = ceil(log2(vec.qNum));
-            CFLOBDD_COMPLEX_BIG content = VectorComplexFloatBoost::NoDistinctionNode(level+1, 0); // Check: Initialization
+            DD content = DDVector::NoDistinctionNode(level+1, 0); // Check: Initialization
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) continue;
@@ -1639,7 +1432,7 @@ class QOperation {
             assert(vec.getType() == false);
             assert(this->oplist[0]->qNum == vec.qNum);
             // TODO: Do the projection.
-            CFLOBDD_COMPLEX_BIG content; // Check: Initialization
+            DD content; // Check: Initialization
             // Direction: true.
             content = vec.applyGate(*dynamic_cast<QuantumGateTerm*>(this->oplist[0].get()), true);
             SingleVecTerm res(content);
@@ -2333,7 +2126,7 @@ class QOperation {
             return;
         }
         for (size_t i = 0; i < this->oplist.size(); i++) {
-            VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, std::cout);
+            DDVector::VectorPrintColumnHead(this->oplist[i]->content, std::cout);
             std::cout << std::endl;
         }
     }
@@ -2351,7 +2144,7 @@ class QOperation {
         }
         for (size_t i = 0; i < this->oplist.size(); i++) {
             std::ostringstream oss;
-            VectorComplexFloatBoost::VectorPrintColumnHead(this->oplist[i]->content, oss);
+            DDVector::VectorPrintColumnHead(this->oplist[i]->content, oss);
             std::string vecStr = oss.str();
             // Get a list of complex numbers from the string, the numbers are separated by spaces.
             std::istringstream iss(vecStr);
