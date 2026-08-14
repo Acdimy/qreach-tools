@@ -2,11 +2,18 @@
 #include <memory>
 #include <cstdlib>
 #include <chrono>
+#ifndef QREACH_USE_LIMTDD
 #include "transition_system_qadd.hpp"
 using namespace qts;
+#endif
 
 // Test the basic functionality of transition_system
 int main(int argc, char** argv) {
+#ifdef QREACH_USE_LIMTDD
+    (void)argc; (void)argv;
+    std::cout << "test_qreach: symbolic path disabled under the LimTDD backend." << std::endl;
+    return 0;
+#else
     initializeTransitionSystem();
     int qNum = 16;
     bool emitDebugArtifacts = false;
@@ -75,4 +82,5 @@ int main(int argc, char** argv) {
 
     std::cout << "Complete" << std::endl;
     return 0;
+#endif
 }

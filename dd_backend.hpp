@@ -11,7 +11,7 @@
 //
 // Select the backend with the compile-time macro:
 //   - undefined or QREACH_USE_CFLOBDD  -> CFLOBDD (default, current)
-//   - QREACH_USE_LIMTDD                -> LimTDD (provided by the LimTDD project)
+//   - QREACH_USE_LIMTDD                -> LimTDD (external project at LIMTDD_PATH)
 //
 // Conventions (level/dimension, endianness, gate semantics) are specified in
 // docs/agent-handoffs/backend-replacement-api-contract.md §6–§8.
@@ -25,24 +25,30 @@
 #include <vector>
 
 #ifdef QREACH_USE_LIMTDD
-  #include "limtdd/limtdd_adapter.hpp"      // provided by the LimTDD project
+
+  // LimTDD provides the full `DDVector` / `DDMatrix` implementation inline, in
+  // global namespaces (not `limtdd::`), and the DD/DDComplex types in `limtdd::`.
+  // No forward declarations or separate impl header are needed here.
+  #include "dd/backend/DDVector.hpp"
+  #include "dd/backend/DDMatrix.hpp"
   namespace qreach {
-    using DD        = limtdd::dd_type;      // TODO: exact names per adapter
-    using DDComplex = limtdd::dd_scalar;
+    using DD        = limtdd::DD;
+    using DDComplex = limtdd::DDComplex;
   }
-#else
+
+#else  // QREACH_USE_CFLOBDD (default)
+
   #include "cflobdd/CFLOBDD/matrix1234_complex_float_boost.h"
   #include "cflobdd/CFLOBDD/vector_complex_float_boost.h"
   namespace qreach {
     using DD        = CFL_OBDD::CFLOBDD_COMPLEX_BIG;
     using DDComplex = CFL_OBDD::BIG_COMPLEX_FLOAT;
   }
-#endif
 
-// -----------------------------------------------------------------------------
-// Vector operations
-// -----------------------------------------------------------------------------
-namespace DDVector {
+  // ---------------------------------------------------------------------------
+  // Vector operations (interface declarations; defined in dd_backend_cflobdd.h)
+  // ---------------------------------------------------------------------------
+  namespace DDVector {
 
     void Initialize();
 
@@ -73,12 +79,12 @@ namespace DDVector {
     // Debug
     void VectorPrintColumnHead(qreach::DD c, std::ostream& out);
 
-} // namespace DDVector
+  } // namespace DDVector
 
-// -----------------------------------------------------------------------------
-// Matrix operations
-// -----------------------------------------------------------------------------
-namespace DDMatrix {
+  // ---------------------------------------------------------------------------
+  // Matrix operations
+  // ---------------------------------------------------------------------------
+  namespace DDMatrix {
 
     void Initialize();
 
@@ -118,15 +124,11 @@ namespace DDMatrix {
     qreach::DD Conjugate(qreach::DD c);
     qreach::DD Transpose(qreach::DD c);
 
-} // namespace DDMatrix
+  } // namespace DDMatrix
 
-// -----------------------------------------------------------------------------
-// Backend implementation (declarations above; definitions selected here)
-// -----------------------------------------------------------------------------
-#ifdef QREACH_USE_LIMTDD
-  #include "limtdd/limtdd_adapter_impl.hpp"
-#else
+  // CFLOBDD passthrough implementation of the declarations above.
   #include "cflobdd/CFLOBDD/dd_backend_cflobdd.h"
-#endif
+
+#endif // QREACH_USE_LIMTDD / QREACH_USE_CFLOBDD
 
 #endif // DD_BACKEND_HPP

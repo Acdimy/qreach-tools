@@ -4,10 +4,13 @@
 #include <unordered_map>
 #include "../quantum_operation.hpp"
 #include "transition_system.hpp"
+#ifndef QREACH_USE_LIMTDD
 #include "transition_system_qadd.hpp"
+#endif
 
 namespace py = pybind11;
 
+#ifndef QREACH_USE_LIMTDD
 namespace {
 
 py::dict export_qadd_graph(qadd::QADDNode* root) {
@@ -83,6 +86,7 @@ py::dict export_qadd_graph(qadd::QADDNode* root) {
 }
 
 } // namespace
+#endif // QREACH_USE_LIMTDD
 
 PYBIND11_MODULE(pyqreach, m) {
     m.doc() = "python wrapper for Quantum Simulation"; // Optional module docstring
@@ -151,7 +155,9 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readonly("postLocations", &qts_naive::Location::postLocations);
 
     m.def("initializeTransitionSystem", &qts_naive::initializeTransitionSystem, "initializeTransitionSystem");
+#ifndef QREACH_USE_LIMTDD
     m.def("initializeSymTransitionSystem", &qts::initializeTransitionSystem, "initializeSymTransitionSystem");
+#endif
 
     py::class_<qts_naive::TransitionSystem>(m, "TransitionSystem")
         .def(py::init<>())
@@ -181,6 +187,7 @@ PYBIND11_MODULE(pyqreach, m) {
         .def_readonly("relations", &qts_naive::TransitionSystem::relations)
         .def_readonly("Locations", &qts_naive::TransitionSystem::Locations);
 
+#ifndef QREACH_USE_LIMTDD
     py::class_<qts::TransitionSystem>(m, "SymTS")
         .def(py::init<>())
            .def(py::init<int, int>(), py::arg("num_qubits"), py::arg("max_locations") = 0)
@@ -236,5 +243,6 @@ PYBIND11_MODULE(pyqreach, m) {
                    "exportRelationQADD")
            .def("postConditions", &qts::TransitionSystem::postConditions, "postConditions")
            .def("computingFixedPointPost", &qts::TransitionSystem::postConditions, "computingFixedPointPost");
-    
+#endif // QREACH_USE_LIMTDD
+
 }

@@ -28,6 +28,21 @@ def _boost_path():
     )
 
 
+def _limtdd_flags():
+    """Compiler flags for the LimTDD backend (empty string for the CFLOBDD default)."""
+    if os.environ.get("USE_LIMTDD"):
+        limtdd_path = os.environ.get(
+            "LIMTDD_PATH",
+            str((Path(__file__).resolve().parents[2] / "LimTDDexpr" / "LimTDD" / "DDPackage").resolve()),
+        )
+        limtdd_include = os.environ.get(
+            "LIMTDD_INCLUDE",
+            str((Path(__file__).resolve().parents[2] / "LimTDDexpr" / "include").resolve()),
+        )
+        return f"-DQREACH_USE_LIMTDD -I{shlex.quote(limtdd_path)} -I{shlex.quote(limtdd_include)}"
+    return ""
+
+
 def _python_include():
     return os.environ.get("PYTHON_INCLUDE", sysconfig.get_paths()["include"])
 
@@ -72,6 +87,7 @@ def compile_python_module(cpp_name, extension_name):
         f"-I{shlex.quote(_python_include())}",
         _pybind11_includes(),
         f"-I{shlex.quote(_boost_path())}",
+        _limtdd_flags(),
         "-I../",
         shlex.quote(cpp_name),
         f"-o {shlex.quote(extension_name + _extension_suffix())}",

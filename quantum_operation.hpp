@@ -2143,40 +2143,25 @@ class QOperation {
             return "I";
         }
         for (size_t i = 0; i < this->oplist.size(); i++) {
-            std::ostringstream oss;
-            DDVector::VectorPrintColumnHead(this->oplist[i]->content, oss);
-            std::string vecStr = oss.str();
-            // Get a list of complex numbers from the string, the numbers are separated by spaces.
-            std::istringstream iss(vecStr);
-            std::vector<std::complex<double>> vec;
-            std::string token;
-            std::complex<double> cplxNum;
-            while (iss >> token) {
-                if (token.front() == '(' && token.back() == ')') {
-                    double real, imag;
-                    sscanf(token.c_str(), "(%lf,%lf)", &real, &imag);
-                    cplxNum = std::complex<double>(real, imag);
-                } else {
-                    cplxNum = std::complex<double>(std::stod(token), 0.0);
-                }
-                vec.push_back(cplxNum);
-            }
+            // Backend-neutral: enumerate non-zero amplitudes via the DDVector
+            // contract instead of re-parsing VectorPrintColumnHead's string
+            // output. That output format is backend-specific (CFLOBDD emits
+            // dense "(re,im)" columns; LimTDD emits "|idx>\tre im" lines), so
+            // parsing it here couples the semantic layer to a backend.
+            auto amps = DDVector::GetNonZeroAmplitudes(this->oplist[i]->content, 1e-8);
             std::ostringstream result;
             bool first = true;
-            for (int k = 0; k < vec.size(); k++) {
-                if (std::abs(vec[k]) > 1e-8) {
-                    if (!first) {
-                        result << " + ";
-                    }
-                    first = false;
-                    const auto& amp = vec[k];
-                    std::string idxStr;
-                    for (int j = this->qNum - 1; j >= 0; --j) {
-                        idxStr += ((k >> j) & 1) ? '1' : '0';
-                    }
-                    result << "(" << amp.real() << "," << amp.imag() << ")";
-                    result << "|" << idxStr << ">";
+            for (const auto& [k, amp] : amps) {
+                if (!first) {
+                    result << " + ";
                 }
+                first = false;
+                std::string idxStr;
+                for (int j = this->qNum - 1; j >= 0; --j) {
+                    idxStr += ((k >> j) & 1) ? '1' : '0';
+                }
+                result << "(" << amp.real() << "," << amp.imag() << ")";
+                result << "|" << idxStr << ">";
             }
             if (print) {
                 std::cout << result.str() << std::endl;

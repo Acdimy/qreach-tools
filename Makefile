@@ -17,15 +17,29 @@ COMPILE_OPTIONS = -g -O3 -std=c++2a -w -Wall -Wextra -DHAVE_CONFIG_H -Werror -Wu
 BOOST_PATH ?= ../BOOST/boost_1_81_0
 HEADERS = -I. -I$(BOOST_PATH) -I.cflobdd/CFLOBDD -I.cflobdd/CFLOBDD/Solver/uwr/bit_vector/ -I.cflobdd/CFLOBDD/Solver/uwr/assert/ -I.cflobdd/CFLOBDD/Solver/uwr/matrix/ -I.cflobdd/CFLOBDD/Solver/uwr/parsing/
 
+# --- LimTDD backend (optional, external project) ---
+# Enable with USE_LIMTDD=1, e.g.:
+#   USE_LIMTDD=1 BOOST_PATH=../BOOST/boost_1_81_0 make test
+LIMTDD_PATH    ?= ../LimTDDexpr/LimTDD/DDPackage
+LIMTDD_INCLUDE ?= ../LimTDDexpr/include
+
 # Dependency options
 DEPENDENCY_OPTIONS = -MM
 
 
 # Subdirs to search for additional source files
 SOURCE_FILES := $(shell ls *.cpp)
-SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp)
-SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp)
-SOURCE_FILES += $(shell find cflobdd/CFLOBDD -maxdepth 1 -mindepth 1 -name \*.cpp -a -not -name main.cpp)
+ifdef USE_LIMTDD
+  # LimTDD backend: exclude the vendored CFLOBDD sources; add the LimTDD core.
+  SOURCE_FILES += $(LIMTDD_PATH)/dd/Edge.cpp $(LIMTDD_PATH)/dd/Maps.cpp $(LIMTDD_PATH)/dd/Node.cpp
+  COMPILE_OPTIONS += -DQREACH_USE_LIMTDD
+  HEADERS += -I$(LIMTDD_PATH) -I$(LIMTDD_INCLUDE)
+else
+  # CFLOBDD backend (default): the vendored CFLOBDD sources.
+  SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/bit_vector/*.cpp)
+  SOURCE_FILES += $(shell ls cflobdd/CFLOBDD/Solver/uwr/parsing/*.cpp)
+  SOURCE_FILES += $(shell find cflobdd/CFLOBDD -maxdepth 1 -mindepth 1 -name \*.cpp -a -not -name main.cpp)
+endif
 SOURCE_FILES := $(filter-out quantum_circuit.cpp, $(SOURCE_FILES))
 SOURCE_FILES := $(filter-out test.cpp, $(SOURCE_FILES))
 # [SOURCE_FILES] -= $(shell ls cflobdd/CFLOBDD/main.cpp)
