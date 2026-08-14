@@ -1,8 +1,14 @@
+from qreach import symbolic_available
+
+if not symbolic_available():
+    print("SKIP: symbolic SymTS backend unavailable (LimTDD build)")
+    raise SystemExit(0)
+
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 
-from parse_qiskit import build_sym_ts_from_qiskit, parse_qiskit_cir
-from qctl import tsLabellingClRegList, tsLabellingDefault
+from qreach.parse_qiskit import build_sym_ts_from_qiskit, parse_qiskit_cir
+from qreach.qctl import tsLabellingClRegList, tsLabellingDefault
 
 
 def build_demo_circuit() -> QuantumCircuit:

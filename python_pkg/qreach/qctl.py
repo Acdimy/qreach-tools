@@ -1,7 +1,7 @@
 import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 import re
-from annotations import (
+from qreach.annotations import (
     AnnotationRegistry,
     annotate,
     annotate_classical,
@@ -9,7 +9,7 @@ from annotations import (
     annotate_where,
     default_registry,
 )
-from inline_annotations import QReachCircuit, mark
+from qreach.inline_annotations import QReachCircuit, mark
 
 class Proposition:
     def __init__(self, name: str, content=None, condition=None):

@@ -8,9 +8,9 @@ import pyqreach
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 import numpy as np
 from time import time
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 
 # Integration Test: Quantum Bernoulli Factory
 qubits = QuantumRegister(3)

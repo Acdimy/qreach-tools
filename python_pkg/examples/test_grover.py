@@ -14,9 +14,9 @@ import numpy as np
 from math import pi
 import random
 from time import time
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 import pandas as pd
 from qasm_workflow_runner import insert_random_pauli
 
@@ -38,7 +38,7 @@ result = modelChecking(ts, "AG (leaf -> target_subspace)")
 print("Output: ", result["output"])
 print("Model checking result:", result['satisfied'])
 if result.get('analysis'):
-    from qctl import _format_counterexample_analysis
+    from qreach.qctl import _format_counterexample_analysis
     print(_format_counterexample_analysis(result['analysis']))
 # res = ts.Locations[parse_result[-1]].satisfy(target_subspace)
 # print("Grover benchmark result:", res)

@@ -83,8 +83,8 @@ Minimal example:
 ```python
 import pyqreach
 from qiskit import QuantumCircuit
-from parse_qiskit import parse_qiskit_cir
-from qctl import set_zero_initial_state, annotate
+from qreach.parse_qiskit import parse_qiskit_cir
+from qreach.qctl import set_zero_initial_state, annotate
 
 qc = QuantumCircuit(2, 0)
 qc.h(0)
@@ -102,7 +102,7 @@ print(labels)
 
 ## Convenient Python APIs
 
-Recent workflow work adds several convenience APIs around common QReach operations. Most are available from `python_pkg/qctl.py`.
+Recent workflow work adds several convenience APIs around common QReach operations. Most are available from `python_pkg/qreach/qctl.py`.
 
 ### Initial quantum-state helpers
 
@@ -116,7 +116,7 @@ ts.setAnnotation([[0, opinit]])
 use:
 
 ```python
-from qctl import quantum_state, set_initial_state, set_zero_initial_state
+from qreach.qctl import quantum_state, set_initial_state, set_zero_initial_state
 
 op = quantum_state("000")
 set_initial_state(ts, "000")
@@ -179,7 +179,7 @@ This interface is intended for convenient construction of common one-dimensional
 Use `span_states` or `span_qops` to construct the normalized span of several one-dimensional subspaces.
 
 ```python
-from qctl import quantum_state, span_states, span_qops
+from qreach.qctl import quantum_state, span_states, span_qops
 
 subspace = span_states(["00", "11"])
 
@@ -228,7 +228,7 @@ In addition to classical proposition labels, qctl provides helpers for setting q
 Leaf locations:
 
 ```python
-from qctl import annotate_leaf_state, annotate_leaf_operation, span_states
+from qreach.qctl import annotate_leaf_state, annotate_leaf_operation, span_states
 
 annotate_leaf_state(ts, "11")
 annotate_leaf_operation(ts, span_states(["00", "11"]))
@@ -237,7 +237,7 @@ annotate_leaf_operation(ts, span_states(["00", "11"]))
 Marker locations:
 
 ```python
-from qctl import annotate_marker_state, annotate_marker_operation, quantum_state
+from qreach.qctl import annotate_marker_state, annotate_marker_operation, quantum_state
 
 annotate_marker_state(ts, parse_result, "after_h", "+0")
 annotate_marker_operation(ts, parse_result, "after_h", quantum_state("+0"))
@@ -258,10 +258,10 @@ These functions return the locations whose quantum annotations were set.
 
 ### Built-in annotation keywords
 
-Built-in annotation keywords label transition-system locations with common classical propositions. They are implemented through `AnnotationRegistry` in `python_pkg/annotations.py` and re-exported by `qctl.py`.
+Built-in annotation keywords label transition-system locations with common classical propositions. They are implemented through `AnnotationRegistry` in `python_pkg/qreach/annotations.py` and re-exported by `qctl.py`.
 
 ```python
-from qctl import annotate, default_registry
+from qreach.qctl import annotate, default_registry
 
 labels = annotate(ts, ["reached", "leaf"])
 print(labels)
@@ -293,7 +293,7 @@ default_registry()
 Example:
 
 ```python
-from qctl import annotate, annotate_classical, annotate_identifier
+from qreach.qctl import annotate, annotate_classical, annotate_identifier
 
 annotate(ts, ["reached", "leaf"])
 annotate_classical(ts, "accept", "10")
@@ -305,8 +305,8 @@ annotate_identifier(ts, "loop_body", "*W*")
 `QReachCircuit` is a lightweight wrapper around Qiskit's `QuantumCircuit`. It delegates normal Qiskit syntax to the underlying circuit and adds `.mark(name)`.
 
 ```python
-from inline_annotations import QReachCircuit
-from parse_qiskit import parse_qiskit_cir
+from qreach.inline_annotations import QReachCircuit
+from qreach.parse_qiskit import parse_qiskit_cir
 
 qc = QReachCircuit(2, 0)
 qc.h(0)
@@ -338,7 +338,7 @@ qc.mark("after_load")
 You can also mark a normal `QuantumCircuit`:
 
 ```python
-from inline_annotations import mark
+from qreach.inline_annotations import mark
 
 mark(qc, "after_oracle")
 ```
@@ -372,7 +372,7 @@ tsLabelling(ts, prop, "sp17")
 Convenience version:
 
 ```python
-from qctl import label_snapshot
+from qreach.qctl import label_snapshot
 
 label_snapshot(ts, parse_result, "after_h", "sp_after_h")
 ```
@@ -416,7 +416,7 @@ lower, upper, annotation
 Example:
 
 ```python
-from qctl import set_zero_initial_state, label_snapshot
+from qreach.qctl import set_zero_initial_state, label_snapshot
 
 set_zero_initial_state(ts)
 ts.computingFixedPointPost()
@@ -429,9 +429,9 @@ print(labelled)
 
 ```python
 import pyqreach
-from inline_annotations import QReachCircuit
-from parse_qiskit import parse_qiskit_cir
-from qctl import (
+from qreach.inline_annotations import QReachCircuit
+from qreach.parse_qiskit import parse_qiskit_cir
+from qreach.qctl import (
     set_zero_initial_state,
     annotate,
     label_snapshot,
@@ -459,23 +459,27 @@ tsLabelling(ts, bell_subspace, "bell_span")
 
 ## Test and regression scripts
 
-Most historical regression/debug scripts remain directly under `python_pkg/test_*.py`. New workflow-oriented API tests should live under:
+Tests and scripts are organized under `python_pkg/`:
 
-```text
-python_pkg/workflow_tests/
-```
+- `python_pkg/workflow_tests/` — real unit/regression tests (with assertions) and the
+  benchmark runner infrastructure. Symbolic SymTS tests live in
+  `python_pkg/workflow_tests/symbolic/` and auto-skip under the LimTDD backend.
+- `python_pkg/examples/` — runnable workflow validation examples (no assertions).
+- `python_pkg/eval/` — benchmark evaluation/experiment runners.
+- `python_pkg/plots/` — plotting scripts.
 
 Current examples:
 
 ```bash
 cd python_pkg
-../.venv/bin/python workflow_tests/test_newapi.py
-../.venv/bin/python workflow_tests/test_grover.py
+../.venv/bin/python workflow_tests/test_ts_structure.py
+../.venv/bin/python workflow_tests/test_lazy_measurement.py
+../.venv/bin/python examples/test_RUS.py
 ```
 
 ## NuSMV integration
 
-`python_pkg/qctl.py` can emit SMV models and call NuSMV through:
+`python_pkg/qreach/qctl.py` can emit SMV models and call NuSMV through:
 
 ```python
 modelChecking(ts, ctl_formula, nusmv_path=None)
@@ -492,7 +496,7 @@ Pass `nusmv_path` explicitly or ensure `NuSMV` is available at the expected path
 Example:
 
 ```python
-from qctl import modelChecking
+from qreach.qctl import modelChecking
 
 result = modelChecking(ts, "AG (leaf -> reached)")
 print(result)

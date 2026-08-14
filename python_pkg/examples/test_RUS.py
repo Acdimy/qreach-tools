@@ -12,9 +12,9 @@ import numpy as np
 from math import pi
 import random
 from time import time
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 
 # Correct
 # qc = QuantumCircuit(3, 1)
@@ -63,7 +63,7 @@ result1 = modelChecking(ts, "EF (Zero)")
 print("Spec 1: EF (Zero)")
 print("  satisfied:", result1['satisfied'])
 if result1.get('analysis'):
-    from qctl import _format_counterexample_analysis
+    from qreach.qctl import _format_counterexample_analysis
     print(_format_counterexample_analysis(result1['analysis']))
 
 # Specification 2: AF (outloop -> s), where s is the subspace of
@@ -91,5 +91,5 @@ result2 = modelChecking(ts, "AG (outloop -> s)")
 print("Spec 2: AF (outloop -> s)")
 print("  satisfied:", result2['satisfied'])
 if result2.get('analysis'):
-    from qctl import _format_counterexample_analysis
+    from qreach.qctl import _format_counterexample_analysis
     print(_format_counterexample_analysis(result2['analysis']))

@@ -11,7 +11,7 @@ from math import floor
 from math import ceil, log2, pi
 import numpy as np
 from dataclasses import dataclass, field
-from inline_annotations import is_mark_operation, mark_name
+from qreach.inline_annotations import is_mark_operation, mark_name
 
 
 @dataclass

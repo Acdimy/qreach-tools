@@ -1,3 +1,9 @@
+from qreach import symbolic_available
+
+if not symbolic_available():
+    print("SKIP: symbolic SymTS backend unavailable (LimTDD build)")
+    raise SystemExit(0)
+
 import json
 import os
 import subprocess

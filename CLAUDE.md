@@ -80,29 +80,35 @@ Currently only CFLOBDD. Explore/integrate alternative quantum decision-diagram o
 - `python_pkg/qreach_python_wrapper.cpp`
   - Builds the `pyqreach` extension with pybind11.
   - Exposes `QOperation`, `ClassicalProposition`, explicit `TransitionSystem`/`Location`, symbolic `SymTS`, `pyqreach.span_qops(...)`, and selected `QOperation` methods such as `disjunction(...)`.
-- `python_pkg/parse_qiskit.py`
+- `python_pkg/qreach/parse_qiskit.py`
   - Lowers Qiskit `QuantumCircuit` objects into explicit `pyqreach.TransitionSystem` via `parse_qiskit_cir(...)` and `parse_qiskit_cir_lazy(...)` (lazy construction — propagates post-images during parsing).
   - Also contains symbolic parser support via `parse_qiskit_cir_sym(...)`.
   - Handles measurements, resets, classical-register bookkeeping, and Qiskit control flow such as `if_else`, `while_loop`, `for_loop`, and `switch_case`.
   - `ParseResult` metadata with inline marks when `return_metadata=True`.
   - `QREACH_PARSE_PROFILE` env-gated per-instruction profiling.
-- `python_pkg/qctl.py`
+- `python_pkg/qreach/qctl.py`
   - User-facing workflow utilities: labelling, initial-state helpers, snapshot labelling, subspace span helpers, SMV/CTL generation, NuSMV invocation, and result parsing.
-- `python_pkg/annotations.py`
+- `python_pkg/qreach/annotations.py`
   - Built-in annotation keywords and `AnnotationRegistry`.
-- `python_pkg/inline_annotations.py`
+- `python_pkg/qreach/inline_annotations.py`
   - Lightweight Qiskit wrapper `QReachCircuit` and `mark(...)` helper.
 - `python_pkg/workflow_tests/`
-  - Workflow-oriented API tests and benchmark runners:
+  - Real unit/regression tests (assertions):
+    - `test_lazy_measurement.py` — lazy-mode measurement regression.
+    - `test_ts_structure.py` — explicit TransitionSystem structural unit tests.
+    - `test_simulation_grover.py`, `test_simulation_qft.py` — QReach vs Qiskit Statevector comparisons.
+  - Benchmark runner infrastructure:
+    - `qasm_workflow_runner.py` — shared utilities for QASM experiments.
     - `run_qasm_benchmarks_lazy.py` — batch runner for all benchmark families.
     - `run_benchpress_qasm_lazy.py` — benchpress-medium batch runner.
-    - `qasm_workflow_runner.py` — shared utilities for QASM experiments.
-    - `debug_grover32_ccx_pathology.py` — prefix bisect/profiling for Grover32.
-    - `test_grover32_lazy_prefix_performance.py` — pytest regression for lazy parse timing.
-    - `test_grover.py`, `test_newapi.py`, `test_RUS.py` — workflow API smoke tests.
-    - `test_lazy_measurement.py` — lazy mode measurement regression.
-    - `test_bv_n14.py`, `test_bv_n14_lazy.py` — Bernstein-Vazirani workflows.
-    - `test_simulation_grover.py`, `test_simulation_qft.py` — simulation-style comparisons.
+  - `symbolic/` — symbolic SymTS regression tests (CFLOBDD-only; auto-skip under LimTDD).
+- `python_pkg/examples/`
+  - Runnable workflow validation examples (no assertions; print model-checking output):
+    `test_RUS.py`, `test_grover.py`, `test_grover_wp.py`, `test_rus_wp.py`, `test_bv_n14.py`, `test_bv_n14_lazy.py`, `test_ent.py`, `test_qbf.py`, `test_parse_qasm.py`, `test_vqss_*.py`, `test_mutation_qismc.py`.
+- `python_pkg/eval/`
+  - Benchmark evaluation/experiment runners.
+- `python_pkg/plots/`
+  - Plotting scripts for benchmark runtime/scaling results.
 - `python_pkg/benchmark/`
   - QASM benchmark circuits organized by family: `grover/`, `dqc_pe/`, `dqc_qft/`, `pe/`, `qft/`, `benchpress-medium/`, `converted_qasm/`, `quantum_teleportation/`, `superdense_coding/`, `qrw_*.qasm`, `rus_*.qasm`, `testbigcliff.qasm`.
 
@@ -178,15 +184,22 @@ export PYTHON_INCLUDE=$(python -c "from sysconfig import get_paths as gp; print(
 Run from `python_pkg` after building `pyqreach`:
 
 ```bash
-../.venv/bin/python workflow_tests/test_newapi.py       # annotation API smoke test
-../.venv/bin/python test_qiskit_grammar.py          # fuller qCTL/Qiskit workflow example
-../.venv/bin/python test_513_qiskit.py              # snapshot-style quantum proposition example
-../.venv/bin/python test_parse_qasm.py              # QASM/Grover-style debug workflow
-../.venv/bin/python workflow_tests/test_grover.py       # Grover workflow/proposition API smoke test
-../.venv/bin/python test_RUS.py                     # RUS Qiskit/debugging workflow test
-../.venv/bin/python test_symts_minimal.py           # minimal explicit-vs-symbolic post check
-../.venv/bin/python test_symts_control_flow.py      # reduced symbolic control-flow checks
-../.venv/bin/python test_symts_steane_regression.py # bounded Steane symbolic regression
+# Real unit/regression tests (assertions), run from python_pkg/:
+../.venv/bin/python workflow_tests/test_lazy_measurement.py   # lazy-mode measurement regression
+../.venv/bin/python workflow_tests/test_ts_structure.py       # explicit TS structural unit tests
+../.venv/bin/python workflow_tests/test_simulation_grover.py  # Grover vs Qiskit Statevector
+../.venv/bin/python workflow_tests/test_simulation_qft.py     # QFT vs Qiskit Statevector
+
+# Symbolic SymTS tests (CFLOBDD-only; auto-skip under LimTDD):
+../.venv/bin/python workflow_tests/symbolic/test_symts_minimal.py
+../.venv/bin/python workflow_tests/symbolic/test_symts_control_flow.py
+../.venv/bin/python workflow_tests/symbolic/test_symts_steane_regression.py
+
+# Workflow validation examples (no assertions; inspect model-checking output):
+../.venv/bin/python examples/test_RUS.py
+../.venv/bin/python examples/test_grover.py
+../.venv/bin/python examples/test_grover_wp.py
+../.venv/bin/python examples/test_parse_qasm.py
 ```
 
 Useful profiling/debug commands:
@@ -194,13 +207,12 @@ Useful profiling/debug commands:
 ```bash
 TS_PROFILE=1 ./test_qreach 8
 cd python_pkg
-TS_PROFILE=1 ../.venv/bin/python debug_steane_measure_only.py 1
-TS_PROFILE=1 ../.venv/bin/python test_symts_steane_post.py sym 1 full
-TS_MAX_POST_ITER=5 ../.venv/bin/python test_symts_minimal.py
+TS_PROFILE=1 ../.venv/bin/python workflow_tests/symbolic/test_symts_steane_post.py sym 1 full
+TS_MAX_POST_ITER=5 ../.venv/bin/python workflow_tests/symbolic/test_symts_minimal.py
 QOP_PROFILE=1 ../.venv/bin/python <script.py>
 ```
 
-NuSMV integration in `python_pkg/qctl.py` defaults to:
+NuSMV integration in `python_pkg/qreach/qctl.py` defaults to:
 
 ```text
 ../NuSMV-2.7.0-linux64/bin/NuSMV
@@ -250,7 +262,7 @@ Do not extend this syntax to arbitrary amplitude expressions without a deliberat
 Use direct span APIs instead of temporary transition systems:
 
 ```python
-from qctl import quantum_state, span_states, span_qops
+from qreach.qctl import quantum_state, span_states, span_qops
 
 span_states(["00", "11"])
 span_qops([quantum_state("+0"), quantum_state("-1")])
@@ -283,7 +295,7 @@ Use these when a workflow needs to attach a quantum state/proposition to leaf lo
 
 ### Built-in annotation keywords
 
-Implemented in `python_pkg/annotations.py` and re-exported by `qctl.py`:
+Implemented in `python_pkg/qreach/annotations.py` and re-exported by `qctl.py`:
 
 ```python
 annotate(ts, names=None, *, loc_list=None)
@@ -308,7 +320,7 @@ Important: do not implement explicit `reached` using `SymTS.locationHasNonZeroAn
 
 ### Inline Qiskit marks and parser metadata
 
-`python_pkg/inline_annotations.py` provides:
+`python_pkg/qreach/inline_annotations.py` provides:
 
 ```python
 QReachCircuit

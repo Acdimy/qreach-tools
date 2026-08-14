@@ -17,9 +17,9 @@ import numpy as np
 from math import pi
 import random
 from time import time
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 from contextlib import contextmanager
 import random
 import importlib

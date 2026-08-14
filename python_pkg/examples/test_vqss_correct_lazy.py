@@ -3,13 +3,12 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-### Verifiable quantum secret sharing
-from inline_annotations import QReachCircuit
+from qreach.inline_annotations import QReachCircuit
 from time import time
 
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 
 # Qiskit program
 circ = QReachCircuit(14, 14)
@@ -27,8 +26,7 @@ for i in range(7, 14):
 
 start_time = time()
 ts = pyqreach.TransitionSystem()
-parse_result = parse_qiskit_cir(circ, circ.num_qubits, ts, return_metadata=True)
-set_initial_state(ts, "00000000000000")
+parse_result = parse_qiskit_cir_lazy(circ, circ.num_qubits, ts, initial_state="00000000000000", return_metadata=True)
 build_time = time() - start_time
 ts.computingFixedPointPost()
 label_snapshot(ts, parse_result, "enc", "target")
@@ -36,6 +34,7 @@ annotate(ts, ["leaf"])
 result = modelChecking(ts, 'AG (leaf -> target)')
 check_time = time() - start_time - build_time
 print(f"Transition System Locations: {ts.getLocationNum()}")
+print(f"Lazy pruned locations: {len(parse_result.lazy_pruned_locations)}")
 print(f"Time taken for building transition system: {build_time:.2f} seconds")
 print(f"Time taken for model checking: {check_time:.2f} seconds")
 print("Output: ", result["output"])

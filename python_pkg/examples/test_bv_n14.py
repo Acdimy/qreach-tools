@@ -4,12 +4,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ### Verifiable quantum secret sharing
-from inline_annotations import QReachCircuit
+from qreach.inline_annotations import QReachCircuit
 from time import time
 
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 
 FILE_PATH = Path(__file__).resolve().parents[1].joinpath("benchmark/benchpress-medium/supported/bv_n14.qasm")
 qc = QReachCircuit.from_qasm_file(FILE_PATH)

@@ -4,12 +4,12 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ### Verifiable quantum secret sharing
-from inline_annotations import QReachCircuit
+from qreach.inline_annotations import QReachCircuit
 from time import time
 
-from parse_qiskit import *
-from qctl import *
-from circ_utils import *
+from qreach.parse_qiskit import *
+from qreach.qctl import *
+from qreach.circ_utils import *
 
 circ = QReachCircuit(10, 10)
 
@@ -36,5 +36,5 @@ result = modelChecking(ts, 'AG (leaf -> target)')
 print("Output: ", result["output"])
 # print("Model checking result:", result['satisfied'])
 if result.get('analysis'):
-    from qctl import _format_counterexample_analysis
+    from qreach.qctl import _format_counterexample_analysis
     print(_format_counterexample_analysis(result['analysis']))

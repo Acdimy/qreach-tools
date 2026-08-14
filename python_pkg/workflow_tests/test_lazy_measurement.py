@@ -1,6 +1,6 @@
 import pyqreach
 from qiskit import QuantumCircuit
-from parse_qiskit import parse_qiskit_cir_lazy
+from qreach.parse_qiskit import parse_qiskit_cir_lazy
 
 
 def _dims(ts, loc):

@@ -27,8 +27,8 @@ from qiskit import QuantumCircuit
 from qiskit.circuit import CircuitInstruction
 from qiskit.circuit.library import XGate, YGate, ZGate
 
-from parse_qiskit import parse_qiskit_cir, parse_qiskit_cir_lazy
-from qctl import modelChecking, quantum_state, set_initial_state, span_qops, tsLabelling
+from qreach.parse_qiskit import parse_qiskit_cir, parse_qiskit_cir_lazy
+from qreach.qctl import modelChecking, quantum_state, set_initial_state, span_qops, tsLabelling
 
 
 CSV_FIELDS = [

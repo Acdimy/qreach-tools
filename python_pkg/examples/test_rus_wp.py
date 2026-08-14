@@ -32,8 +32,8 @@ from time import time
 
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister
 
-from parse_qiskit import parse_qiskit_cir
-from qctl import (
+from qreach.parse_qiskit import parse_qiskit_cir
+from qreach.qctl import (
     set_initial_state,
 )
 

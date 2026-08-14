@@ -14,8 +14,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pyqreach
 from qiskit import QuantumCircuit
-from parse_qiskit import parse_qiskit_cir
-from qctl import (
+from qreach.parse_qiskit import parse_qiskit_cir
+from qreach.qctl import (
     set_initial_state,
     quantum_state,
     span_states,

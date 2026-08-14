@@ -20,8 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qiskit import QuantumCircuit  # noqa: E402
 
 import pyqreach  # noqa: E402
-from parse_qiskit import parse_qiskit_cir  # noqa: E402
-from qctl import set_initial_state, quantum_state  # noqa: E402
+from qreach.parse_qiskit import parse_qiskit_cir  # noqa: E402
+from qreach.qctl import set_initial_state, quantum_state  # noqa: E402
 
 
 def _run_qiskit_sim(filename: str, init_label: str) -> dict:

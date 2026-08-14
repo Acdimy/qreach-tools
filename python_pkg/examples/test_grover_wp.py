@@ -20,8 +20,8 @@ from time import time
 
 from qiskit import QuantumCircuit
 
-from parse_qiskit import parse_qiskit_cir
-from qctl import (
+from qreach.parse_qiskit import parse_qiskit_cir
+from qreach.qctl import (
     quantum_state,
     set_zero_initial_state,
     span_qops,
