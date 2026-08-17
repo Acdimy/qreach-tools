@@ -495,14 +495,13 @@ class QuantumGateTerm : public QuantumTerm {
     QuantumGateTerm() {}
     // QuantumGateTerm(unsigned int qubit) {this->qNum = qubit;}
     QuantumGateTerm(std::string nam, std::vector<unsigned int> idx, std::vector<double> pars, unsigned int qNum)  {
-        assert((qNum & (qNum - 1)) == 0 && qNum != 0);
-        // type = true;
+        // qNum is already backend-normalized (NormalizeQubitCount); store it
+        // directly and record the backend level for later gate construction.
         this->name = nam;
         this->index = idx;
         this->vars = pars;
-        // Make sure the qNum is exp.
-        this->level = ceil(log2(qNum)) + 1;
-        this->qNum = std::pow(2, this->level-1);
+        this->level = MatrixLevelForQubits(qNum);
+        this->qNum = qNum;
         content = DDVector::NoDistinctionNode(1, 0);
     }
     QuantumGateTerm(bool setconstant) {
@@ -570,31 +569,29 @@ class QuantumGateTerm : public QuantumTerm {
             S = DDMatrix::MatrixMultiply(S, H);
             res = S;
         } else if (name == "cx") {
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(controller != controlled);
     
             if (controller < controlled)
             {
-                auto C = DDMatrix::MkCNOT(state_level, std::pow(2, state_level - 1), controller, controlled);
+                auto C = DDMatrix::MkCNOT(state_level, this->qNum, controller, controlled);
                 res = C;
             }
             else
             {
                 auto S = DDMatrix::MkSwap(state_level, controlled, controller);
-                auto C = DDMatrix::MkCNOT(state_level, std::pow(2, state_level - 1), controlled, controller);
+                auto C = DDMatrix::MkCNOT(state_level, this->qNum, controlled, controller);
                 C = DDMatrix::MatrixMultiply(C, S);
                 C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
             }
         } else if (name == "csx") {
             // Use the identity CSX = H(target) CP[pi/2](control, target) H(target)
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(controller != controlled);
 
             auto H = DDMatrix::MkSingleQubitGateOnN(this->qNum, controlled, DDMatrix::MkWalsh);
@@ -642,7 +639,7 @@ class QuantumGateTerm : public QuantumTerm {
             auto U = DDMatrix::MkSingleQubitGateOnNWithParamVec(this->qNum, index, DDMatrix::MkArbitrary, v);
             res = U;
         } else if (name == "resetall") {
-            DD U = DDVector::NoDistinctionNode(ceil(log2(this->qNum)), 1);
+            DD U = DDVector::NoDistinctionNode(VectorLevelForQubits(this->qNum), 1);
             U = DDVector::VectorToMatrixInterleaved(U);
             U = DDMatrix::Conjugate(U);
             U = DDMatrix::Transpose(U);
@@ -666,10 +663,9 @@ class QuantumGateTerm : public QuantumTerm {
             res = U;
             
         } else if (name == "swap") {
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int index1 = this->index[0];
             unsigned int index2 = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(index1 != index2);
             if (index1 < index2)
             {
@@ -682,10 +678,9 @@ class QuantumGateTerm : public QuantumTerm {
                 res = C;
             }
         } else if (name == "iswap") {
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int index1 = this->index[0];
             unsigned int index2 = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(index1 != index2);
             if (index1 < index2)
             {
@@ -699,10 +694,9 @@ class QuantumGateTerm : public QuantumTerm {
             }
         } else if (name == "cz") {
             // Assert qNum is a power of 2
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(controller != controlled);
     
             if (controller < controlled)
@@ -719,10 +713,9 @@ class QuantumGateTerm : public QuantumTerm {
                 res = C;
             }
         } else if (name == "cp") {
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller = this->index[0];
             unsigned int controlled = this->index[1];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             double theta = this->vars[0];
             assert(controller != controlled);
 
@@ -742,25 +735,24 @@ class QuantumGateTerm : public QuantumTerm {
         } else if (name == "cs") {
             
         } /* CCNOT, CSWAP */ else if (name == "ccx") {
-            assert(this->qNum && (this->qNum & (this->qNum - 1)) == 0);
             unsigned int controller1 = this->index[0];
             unsigned int controller2 = this->index[1];
             unsigned int controlled = this->index[2];
-            unsigned int state_level = ceil(log2(this->qNum)) + 1;
+            unsigned int state_level = MatrixLevelForQubits(this->qNum);
             assert(controller1 != controlled);
             assert(controller2 != controlled);
             assert(controller1 != controller2);
             if (controller1 < controller2 && controller2 < controlled)
             {
                 // a b c
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controller2, controlled);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controller1, controller2, controlled);
                 res = C;
             }
             else if (controller1 < controlled && controlled < controller2)
             {
                 // a c b   
                 auto S = DDMatrix::MkSwap(state_level, controlled, controller2);
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller1, controlled, controller2);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controller1, controlled, controller2);
                 C = DDMatrix::MatrixMultiply(C, S);
                 C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
@@ -768,14 +760,14 @@ class QuantumGateTerm : public QuantumTerm {
             else if (controller2 < controller1 && controller1 < controlled)
             {
                 // b a c
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controller1, controlled);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controller2, controller1, controlled);
                 res = C;
             }
             else if (controller2 < controlled && controlled < controller1)
             {
                 // b c a
                 auto S = DDMatrix::MkSwap(state_level, controlled, controller1);
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controller2, controlled, controller1);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controller2, controlled, controller1);
                 C = DDMatrix::MatrixMultiply(C, S);
                 C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
@@ -785,7 +777,7 @@ class QuantumGateTerm : public QuantumTerm {
                 // c a b
                 auto S = DDMatrix::MkSwap(state_level, controlled, controller2);
                 // b a c
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller1, controller2);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controlled, controller1, controller2);
                 C = DDMatrix::MatrixMultiply(C, S);
                 C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
@@ -795,7 +787,7 @@ class QuantumGateTerm : public QuantumTerm {
                 // c b a
                 auto S = DDMatrix::MkSwap(state_level, controlled, controller1);
                 // a b c
-                auto C = DDMatrix::MkCCNOT(state_level, std::pow(2, state_level - 1), controlled, controller2, controller1);
+                auto C = DDMatrix::MkCCNOT(state_level, this->qNum, controlled, controller2, controller1);
                 C = DDMatrix::MatrixMultiply(C, S);
                 C = DDMatrix::MatrixMultiply(S, C);
                 res = C;
@@ -837,17 +829,15 @@ class SingleVecTerm : public QuantumTerm {
     SingleVecTerm(unsigned int qubits) {this->qNum = qubits;}
     SingleVecTerm(std::string s, unsigned int qubits) {
         // s.size() is the realQubits, qNum is the total physical qubits.
-        unsigned int level = ceil(log2(qubits));
-        this->qNum = std::pow(2, level);
-        DD stateVector = DDVector::MkBasisVector(level, s);
+        this->qNum = NormalizeQubitCount(qubits);
+        DD stateVector = DDVector::MkBasisVector(VectorLevelForQubits(this->qNum), s);
         stateVector = DDVector::VectorToMatrixInterleaved(stateVector);
         this->content = stateVector;
         this->knownUnitNorm = true;
     }
     SingleVecTerm(std::vector<double> amp, unsigned int qubits) {
         // qubits is the realQubits, qNum is the total physical qubits.
-        unsigned level = ceil(log2(qubits));
-        this->qNum = std::pow(2, level);
+        this->qNum = NormalizeQubitCount(qubits);
         assert(amp.size() == 2 * (1 << qubits));
         // Padding the amp to 2^(this->qNum) with 0s
         while(amp.size() < (1 << this->qNum)) {
@@ -861,7 +851,7 @@ class SingleVecTerm : public QuantumTerm {
         // Need copy?
         // type = false;
         this->content = x;
-        this->qNum = std::pow(2, DDVector::GetLevel(x)-1);
+        this->qNum = QubitsFromLevel(DDVector::GetLevel(x));
     }
     bool getType() const override {return false;}
     std::unique_ptr<QuantumTerm> clone() const override {
@@ -1009,13 +999,13 @@ class QOperation {
         }
         this->type = false;
         this->realqNum = strings[0].size();
-        this->qNum = std::pow(2, ceil(log2(strings[0].size())));
+        this->qNum = NormalizeQubitCount(strings[0].size());
         for (const auto& str : strings) {
             if (hasHadamardBasisSymbol(str)) {
                 SingleVecTerm term(simpleProductStateAmplitudes(str, this->qNum), this->qNum);
                 oplist.push_back(std::make_unique<SingleVecTerm>(term));
             } else {
-                SingleVecTerm term(stringPadding(str, this->qNum), std::pow(2, ceil(log2(str.size()))));
+                SingleVecTerm term(stringPadding(str, this->qNum), NormalizeQubitCount(str.size()));
                 oplist.push_back(std::make_unique<SingleVecTerm>(term));
             }
         }
@@ -1030,7 +1020,7 @@ class QOperation {
         assert(amps.size() == 2 * (1 << qubits));
         this->type = false;
         this->realqNum = qubits;
-        this->qNum = std::pow(2, ceil(log2(qubits)));
+        this->qNum = NormalizeQubitCount(qubits);
         // DDVector::InitializeWithAmplitudes expects split format: first half = real parts,
         // second half = imaginary parts.  Pad each half independently, inserting
         // zeros so that the new qubit starts in |0>.
@@ -1072,7 +1062,7 @@ class QOperation {
         */
         this->type = true;
         this->realqNum = qNum;
-        unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+        unsigned int logicqNum = NormalizeQubitCount(qNum);
         this->qNum = logicqNum;
         // Just a copy of CreateProjectiveMeasQO
         if (nam == "meas0") {
@@ -1402,7 +1392,7 @@ class QOperation {
                 }
             }
             // Create a SingleVecTerm with the basis string and qNum
-            SingleVecTerm basis(basis_str, std::pow(2, ceil(log2(this->qNum))));
+            SingleVecTerm basis(basis_str, NormalizeQubitCount(this->qNum));
             // Append the basis to the oplist
             this->oplist.push_back(std::make_unique<SingleVecTerm>(basis));
         }
@@ -1416,8 +1406,7 @@ class QOperation {
         if (this->oplist[0]->getType() == false) {
             assert(vec.getType() == false);
             assert(this->oplist[0]->qNum == vec.qNum);
-            unsigned int level = ceil(log2(vec.qNum));
-            DD content = DDVector::NoDistinctionNode(level+1, 0); // Check: Initialization
+            DD content = DDVector::NoDistinctionNode(MatrixLevelForQubits(vec.qNum), 0); // Check: Initialization
             for (size_t i = 0; i < this->oplist.size(); i++) {
                 auto* ivec = dynamic_cast<SingleVecTerm*>(this->oplist[i].get());
                 if (!ivec) continue;
@@ -2247,7 +2236,7 @@ I: the identity operator as the top of the QOperation lattice
 */
 
 QOperation CreateIdentityQO(unsigned int qNum) {
-    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+    unsigned int logicqNum = NormalizeQubitCount(qNum);
     QOperation res(false);
     res.realqNum = qNum;
     res.qNum = logicqNum;
@@ -2257,7 +2246,7 @@ QOperation CreateIdentityQO(unsigned int qNum) {
 }
 
 QOperation CreateZeroQO(unsigned int qNum, bool optype = false) {
-    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+    unsigned int logicqNum = NormalizeQubitCount(qNum);
     QOperation res(optype);
     res.realqNum = qNum;
     res.qNum = logicqNum;
@@ -2268,7 +2257,7 @@ QOperation CreateZeroQO(unsigned int qNum, bool optype = false) {
 
 // Should be mearged into the constructor of QOperation
 QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
-    unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+    unsigned int logicqNum = NormalizeQubitCount(qNum);
     QOperation res(true);
     res.qNum = logicqNum;
     res.realqNum = qNum;
@@ -2290,7 +2279,7 @@ QOperation CreateProjectiveMeasQO(unsigned int qNum, unsigned int i, bool val) {
 }
 
 // QOperation CreatePartialProjectiveQO(std::vector<std::string> parBasis, std::vector<unsigned int> parIndex, unsigned int qNum) {
-//     unsigned int logicqNum = std::pow(2, ceil(log2(qNum)));
+//     unsigned int logicqNum = NormalizeQubitCount(qNum);
 //     QOperation res(true);
 //     res.qNum = logicqNum;
 //     res.realqNum = qNum;

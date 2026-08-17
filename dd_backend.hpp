@@ -34,6 +34,17 @@
   namespace qreach {
     using DD        = limtdd::DD;
     using DDComplex = limtdd::DDComplex;
+
+    // Backend-neutral qubit-count / level helpers (see the CFLOBDD branch for
+    // the power-of-two leveling). LimTDD represents any qubit count natively,
+    // so there is no padding and the "level" parameters collapse to the qubit
+    // count itself.
+    inline unsigned int NormalizeQubitCount(unsigned int qubits) { return qubits; }
+    inline unsigned int VectorLevelForQubits(unsigned int qubits) { return qubits; }
+    inline unsigned int MatrixLevelForQubits(unsigned int qubits) { return qubits; }
+    // Inverse of GetLevel: map a backend level back to the qubit count. The
+    // LimTDD GetLevel returns the qubit count n directly.
+    inline unsigned int QubitsFromLevel(unsigned int level) { return level; }
   }
 
 #else  // QREACH_USE_CFLOBDD (default)
@@ -43,6 +54,31 @@
   namespace qreach {
     using DD        = CFL_OBDD::CFLOBDD_COMPLEX_BIG;
     using DDComplex = CFL_OBDD::BIG_COMPLEX_FLOAT;
+
+    // CFLOBDD's hierarchical levels require a power-of-two qubit count, so a
+    // logical register of `qubits` qubits is padded up to the next power of
+    // two. The level helpers return log2(qubits) for vectors and
+    // log2(qubits)+1 for matrices (which is how the semantic layer addresses
+    // a state stored in matrix/interleaved form).
+    inline unsigned int NormalizeQubitCount(unsigned int qubits) {
+        unsigned int n = 1;
+        while (n < qubits) n <<= 1;
+        return n;
+    }
+    inline unsigned int VectorLevelForQubits(unsigned int qubits) {
+        unsigned int level = 0;
+        while ((1u << level) < qubits) ++level;
+        return level;
+    }
+    inline unsigned int MatrixLevelForQubits(unsigned int qubits) {
+        return VectorLevelForQubits(qubits) + 1;
+    }
+    // Inverse of GetLevel: map a backend level back to the qubit count. A
+    // state is stored in matrix/interleaved form, so GetLevel returns the
+    // matrix level (qubits = 2^(level-1)).
+    inline unsigned int QubitsFromLevel(unsigned int level) {
+        return 1u << (level - 1);
+    }
   }
 
   // ---------------------------------------------------------------------------
