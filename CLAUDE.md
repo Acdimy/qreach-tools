@@ -97,6 +97,7 @@ Currently only CFLOBDD. Explore/integrate alternative quantum decision-diagram o
     - `test_lazy_measurement.py` — lazy-mode measurement regression.
     - `test_ts_structure.py` — explicit TransitionSystem structural unit tests.
     - `test_simulation_grover.py`, `test_simulation_qft.py` — QReach vs Qiskit Statevector comparisons.
+    - `test_backend_crosscheck.py` — dense cross-check oracle: small unitary circuits vs Qiskit `Statevector`, backend-agnostic (2 known-LimTDD XFAIL).
   - Benchmark runner infrastructure:
     - `qasm_workflow_runner.py` — shared utilities for QASM experiments.
     - `run_qasm_benchmarks_lazy.py` — batch runner for all benchmark families.
@@ -189,6 +190,7 @@ Run from `python_pkg` after building `pyqreach`:
 ../.venv/bin/python workflow_tests/test_ts_structure.py       # explicit TS structural unit tests
 ../.venv/bin/python workflow_tests/test_simulation_grover.py  # Grover vs Qiskit Statevector
 ../.venv/bin/python workflow_tests/test_simulation_qft.py     # QFT vs Qiskit Statevector
+../.venv/bin/python workflow_tests/test_backend_crosscheck.py # dense cross-check vs Qiskit Statevector (backend-agnostic)
 
 # Symbolic SymTS tests (CFLOBDD-only; auto-skip under LimTDD):
 ../.venv/bin/python workflow_tests/symbolic/test_symts_minimal.py

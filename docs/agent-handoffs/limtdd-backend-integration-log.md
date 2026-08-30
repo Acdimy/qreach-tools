@@ -1,8 +1,8 @@
 # LimTDD 后端替换 — QReach 侧集成日志与已知问题
 
 > **Audience:** 接续后端替换工作的 agent（QReach 侧 + LimTDD 侧）。
-> **Status:** 集成进行中 —— Phase 0–5 已完成、CFLOBDD 封装完毕、LimTDD 已接线；剩余 dense 实现与若干 qNum/level 约定待办。
-> **Last updated:** 2026-08-28（覆盖 08-13 → 08-17 的进度与发现，此前文档未收录）。
+> **Status:** 集成**已重建并验证**（2026-08-30）——QReach 语义层 + 显式 TS 在 LimTDD 后端下全绿（含 VQSS）；LimTDD 侧已紧凑化门/态/Kron、修好 level→n 约定。剩余 `Conjugate`/`Transpose` dense 化与矩阵代数紧凑化。
+> **Last updated:** 2026-08-30（覆盖 08-13 → 08-30；§5 记录 08-30 重同步结果）。
 > **分支:** `limtdd-backend`。
 > **姊妹文档:** `limtdd-backend-implementation-status.md`（LimTDD 侧实现现状）、`limtdd-backend-qreach-plan.md`（QReach 侧计划）、`backend-replacement-api-contract.md`（API 契约）。
 
@@ -73,16 +73,19 @@ QubitsFromLevel(level)     // CFLOBDD: 2^(level-1)；LimTDD: 2^level
 
 ## 3. 仍待办 / 已识别的剩余问题
 
-### 3.1 LimTDD 侧待办
+### 3.1 LimTDD 侧待办（2026-08-30 更新：多数已由 LimTDD 侧完成）
 
-1. **dense O(4^n) 实现**（已在 `limtdd-backend-implementation-status.md` §4 记录）：`MkSingleQubitGateOnN`/`MkCNOT` 等多 qubit 门、`KroneckerProduct`、`MatrixMultiply`、`Conjugate`、`Transpose` 都是「构建 dense 矩阵 → `to_tdd`」或「枚举 → 变换 → 重建」，只适用 n≤10–12。实测 `grover_wp` 比 CFLOBDD 慢约 **2300×**（23s vs 0.01s）。根因是 `cont` 的两个问题：变量序必须交错（已用交错预注册解决），以及对 disjoint 矩阵 Kron 后再 `cont` 产生畸形 DD（路径变量号重复 `v=0→v=0`），故 Kron/门提升不能走「Kron(cont) + 再 cont」。
+> ⚠️ 本节原列的三条（dense 门、`kMaxDenseQubits` 冲突、level→n 约定）**均已在 LimTDD `limtdd-backend` 分支（HEAD `77936fb`）上解决**。详见 §5 的重同步验证。以下为更新后的剩余项。
 
-2. **`kMaxDenseQubits=12` 与 QReach padding 冲突**：10/14-qubit VQSS 例子 pad 到 16 后，`denseSingleQubitGateOnN` 抛 "too many qubits"。CFLOBDD 能跑（correct→True、buggy→False），LimTDD 不能。与 §2.4 的 `NormalizeQubitCount` 语义相关，需 LimTDD 侧决定如何表示非 power-of-2 qubit 数。
+1. ~~**dense O(4^n) 门构造**~~ → **已紧凑化**：`MkSingleQubitGateOnN` 现走 `cont`（"no dense O(4^n)"），`KroneckerProduct` 也走紧凑张量积。`grover_wp` 的 2300× 性能差应已大幅改善（待重新测量确认）。
 
-3. **门构造器 level→n 约定待改**（§2.4 重构后新暴露）：LimTDD 侧以下函数当前按 `level`（log2 尺度）解释参数，需改为按 `n`（qubit 数）解释，才能配合 `VectorLevelForQubits(q)=q`（LimTDD 分支）：
-   - `MkBasisVector`、`NoDistinctionNode`、`MkSwap`、`MkiSwap`、`MkCP`（当前内部用 `qubitCount(level)=2^level` / `n=2^(level-1)`）；
-   - `MkCNOT`/`MkCCNOT`/`MkSingleQubitGateOnN` 已按 `n`，无需改。
-   - `GetLevel` 当前返回 `ceil(log2(n))`，对非 power-of-2 是**有损**的；非 power-of-2 的 `SingleVecTerm(DD)` 需要 `GetLevel` 返回 `n`（或另加 `GetQubitCount`）。
+2. ~~**`kMaxDenseQubits=12` 与 padding 冲突**~~ → **已解除**：`kMaxDenseQubits=12` 现在只 guard dense 枚举辅助（`matrixToDense`），不再 guard 门构造。VQSS（10/14 qubit，pad 到 16）现已可跑（§6 验证：correct→True、buggy→violation）。
+
+3. ~~**门构造器 level→n 约定**~~ → **已改**：`MkBasisVector`/`NoDistinctionNode`/`MkSwap`/`MkiSwap`/`MkCP` 现收 `n`（qubit 数）；`MkCNOT`/`MkCCNOT` 保留 `/*level*/`（未用）+ `n`；`GetLevel` 返回 `n`（= `tdd.index_set.size()`）。与 QReach 侧 `VectorLevelForQubits(q)=q` / `QubitsFromLevel(level)=level` 对齐。
+
+4. **`Conjugate` / `Transpose` 仍是 dense 实现**（**剩余硬骨头**）：`DDMatrix.hpp` 中 `Conjugate` 标注 "Implemented via dense"（`matrixToDense` → 逐项共轭 → 重建）。这是 LimTDD 侧自认的下一步（HISTORY.md 指向 `limtdd-backend-conjugate-transpose-plan.md`）。影响：`dot`/`normalize`/`resetall` 里凡触发 dense 共轭的路径在大 n 下仍慢，且受 `kMaxDenseQubits=12` 限制（枚举路径）。
+
+5. **矩阵代数紧凑化**（`MatrixMultiply` 等矩阵×矩阵路径）——LimTDD 侧自认的下一块硬骨头，`Conjugate`/`Transpose` 之外。**已由交叉校验确认是实际 bug**：见 `limtdd-matrixmultiply-bug-report.md`（`MatrixMultiply` 对同尺寸矩阵抛 `size mismatch`（CSX），并对 `ctrl>tgt` 的 S·C·S SWAP 共轭静默算错）。
 
 ### 3.2 QReach 侧待办
 
@@ -124,11 +127,50 @@ USE_LIMTDD=1 BOOST_PATH=../BOOST/boost_1_81_0 make test
 
 ---
 
-## 5. 相关文档
+## 5. 2026-08-30 重同步验证记录
+
+**背景**：LimTDD 仓库此前 checkout 在 `temp_debug_dj60`（fidelity/张量网络线），后端头文件 `dd/backend/{DDVector,DDMatrix,DDTypes}.hpp` 只在 `limtdd-backend` 分支上，QReach 的 `QREACH_USE_LIMTDD` 集成因此处于"断线"状态。切回 `limtdd-backend`（HEAD `77936fb`）后重建并验证。
+
+**LimTDD 侧已前进（相对 08-17 记忆/文档）**：level→n 约定已改、门/态/Kron 已紧凑化、`kMaxDenseQubits=12` 仅 guard dense 枚举（VQSS 解锁）、单元测试 44→58。剩余 `Conjugate`/`Transpose` dense + 矩阵代数紧凑化（§3.1.4/5）。
+
+**重建步骤**：
+1. LimTDD 切 `limtdd-backend`；`USE_LIMTDD=1 BOOST_PATH=../BOOST/boost_1_81_0 make all`（先清掉旧 `libqreach.so`/`test.o`/`test_qreach` 与 LimTDD 旧 `.o`）。
+2. `cp libqreach.so python_pkg/`；`cd python_pkg && USE_LIMTDD=1 BOOST_PATH=../BOOST/boost_1_81_0 ../.venv/bin/python -m invoke build-pybind11`。
+3. 编译运行 smoke + workflow 测试。
+
+**验证结果（全绿）**：
+
+| 项 | 结果 |
+|---|---|
+| `libqreach.so`（LimTDD 核心 3×`.o`） | ✅ 链接成功 |
+| `pyqreach` import | ✅ `symbolic_available()=False`（确认 LimTDD） |
+| `scripts/limtdd_explicit_smoke.cpp`（语义层 Bell） | ✅ `loc2 dims=[4,1]` |
+| `workflow_tests/test_lazy_measurement.py` | ✅ PASSED |
+| `workflow_tests/test_ts_structure.py` | ✅ 7/7 PASSED |
+| `workflow_tests/test_simulation_grover.py`（Grover_5 vs Qiskit） | ✅ dims=(32,1)，主态 `|11101>` 匹配 |
+| `workflow_tests/test_simulation_qft.py`（QFT_5 vs Qiskit） | ✅ 32 态均匀，`satisfy(|+++++>)=True` |
+| `examples/test_vqss_correct.py` | ✅ **True**（此前被 kMaxDenseQubits 阻塞） |
+| `examples/test_vqss_buggy.py` | ✅ 找到反例（`*** VIOLATION ***`） |
+| `examples/test_RUS.py`（while_loop+reset+measure） | ✅ 跑通（InnerProduct 稀疏点积修复有效） |
+| `examples/test_rus_wp.py`（backward reachability） | ✅ 跑通（GetLevel 约定修复有效） |
+
+**发现的三处 stale 脚本/注释（非 LimTDD 语义问题，待清）**：
+- `scripts/dd_backend_smoke.cpp`：仍用旧 level 约定（`MkBasisVector(1,3)` 现在按 n=1 解释 → `MkBasisVector: index out of range` 崩溃）。需改为 n-based 或标记废弃。
+- `examples/test_grover.py`：`from qasm_workflow_runner import ...` 导入失败——reorg 后该模块在 `workflow_tests/`，是 stale import，与后端无关。
+- `scripts/limtdd_explicit_smoke.cpp` 内 NOTE 注释已过时（"InnerProduct 对正交态抛异常"已修复）。
+
+**注意**：本次构建使 `python_pkg/libqreach.so` 与根 `libqreach.so` 都变成 LimTDD 版本；LimTDD 的 `.o` 仍写入外部仓库 `../LimTDDexpr/LimTDD/DDPackage/dd/`（既有污染）。切回 CFLOBDD 需 `rm libqreach.so && make all` + 重建 pybind11。
+
+**Statevector 稠密交叉校验 oracle（契约 Phase 6 item 2）已建成**：`python_pkg/workflow_tests/test_backend_crosscheck.py`，23 个小酉电路（覆盖 H/X/Y/Z/S/T、CX/CZ/CP/CSX/SWAP/iSWAP/CCX、U3/ry/rz 浮点参数、非相邻门、非平凡初态）× Qiskit `Statevector` 真值，后端无关。LimTDD 下 21 过 + 2 XFAIL（`csx`、`nonadj_cx`，均为 `MatrixMultiply` bug）；CFLOBDD 下应全绿（待重建验证）。
+
+---
+
+## 6. 相关文档
 
 - `backend-replacement-api-contract.md` — Document A（API 契约，LimTDD 侧实现依据）。
 - `limtdd-backend-qreach-plan.md` — QReach 侧计划（Phase 0–6 定义，本文档记录其执行结果）。
 - `limtdd-backend-implementation-status.md` — LimTDD 侧实现现状（08-13）。
 - `limtdd-backend-implementation-brief.md` — 交给 LimTDD agent 的一页简报。
 - `limtdd-innerproduct-bug-report.md` — InnerProduct scaling bug 详情与 resolution。
+- `limtdd-matrixmultiply-bug-report.md` — `MatrixMultiply`(matrix×matrix) bug 详情（CSX + ctrl>tgt 两 qubit 门），由交叉校验发现。
 - `cflobdd-transpose-dag-corruption.md`、`cflobdd-level8-transpose-bug.md` — CFLOBDD transpose/level≥7 bug 背景（dot/normalize fallback 的由来）。

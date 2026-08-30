@@ -464,6 +464,8 @@ Tests and scripts are organized under `python_pkg/`:
 - `python_pkg/workflow_tests/` — real unit/regression tests (with assertions) and the
   benchmark runner infrastructure. Symbolic SymTS tests live in
   `python_pkg/workflow_tests/symbolic/` and auto-skip under the LimTDD backend.
+  `test_backend_crosscheck.py` is the backend-agnostic dense cross-check oracle
+  (small unitary circuits vs Qiskit `Statevector`).
 - `python_pkg/examples/` — runnable workflow validation examples (no assertions).
 - `python_pkg/eval/` — benchmark evaluation/experiment runners.
 - `python_pkg/plots/` — plotting scripts.
@@ -474,6 +476,7 @@ Current examples:
 cd python_pkg
 ../.venv/bin/python workflow_tests/test_ts_structure.py
 ../.venv/bin/python workflow_tests/test_lazy_measurement.py
+../.venv/bin/python workflow_tests/test_backend_crosscheck.py
 ../.venv/bin/python examples/test_RUS.py
 ```
 
