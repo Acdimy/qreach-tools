@@ -1,8 +1,8 @@
 # QReach × LimTDD Backend Replacement — QReach-Side Plan
 
 > **Audience:** AI agent working in *this* repository (`qreach-tools`), branch `limtdd-backend`.
-> **Status:** Plan — ready for implementation review. Do not merge without user approval.
-> **Last updated:** 2026-08-13
+> **Status:** Phase 0–5 **executed** (see `limtdd-backend-integration-log.md` for results, open items, and remaining LimTDD-side TODOs). Do not merge without user approval.
+> **Last updated:** 2026-08-13 (plan); execution results in `limtdd-backend-integration-log.md`.
 > **Verified against:** `limtdd-backend` @ `0570b80` (clean tree, in sync with `origin/limtdd-backend`).
 
 ---

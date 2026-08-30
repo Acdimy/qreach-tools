@@ -145,3 +145,25 @@ collapse to a true scalar, not just divide by a fixed power of two.
 Please fix `InnerProduct` (and add the `2+`-qubit `<v|v> == 1` regression test).
 After that, the QReach RUS workflow should produce the same 2-vector lower bound
 as the CFLOBDD backend.
+
+---
+
+## Resolution (2026-08-14)
+
+**Fixed on the LimTDD side.** `InnerProduct` was replaced with a **sparse dot
+product** over `GetNonZeroAmplitudes(a, 0)` × `GetNonZeroAmplitudes(b, 0)`,
+joined on the big-endian index. This bypasses `cont`'s broken scalar path
+entirely (the `2^(n-1)`-scaled `sumRemaining` residual was the culprit).
+
+Verified:
+- The minimal reproduction's all-8-checks pass (`<basis|basis>` = 1 at 1/2/4
+  qubits; projection coefficients exact).
+- `span_qops([v1..v4])` returns 2 (was 3) — matching CFLOBDD.
+- RUS workflow: L5 = 3 vectors, L15–L19 = 2 vectors — matching CFLOBDD.
+- Full workflow (`test_RUS` / `test_newapi` / `test_grover` /
+  `test_lazy_measurement`) green under LimTDD.
+
+Remaining cosmetic difference (does not affect amplitudes/subspaces):
+`GetNonZeroAmplitudes` index convention differs per backend — CFLOBDD returns
+the returnMap **position**, LimTDD returns the **big-endian binary value** — so
+`printFormal` bitstring labels differ but the amplitudes/subspaces agree.
