@@ -25,3 +25,5 @@ export QOP_PROFILE=1 QOP_PROFILE_TRACE=1 && ./test_qreach
 uv version:
 source ../.venv/bin/activate
 python -m invoke build-qreach && python -m invoke build-pybind11
+
+python workflow_tests/run_qasm_benchmarks_lazy.py --input-dir benchmark/converted_from_qai_grover_linear --output-file scale_grover_linear.csv --debug

@@ -7,6 +7,7 @@ import os
 import queue
 import random
 import re
+import signal
 import shutil
 import sys
 import traceback
@@ -465,6 +466,18 @@ def run_qasm_file_with_timeout(qasm_path: Path, config: QasmRunConfig, *, file_i
     try:
         return out_queue.get_nowait()
     except queue.Empty:
+        if proc.exitcode == -signal.SIGTERM:
+            row = _empty_row(qasm_path, config.input_dir, config.timeout_seconds)
+            row.update(
+                {
+                    "status": "timeout",
+                    "time_total": config.timeout_seconds,
+                    "error_injection": bool(config.error_injection),
+                    "debug_enabled": bool(config.debug),
+                    "lazy": bool(config.lazy),
+                }
+            )
+            return row
         row = _empty_row(qasm_path, config.input_dir, config.timeout_seconds)
         row.update(
             {
