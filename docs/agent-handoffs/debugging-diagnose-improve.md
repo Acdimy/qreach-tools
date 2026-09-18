@@ -1,3 +1,132 @@
+Status update (2026-09-09)
+======================================================================
+
+The SP/WP-combined localization idea described below is now DE-SCOPED for the
+next implementation step.
+
+Reason:
+
+- we found a theoretical gap in using final WP plus replayed SP expansions to
+    infer an error-introducing program point;
+- the derived ``Semantic Diagnosis`` output is therefore not reliable enough to
+    present as the main debugging aid.
+
+Immediate direction change:
+
+- keep the existing ordinary forward ``postImage`` computation as the primary
+    semantic object for the RUS example;
+- suspend further productization of ``Semantic Diagnosis`` and do not make it a
+    required part of the ordinary ``test_RUS`` workflow;
+- instead, add pragmatic debugging output around the forward SP construction and
+    enrich counterexample reporting with the concrete strongest-postcondition at
+    each reported location.
+
+Important scope note:
+
+- the current ordinary ``test_RUS`` path is not coupled to semantic diagnosis;
+    diagnosis is only triggered when ``modelChecking(...,
+    semantic_diagnosis_config=...)`` is used explicitly;
+- therefore, canceling or de-prioritizing semantic diagnosis does not require a
+    native rebuild and does not block the existing RUS forward/model-checking
+    example.
+
+New practical target
+======================================================================
+
+For the buggy RUS example, prioritize the following output improvements:
+
+1. Record the forward SP propagation/update trace.
+
+     During explicit forward fixed-point construction, record for each effective
+     update event:
+
+     - dequeue/visit order of the source location;
+     - source location index and identifier;
+     - target location index and identifier;
+     - edge/program statement label;
+     - target location dimension before the update;
+     - incoming contribution dimension;
+     - target location dimension after the update.
+
+     If model checking returns ``false``, report this SP update history as a
+     debugging aid. The goal is operational transparency, not automatic fault
+     localization.
+
+2. Enrich counterexample output with concrete quantum state information.
+
+     In addition to the existing location index / location identifier / edge
+     label, each counterexample step should print the current strongest
+     postcondition at that location in Dirac-style form, using the location's
+     already-computed lower-bound support.
+
+     Concretely, the counterexample formatter should show both:
+
+     - the lower-bound dimension, and
+     - the Dirac representation returned by the existing QOperation pretty-printer.
+
+Feasibility without rebuilding native binaries
+======================================================================
+
+This revised direction is feasible as a Python-only change first.
+
+1. Forward SP update trace:
+
+     The current explicit TS engine already exposes enough state in Python to
+     replay the deterministic FIFO forward propagation order used by
+     ``TransitionSystem::postConditions`` / ``postConditionOneStep``.
+
+     Available Python-level ingredients already exposed today:
+
+     - ``ts.Locations[loc].postLocations``
+     - ``ts.relations[(src, dst)]``
+     - ``QOperation.post_image(...)``
+     - ``QOperation.disjunction(...)``
+     - ``ts.printDims(loc)`` or ``QOperation.dim()``
+     - ``Location.lowerBound.printFormal(False)``
+
+     Therefore a first implementation can live entirely in ``python_pkg/qctl.py``
+     as a reusable replay/trace helper, without touching ``transition_system.hpp``
+     or rebuilding ``libqreach.so``.
+
+     Caveat:
+
+     - this records a Python replay of the current explicit scheduling logic, not
+         direct instrumentation from inside the C++ queue;
+     - for the current explicit engine this is acceptable as a pragmatic first
+         version, because the queue discipline is simple FIFO and already mirrored in
+         the Python diagnosis prototype.
+
+2. Counterexample strongest-post output:
+
+     This is also Python-only. ``Location.lowerBound`` is already accessible from
+     pybind, and ``QOperation.printFormal(False)`` already returns a string rather
+     than only printing to stdout.
+
+     Therefore ``_analyse_counterexample(...)`` /
+     ``_format_counterexample_analysis(...)`` can be extended to attach, for each
+     trace step:
+
+     - ``lower_dim = ts.printDims(loc)[1]``
+     - ``support = ts.Locations[loc].lowerBound.printFormal(False)``
+
+     No pybind or native C++ change is required for this output.
+
+Suggested implementation order
+======================================================================
+
+1. Reuse or simplify the current Python-side SP replay helper so it becomes a
+     generic forward-trace collector, independent of WP/diagnosis.
+2. Extend counterexample analysis records with per-location lower-bound
+     dimension and Dirac support string.
+3. Update ``workflow_tests/test_RUS.py`` so that when ``AG (outloop -> s)`` is
+     false, it prints:
+
+     - the enriched counterexample trace, and
+     - the forward SP update history.
+
+4. Keep semantic diagnosis output out of the ordinary RUS workflow unless that
+     direction is explicitly revived later.
+
 We want to extend QisMC's existing counterexample output with a lightweight
 semantic debugging diagnosis mechanism. Please first inspect the existing
 implementation carefully, identify the relevant SP/WP fixed-point code,

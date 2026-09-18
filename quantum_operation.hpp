@@ -798,16 +798,13 @@ class QuantumGateTerm : public QuantumTerm {
             // Assume the indexes are sequentially ordered
             // Prepare the state from this->vars
             // TODO: Out of compromise, we make the following assumption: only one qubit is initialized.
+            assert(this->index.size() == 1);
             unsigned int numVars = this->vars.size();
             assert(numVars && (numVars & (numVars - 1)) == 0);
-            // stateVec: [a+bi, c+di]
-            // auto stateVec = InitializeWithVector(1, this->vars);
-            // Prepare the projecor |init><0|
-            // stateVec = VectorComplexFloatBoost::VectorToMatrixInterleaved(stateVec);
-            // Append this->vars with zeros, as the imaginary part, double the size to vec_raw.
-            auto vec_raw = this->vars;
-            vec_raw.resize(2 * vec_raw.size(), 0.0);
-            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, vec_raw);
+            // The Python parser already passes InitializeWithVector's split layout:
+            // [real amplitudes..., imaginary amplitudes...].
+            assert(numVars == 2 * (1u << this->index.size()));
+            auto U = ApplyGateFWithParamVec(this->qNum, index, InitializeWithVector, this->vars);
             // Check the indexes that before and after the applied indexes, padding them (through tensor) with identity
             res = U;
             
@@ -1478,6 +1475,29 @@ class QOperation {
         // type == false or isProj >= 0
         return type == false || isProj >= 0;
     }
+    bool isMeasurementBranch() const {
+        if (!type || isProj < 0 || oplist.size() != 1 || !oplist[0] || !oplist[0]->getType()) {
+            return false;
+        }
+        auto* gate = dynamic_cast<QuantumGateTerm*>(oplist[0].get());
+        if (!gate) {
+            return false;
+        }
+        const std::string name = toLower(gate->name);
+        return name == "meas0" || name == "meas1";
+    }
+    bool isResetLike() const {
+        if (!type || oplist.size() != 2) {
+            return false;
+        }
+        auto* gate0 = dynamic_cast<QuantumGateTerm*>(oplist[0].get());
+        auto* gate1 = dynamic_cast<QuantumGateTerm*>(oplist[1].get());
+        if (!gate0 || !gate1) {
+            return false;
+        }
+        return toLower(gate0->name) == "meas0" && toLower(gate1->name) == "reset0" &&
+               gate0->index == gate1->index;
+    }
 
     QOperation& operator=(const QOperation& other) {
         if (this != &other) {
@@ -1994,7 +2014,7 @@ class QOperation {
             // Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors.
             // std::cout << "Case 0.5: other.oplist[0] is a SingleVecTerm, other is a set of orthogonal vectors." << std::endl;
             res = this->conjunction_simp(other); // This is not a const operator!
-        } else if (other.oplist[0]->getType() == true && other.isProj >= 0) {
+        } else if (other.isMeasurementBranch()) {
             // Case 1: other is a binary projection operator
             // other.genProjMeasSpace();
             // std::cout << "Case 1: other is a binary projection operator." << std::endl;

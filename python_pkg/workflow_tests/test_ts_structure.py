@@ -256,7 +256,87 @@ def test_post_propagation_chain():
 
 
 # ---------------------------------------------------------------------------
-# 6. Classical propositions
+# 6. Reset backward pre-condition
+# ---------------------------------------------------------------------------
+
+def test_reset_backward_precondition():
+    """A reset edge should admit exactly the inputs compatible with resetting.
+
+    For a reset on q0 in a 2-qubit system:
+      - target |00> admits both |00> and |10> as pre-states;
+      - target |10> admits no pre-state.
+    """
+    num_q = 2
+
+    compatible = pyqreach.TransitionSystem()
+    compatible.addLocation(pyqreach.Location(num_q))
+    compatible.addLocation(pyqreach.Location(num_q))
+    compatible.setInitLocation(0)
+    compatible.addRelation(0, 1, pyqreach.QOperation("reset", num_q, [0], []))
+    compatible.setAnnotation([[1, quantum_state("00")]])
+    compatible.computingFixedPointPre()
+
+    upper_dim, _ = compatible.printDims(0)
+    support = compatible.Locations[0].upperBound.printFormal(False)
+    assert upper_dim == 2, f"Compatible reset WP should have dim 2, got {upper_dim}"
+    assert "|00>" in support and "|10>" in support, (
+        f"Compatible reset WP should contain |00> and |10>, got {support!r}"
+    )
+
+    incompatible = pyqreach.TransitionSystem()
+    incompatible.addLocation(pyqreach.Location(num_q))
+    incompatible.addLocation(pyqreach.Location(num_q))
+    incompatible.setInitLocation(0)
+    incompatible.addRelation(0, 1, pyqreach.QOperation("reset", num_q, [0], []))
+    incompatible.setAnnotation([[1, quantum_state("10")]])
+    incompatible.computingFixedPointPre()
+
+    upper_dim_bad, _ = incompatible.printDims(0)
+    assert upper_dim_bad == 0, (
+        f"Incompatible reset WP should be zero-dimensional, got {upper_dim_bad}"
+    )
+
+    print("test_reset_backward_precondition  OK")
+
+
+# ---------------------------------------------------------------------------
+# 7. Initialize-to-zero matches reset backward semantics
+# ---------------------------------------------------------------------------
+
+def test_initialize_zero_backward_precondition():
+    """Single-qubit initialize(|0>) should match reset on weakest preconditions."""
+    qc = QuantumCircuit(2)
+    qc.initialize([1, 0], 0)
+
+    ts = pyqreach.TransitionSystem()
+    result_locs = parse_qiskit_cir(qc, qc.num_qubits, ts)
+    ts.setAnnotation([[result_locs[-1], quantum_state("00")]])
+    ts.computingFixedPointPre()
+
+    upper_dim, _ = ts.printDims(0)
+    support = ts.Locations[0].upperBound.printFormal(False)
+    assert upper_dim == 2, (
+        f"Initialize(|0>) WP should have dim 2 like reset, got {upper_dim}"
+    )
+    assert "|00>" in support and "|10>" in support, (
+        f"Initialize(|0>) WP should contain |00> and |10>, got {support!r}"
+    )
+
+    ts_bad = pyqreach.TransitionSystem()
+    bad_result_locs = parse_qiskit_cir(qc, qc.num_qubits, ts_bad)
+    ts_bad.setAnnotation([[bad_result_locs[-1], quantum_state("10")]])
+    ts_bad.computingFixedPointPre()
+
+    upper_dim_bad, _ = ts_bad.printDims(0)
+    assert upper_dim_bad == 0, (
+        f"Initialize(|0>) WP should be zero for incompatible targets, got {upper_dim_bad}"
+    )
+
+    print("test_initialize_zero_backward_precondition  OK")
+
+
+# ---------------------------------------------------------------------------
+# 8. Classical propositions
 # ---------------------------------------------------------------------------
 
 def test_classical_propositions():
@@ -296,7 +376,7 @@ def test_classical_propositions():
 
 
 # ---------------------------------------------------------------------------
-# 7. Multiple outgoing edges (non‑branching)
+# 9. Multiple outgoing edges (non‑branching)
 # ---------------------------------------------------------------------------
 
 def test_multiple_outgoing_gates():
@@ -342,6 +422,8 @@ if __name__ == "__main__":
     test_branching_measurement()
     test_identity_self_loop()
     test_post_propagation_chain()
+    test_reset_backward_precondition()
+    test_initialize_zero_backward_precondition()
     test_classical_propositions()
     test_multiple_outgoing_gates()
     print("\n=== All TransitionSystem structural tests PASSED ===")

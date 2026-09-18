@@ -326,12 +326,7 @@ void TransitionSystem::addRelation(unsigned int from, unsigned int to, QOperatio
     // this->Locations[to].appendPreLocation(&this->Locations[from]);
     // The operation is a projective operation, and from has two post-locations.
     // Haven't finished yet.
-    if (op.isProj >= 0) {
-        // Assert that the operation is a binary projective operation or a resetting.
-        assert(op.oplist.size() <= 2);
-        assert(op.oplist[0]->getType() == true);
-        auto name = dynamic_cast<QuantumGateTerm*>(op.oplist[0].get())->name;
-        assert(name == "meas0" || name == "meas1");
+    if (op.isMeasurementBranch()) {
         this->Locations[from].flag = 0; // Set the flag to 0 for projective operations
     }
 }

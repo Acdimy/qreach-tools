@@ -83,7 +83,7 @@ def zero_subspace(qnum: int) -> pyqreach.QOperation:
 
 def whole_subspace(qnum: int) -> pyqreach.QOperation:
     """Create a QOperation representing the whole quantum subspace."""
-    return pyqreach.CreateIdentityQO(qnum, False)
+    return pyqreach.CreateIdentityQO(qnum)
 
 def span_qops(ops) -> pyqreach.QOperation:
     """Return the normalized span of several subspace QOperations.
@@ -681,6 +681,7 @@ def ts2SMV(ts: pyqreach.TransitionSystem, formula: str, logic: str = 'auto'):
 import subprocess
 import tempfile
 import os
+from collections import deque
 
 
 def _parse_counterexample_trace(cex_text: str) -> list[dict]:
@@ -754,6 +755,23 @@ def _labels_for(ts, loc: int) -> list[str]:
         return []
 
 
+def _lower_dim_for(ts, loc: int) -> int:
+    """Return the explicit lower-bound dimension at a location."""
+    try:
+        return int(ts.printDims(loc)[1])
+    except Exception:
+        return -1
+
+
+def _support_for(ts, loc: int, *, bound: str = "lower") -> str:
+    """Return a Dirac-style support string for a location bound."""
+    try:
+        op = _location_bound(ts, loc, bound)
+        return op.printFormal(False).strip()
+    except Exception:
+        return ""
+
+
 def _analyse_counterexample(ts, cex_text: str, ctl_formula: str) -> dict | None:
     """Parse a NuSMV counterexample and map it back to QReach locations.
 
@@ -794,6 +812,8 @@ def _analyse_counterexample(ts, cex_text: str, ctl_formula: str) -> dict | None:
             "location": loc,
             "identifier": _identifier_for(ts, loc),
             "labels": _labels_for(ts, loc),
+            "lower_dim": _lower_dim_for(ts, loc),
+            "support": _support_for(ts, loc, bound="lower"),
         }
         # Capture proposition values from NuSMV trace when available
         if i < len(trace):
@@ -926,6 +946,8 @@ def _analyse_ltl_counterexample(ts, cex_text: str, formula: str) -> dict | None:
             "location": loc,
             "identifier": _identifier_for(ts, loc),
             "labels": _labels_for(ts, loc),
+            "lower_dim": _lower_dim_for(ts, loc),
+            "support": _support_for(ts, loc, bound="lower"),
         }
         if trace_idx < len(parsed["trace"]):
             for key, val in parsed["trace"][trace_idx].items():
@@ -965,7 +987,31 @@ def _analyse_ltl_counterexample(ts, cex_text: str, formula: str) -> dict | None:
     }
 
 
-def _format_counterexample_analysis(analysis: dict | None) -> str:
+def _summarize_support(support: str, *, mode: str = "full", max_lines: int = 2) -> str:
+    """Render a support string at the requested verbosity."""
+    support = (support or "").strip()
+    if not support:
+        return ""
+    if mode == "off":
+        return ""
+    lines = support.splitlines()
+    if mode == "first":
+        return lines[0]
+    if mode == "summary":
+        if len(lines) <= max_lines:
+            return "\n".join(lines)
+        shown = lines[:max_lines]
+        shown.append(f"... ({len(lines) - max_lines} more term(s))")
+        return "\n".join(shown)
+    return "\n".join(lines)
+
+
+def _format_counterexample_analysis(
+    analysis: dict | None,
+    *,
+    show_support: str = "full",
+    show_dimensions: bool = True,
+) -> str:
     """Render counterexample analysis as a human-readable string.
 
     Handles both CTL (finite-trace) and LTL (lasso: stem + loop) formats.
@@ -1006,6 +1052,9 @@ def _format_counterexample_analysis(analysis: dict | None) -> str:
         loc = step["location"]
         ident = step.get("identifier", "")
         edge = edges[i] if i < len(edges) else ""
+        lower_dim = step.get("lower_dim")
+        support = step.get("support", "")
+        support_text = _summarize_support(support, mode=show_support)
 
         # Loop marker for LTL traces
         loop_label = ""
@@ -1023,11 +1072,480 @@ def _format_counterexample_analysis(analysis: dict | None) -> str:
             + loop_label
             + marker
         )
+        if show_dimensions and lower_dim is not None and lower_dim >= 0:
+            lines.append(f"           lower_dim={lower_dim}")
+        if support_text:
+            support_lines = support_text.splitlines()
+            if support_lines:
+                lines.append(f"           SP: {support_lines[0]}")
+                for extra in support_lines[1:]:
+                    lines.append(f"               {extra}")
 
     return "\n".join(lines)
 
 
-def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../../NuSMV-2.7.0-linux64/bin/NuSMV', logic: str = 'auto'):
+def collect_forward_sp_trace(
+    ts: pyqreach.TransitionSystem,
+    *,
+    initial_annotations: list[tuple[int, pyqreach.QOperation]] | dict[int, pyqreach.QOperation] | None = None,
+) -> list[dict]:
+    """Replay explicit forward SP propagation and record effective updates.
+
+    This mirrors the explicit FIFO post-condition scheduling used by the current
+    naive transition-system engine, but runs entirely in Python so it does not
+    require native instrumentation.
+    """
+    if _is_symbolic_ts(ts):
+        raise ValueError("forward SP trace currently supports explicit TransitionSystem only")
+
+    initial_annotations = _normalize_annotation_list(initial_annotations)
+    if not initial_annotations:
+        init_loc = ts.getInitLocation()
+        initial_annotations = [(init_loc, ts.Locations[init_loc].lowerBound)]
+
+    num_locs = ts.getLocationNum()
+    incoming = _explicit_incoming_locations(ts)
+    sp = {loc: zero_subspace(ts.Locations[loc].qNum) for loc in range(num_locs)}
+    visited = [False] * num_locs
+    in_queue = [False] * num_locs
+    queue: deque[int] = deque()
+    scratch_loc = ts.getInitLocation()
+
+    for loc, op in initial_annotations:
+        sp[loc] = op
+        if not in_queue[loc]:
+            queue.append(loc)
+            in_queue[loc] = True
+
+    for loc in range(num_locs):
+        real_incoming = []
+        for src in incoming[loc]:
+            relation = ts.getRelationName(src, loc)
+            if src == loc and relation == "I":
+                continue
+            real_incoming.append(src)
+        if not real_incoming and not in_queue[loc]:
+            queue.append(loc)
+            in_queue[loc] = True
+            visited[loc] = True
+
+    events: list[dict] = []
+    visit_order = 0
+    update_index = 0
+    while queue:
+        src = queue.popleft()
+        in_queue[src] = False
+        visit_order += 1
+        src_state = sp[src]
+        src_dim = _subspace_dim_on_loc(ts, scratch_loc, src_state)
+
+        for dst in ts.Locations[src].postLocations:
+            relation_name = ts.getRelationName(src, dst)
+            if src == dst and relation_name == "I":
+                continue
+
+            relation = ts.relations[(src, dst)]
+            old = sp[dst]
+            contrib = src_state.post_image(relation)
+            old_dim = _subspace_dim_on_loc(ts, scratch_loc, old)
+            contrib_dim = _subspace_dim_on_loc(ts, scratch_loc, contrib)
+            new = old.disjunction(contrib)
+            new_dim = _subspace_dim_on_loc(ts, scratch_loc, new)
+            changed = (not visited[dst]) or (new_dim > old_dim)
+
+            if changed:
+                update_index += 1
+                events.append({
+                    "update_index": update_index,
+                    "visit_order": visit_order,
+                    "source_location": src,
+                    "source_identifier": _identifier_for(ts, src),
+                    "source_dim": src_dim,
+                    "target_location": dst,
+                    "target_identifier": _identifier_for(ts, dst),
+                    "edge": relation_name,
+                    "sp_old_dim": old_dim,
+                    "contribution_dim": contrib_dim,
+                    "sp_new_dim": new_dim,
+                    "target_support": _support_for(ts, dst, bound="lower"),
+                })
+
+            sp[dst] = new
+            if not visited[dst]:
+                queue.append(dst)
+                in_queue[dst] = True
+                visited[dst] = True
+            elif new_dim > old_dim and not in_queue[dst]:
+                queue.append(dst)
+                in_queue[dst] = True
+
+    return events
+
+
+def format_forward_sp_trace(events: list[dict] | None) -> str:
+    """Render a forward SP update trace as a human-readable string."""
+    return format_forward_sp_trace_with_options(events)
+
+
+def format_forward_sp_trace_with_options(
+    events: list[dict] | None,
+    *,
+    mode: str = "expanded",
+    limit: int | None = None,
+    only_growth: bool = False,
+) -> str:
+    """Render a forward SP update trace with configurable verbosity.
+
+    Modes:
+      - ``compact``: one line per update
+      - ``expanded``: two lines per update with dimensions
+      - ``summary``: aggregate per-target growth events
+    """
+    if not events:
+        return ""
+
+    filtered = list(events)
+    if only_growth:
+        filtered = [event for event in filtered if event["sp_new_dim"] > event["sp_old_dim"]]
+    if limit is not None:
+        filtered = filtered[:limit]
+
+    if not filtered:
+        return "=== Forward SP Update Trace ===\n  No matching SP updates."
+
+    if mode == "summary":
+        lines = ["=== Forward SP Update Summary ==="]
+        by_target: dict[tuple[int, str], list[dict]] = {}
+        for event in filtered:
+            key = (event["target_location"], event["target_identifier"])
+            by_target.setdefault(key, []).append(event)
+        for (loc, ident), target_events in sorted(by_target.items(), key=lambda item: item[0][0]):
+            first = target_events[0]
+            last = target_events[-1]
+            lines.append(
+                f"  Location {loc} ({ident!r}): {len(target_events)} update(s), "
+                f"dimension {first['sp_old_dim']} -> {last['sp_new_dim']}"
+            )
+        return "\n".join(lines)
+
+    lines = ["=== Forward SP Update Trace ==="]
+    for event in filtered:
+        head = (
+            f"  Update {event['update_index']:2d}"
+            f"  visit={event['visit_order']:2d}"
+            f"  {event['source_location']} ({event['source_identifier']!r})"
+            f" --{event['edge']}-->"
+            f" {event['target_location']} ({event['target_identifier']!r})"
+        )
+        if mode == "compact":
+            lines.append(
+                head
+                + f"  [src_dim={event['source_dim']} target_dim={event['sp_old_dim']}->{event['sp_new_dim']} contrib={event['contribution_dim']}]"
+            )
+            continue
+        lines.append(head)
+        lines.append(
+            f"           src_dim={event['source_dim']}  target_dim={event['sp_old_dim']} -> {event['sp_new_dim']}"
+            f"  contribution_dim={event['contribution_dim']}"
+        )
+    return "\n".join(lines)
+
+
+def _normalize_annotation_list(annotations) -> list[tuple[int, pyqreach.QOperation]]:
+    if annotations is None:
+        return []
+    if isinstance(annotations, dict):
+        items = annotations.items()
+    else:
+        items = annotations
+    normalized: list[tuple[int, pyqreach.QOperation]] = []
+    for loc, op in items:
+        normalized.append((int(loc), op))
+    return normalized
+
+
+def _save_explicit_bounds(ts) -> list[tuple[pyqreach.QOperation, pyqreach.QOperation]]:
+    return [(loc.lowerBound, loc.upperBound) for loc in ts.Locations]
+
+
+def _restore_explicit_bounds(ts, saved_bounds: list[tuple[pyqreach.QOperation, pyqreach.QOperation]]) -> None:
+    for loc, (lower, upper) in zip(ts.Locations, saved_bounds):
+        loc.lowerBound = lower
+        loc.upperBound = upper
+
+
+def _subspace_dim_on_loc(ts, loc: int, op: pyqreach.QOperation) -> int:
+    saved_lower = ts.Locations[loc].lowerBound
+    try:
+        ts.Locations[loc].lowerBound = op
+        return ts.printDims(loc)[1]
+    finally:
+        ts.Locations[loc].lowerBound = saved_lower
+
+
+def _subspace_subset(ts, candidate: pyqreach.QOperation, spec: pyqreach.QOperation, *, scratch_loc: int) -> bool:
+    saved_lower = ts.Locations[scratch_loc].lowerBound
+    saved_upper = ts.Locations[scratch_loc].upperBound
+    try:
+        ts.Locations[scratch_loc].lowerBound = candidate
+        ts.Locations[scratch_loc].upperBound = whole_subspace(ts.Locations[scratch_loc].qNum)
+        return ts.Locations[scratch_loc].satisfy(spec)
+    finally:
+        ts.Locations[scratch_loc].lowerBound = saved_lower
+        ts.Locations[scratch_loc].upperBound = saved_upper
+
+
+def _explicit_incoming_locations(ts) -> dict[int, list[int]]:
+    incoming = {loc: [] for loc in range(ts.getLocationNum())}
+    for src in range(ts.getLocationNum()):
+        for dst in ts.Locations[src].postLocations:
+            incoming[dst].append(src)
+    return incoming
+
+
+def _edge_is_on_cycle(ts, src: int, dst: int) -> bool:
+    if src == dst:
+        return True
+    queue = deque([dst])
+    seen = {dst}
+    while queue:
+        loc = queue.popleft()
+        for nxt in ts.Locations[loc].postLocations:
+            relation = ts.getRelationName(loc, nxt)
+            if loc == nxt and relation == "I":
+                continue
+            if nxt == src:
+                return True
+            if nxt not in seen:
+                seen.add(nxt)
+                queue.append(nxt)
+    return False
+
+
+def _compute_wp_snapshot(ts, target_annotations: list[tuple[int, pyqreach.QOperation]]) -> dict[int, pyqreach.QOperation]:
+    saved_bounds = _save_explicit_bounds(ts)
+    try:
+        ts.resetLocationBounds()
+        ts.setAnnotation(target_annotations)
+        ts.computingFixedPointPre()
+        return {loc: ts.Locations[loc].upperBound for loc in range(ts.getLocationNum())}
+    finally:
+        _restore_explicit_bounds(ts, saved_bounds)
+
+
+def _replay_sp_updates(ts, initial_annotations: list[tuple[int, pyqreach.QOperation]], final_wp: dict[int, pyqreach.QOperation]) -> list[dict]:
+    num_locs = ts.getLocationNum()
+    incoming = _explicit_incoming_locations(ts)
+    sp = {loc: zero_subspace(ts.Locations[loc].qNum) for loc in range(num_locs)}
+    visited = [False] * num_locs
+    in_queue = [False] * num_locs
+    queue: deque[int] = deque()
+    scratch_loc = ts.getInitLocation()
+
+    for loc, op in initial_annotations:
+        sp[loc] = op
+        if not in_queue[loc]:
+            queue.append(loc)
+            in_queue[loc] = True
+
+    for loc in range(num_locs):
+        real_incoming = []
+        for src in incoming[loc]:
+            relation = ts.getRelationName(src, loc)
+            if src == loc and relation == "I":
+                continue
+            real_incoming.append(src)
+        if not real_incoming and not in_queue[loc]:
+            queue.append(loc)
+            in_queue[loc] = True
+            visited[loc] = True
+
+    events: list[dict] = []
+    update_index = 0
+    while queue:
+        src = queue.popleft()
+        in_queue[src] = False
+        src_state = sp[src]
+        for dst in ts.Locations[src].postLocations:
+            relation_name = ts.getRelationName(src, dst)
+            if src == dst and relation_name == "I":
+                continue
+
+            relation = ts.relations[(src, dst)]
+            old = sp[dst]
+            contrib = src_state.post_image(relation)
+            old_dim = _subspace_dim_on_loc(ts, scratch_loc, old)
+            contrib_dim = _subspace_dim_on_loc(ts, scratch_loc, contrib)
+            new = old.disjunction(contrib)
+            new_dim = _subspace_dim_on_loc(ts, scratch_loc, new)
+
+            before_ok = _subspace_subset(ts, old, final_wp[dst], scratch_loc=scratch_loc)
+            after_ok = _subspace_subset(ts, new, final_wp[dst], scratch_loc=scratch_loc)
+            contrib_ok = _subspace_subset(ts, contrib, final_wp[dst], scratch_loc=scratch_loc)
+
+            if not visited[dst] or new_dim > old_dim:
+                update_index += 1
+                events.append({
+                    "update_index": update_index,
+                    "source_location": src,
+                    "source_identifier": _identifier_for(ts, src),
+                    "target_location": dst,
+                    "target_identifier": _identifier_for(ts, dst),
+                    "edge": relation_name,
+                    "sp_old_dim": old_dim,
+                    "contribution_dim": contrib_dim,
+                    "sp_new_dim": new_dim,
+                    "before_compatible": before_ok,
+                    "after_compatible": after_ok,
+                    "contribution_compatible": contrib_ok,
+                    "cycle_edge": _edge_is_on_cycle(ts, src, dst),
+                })
+
+            sp[dst] = new
+            if not visited[dst]:
+                queue.append(dst)
+                in_queue[dst] = True
+                visited[dst] = True
+            elif new_dim > old_dim and not in_queue[dst]:
+                queue.append(dst)
+                in_queue[dst] = True
+
+    return events
+
+
+def semantic_diagnosis(
+    ts: pyqreach.TransitionSystem,
+    *,
+    initial_annotations: list[tuple[int, pyqreach.QOperation]] | dict[int, pyqreach.QOperation] | None = None,
+    target_annotations: list[tuple[int, pyqreach.QOperation]] | dict[int, pyqreach.QOperation] | None = None,
+) -> dict:
+    """Diagnose compatibility-breaking SP updates against final WP.
+
+    This replays the explicit forward fixed-point in the same deterministic FIFO
+    order used by the current C++ post-condition engine and compares each SP
+    expansion against the final WP snapshot computed from ``target_annotations``.
+    """
+    if _is_symbolic_ts(ts):
+        return {
+            "status": "unsupported",
+            "reason": "semantic diagnosis currently supports explicit TransitionSystem only",
+        }
+
+    target_annotations = _normalize_annotation_list(target_annotations)
+    if not target_annotations:
+        return {
+            "status": "unavailable",
+            "reason": "no target quantum annotation was provided for backward diagnosis",
+        }
+
+    initial_annotations = _normalize_annotation_list(initial_annotations)
+    if not initial_annotations:
+        init_loc = ts.getInitLocation()
+        initial_annotations = [(init_loc, ts.Locations[init_loc].lowerBound)]
+
+    final_wp = _compute_wp_snapshot(ts, target_annotations)
+    events = _replay_sp_updates(ts, initial_annotations, final_wp)
+    strict_candidates = [
+        event
+        for event in events
+        if event["sp_old_dim"] > 0
+        and event["sp_new_dim"] > event["sp_old_dim"]
+        and event["before_compatible"]
+        and not event["after_compatible"]
+    ]
+    fallback_candidates = [
+        event
+        for event in events
+        if event["sp_old_dim"] > 0
+        and event["sp_new_dim"] > event["sp_old_dim"]
+        and not event["contribution_compatible"]
+    ]
+
+    def _rank(event: dict) -> tuple:
+        return (
+            0 if event["cycle_edge"] else 1,
+            event["update_index"],
+        )
+
+    suspicious = None
+    criterion = None
+    if strict_candidates:
+        suspicious = min(strict_candidates, key=_rank)
+        criterion = "strict_compatibility_breaking_expansion"
+    elif fallback_candidates:
+        suspicious = min(fallback_candidates, key=_rank)
+        criterion = "incompatible_contribution_expansion"
+
+    if suspicious is None:
+        return {
+            "status": "no_useful_incompatibility",
+            "reason": "no compatibility-breaking SP expansion was observed during FIFO replay",
+            "events": events,
+            "worklist_order": "deterministic FIFO replay of explicit post-condition scheduling",
+        }
+
+    return {
+        "status": "found",
+        "suspicious_update": suspicious,
+        "criterion": criterion,
+        "events": events,
+        "worklist_order": "deterministic FIFO replay of explicit post-condition scheduling",
+    }
+
+
+def _format_semantic_diagnosis(diagnosis: dict | None) -> str:
+    if diagnosis is None:
+        return ""
+
+    lines: list[str] = ["=== Semantic Diagnosis ==="]
+    status = diagnosis.get("status")
+    if status == "found":
+        update = diagnosis["suspicious_update"]
+        lines.append("")
+        lines.append("Potential incompatibility-introducing propagation:")
+        lines.append("")
+        lines.append(
+            f"  Location: {update['target_location']} ({update['target_identifier']!r})"
+        )
+        lines.append(
+            f"  Incoming edge: {update['source_location']} ({update['source_identifier']!r}) --{update['edge']}-->"
+        )
+        lines.append(
+            f"  SP update: dimension {update['sp_old_dim']} -> {update['sp_new_dim']}"
+        )
+        lines.append(
+            f"  Incoming contribution dimension: {update['contribution_dim']}"
+        )
+        lines.append(
+            f"  Compatibility: before={update['before_compatible']} after={update['after_compatible']} contribution={update['contribution_compatible']}"
+        )
+        lines.append(
+            f"  Cycle edge: {update['cycle_edge']}"
+        )
+        lines.append(
+            f"  Replay order: {diagnosis.get('worklist_order', 'unknown')}"
+        )
+        lines.append(
+            f"  Selection criterion: {diagnosis.get('criterion', 'unknown')}"
+        )
+        lines.append("")
+        if update.get("before_compatible"):
+            lines.append(
+                "  Interpretation: this propagation is the first observed SP expansion that introduces reachable quantum behavior incompatible with the backward requirement at that location."
+            )
+        else:
+            lines.append(
+                "  Interpretation: this expansion adds an incoming contribution that is incompatible with the backward requirement at that location; earlier propagation in the same region was already incompatible, so this is a ranked suspicious expansion rather than a strict first break."
+            )
+        return "\n".join(lines)
+
+    reason = diagnosis.get("reason", "no additional diagnosis available")
+    lines.append("")
+    lines.append(reason)
+    return "\n".join(lines)
+
+
+def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../../NuSMV-2.7.0-linux64/bin/NuSMV', logic: str = 'auto', semantic_diagnosis_config: dict | None = None):
     """Run CTL or LTL model checking on *ts* against *formula*.
 
     Parameters
@@ -1049,7 +1567,7 @@ def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../..
     -------
     dict
         Keys: ``satisfied`` (bool or None), ``counterexample`` (str or None),
-        ``analysis`` (dict or None), ``output`` (str).
+        ``analysis`` (dict or None), ``diagnosis`` (dict or None), ``output`` (str).
     """
     if logic == 'auto':
         logic = 'LTL' if _is_ltl_formula(formula) else 'CTL'
@@ -1066,15 +1584,15 @@ def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../..
     except subprocess.TimeoutExpired:
         output = 'Timeout: NuSMV took too long to respond.'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'diagnosis': None, 'output': output}
     except FileNotFoundError:
         output = f'Error: {nusmv_cmd} not found. Please verify the path or ensure NuSMV is in PATH.'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'diagnosis': None, 'output': output}
     except Exception as e:
         output = f'Error running NuSMV: {str(e)}'
         print(output)
-        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': output}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'diagnosis': None, 'output': output}
     finally:
         os.unlink(temp_file_name)
 
@@ -1084,6 +1602,7 @@ def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../..
         satisfied = match.group(2) == 'true'
         counterexample = None
         analysis = None
+        diagnosis = None
         if not satisfied:
             # Extract counterexample if the specification is false
             cex_start = output.find("-- as demonstrated by the following execution sequence")
@@ -1094,13 +1613,16 @@ def modelChecking(ts: pyqreach.TransitionSystem, formula: str, nusmv_path='../..
                 analysis = _analyse_ltl_counterexample(ts, counterexample, formula)
             else:
                 analysis = _analyse_counterexample(ts, counterexample, formula)
+            if semantic_diagnosis_config is not None:
+                diagnosis = semantic_diagnosis(ts, **semantic_diagnosis_config)
         return {
             'satisfied': satisfied,
             'counterexample': counterexample,
             'analysis': analysis,
+            'diagnosis': diagnosis,
             'output': output,
         }
     else:
         print(f"Unexpected NuSMV output:\n{output}")
-        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'output': f'Unexpected output: {output}'}
+        return {'satisfied': None, 'counterexample': None, 'analysis': None, 'diagnosis': None, 'output': f'Unexpected output: {output}'}
 

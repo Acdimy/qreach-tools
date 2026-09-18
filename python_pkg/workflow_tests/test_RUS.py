@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import argparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -14,7 +15,44 @@ import random
 from time import time
 from parse_qiskit import *
 from qctl import *
+from qctl import _format_counterexample_analysis
 from circ_utils import *
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run the buggy RUS workflow with configurable debug output.")
+    parser.add_argument(
+        "--cex-support",
+        choices=["off", "first", "summary", "full"],
+        default="summary",
+        help="How much strongest-postcondition support to show for each counterexample step.",
+    )
+    parser.add_argument(
+        "--hide-cex-dims",
+        action="store_true",
+        help="Hide lower-bound dimensions in the counterexample trace.",
+    )
+    parser.add_argument(
+        "--sp-trace",
+        choices=["off", "summary", "compact", "expanded"],
+        default="summary",
+        help="How much forward SP update information to print when the property is false.",
+    )
+    parser.add_argument(
+        "--sp-only-growth",
+        action="store_true",
+        help="Only show SP updates that increase the target dimension.",
+    )
+    parser.add_argument(
+        "--sp-limit",
+        type=int,
+        default=None,
+        help="Maximum number of SP updates to print after filtering.",
+    )
+    return parser.parse_args()
+
+
+args = parse_args()
 
 # Correct
 # qc = QuantumCircuit(3, 1)
@@ -50,7 +88,7 @@ with qc.while_loop((0, 0b1)):
 
 ts = pyqreach.TransitionSystem()
 parse_result = parse_qiskit_cir(qc, qc.num_qubits, ts, return_metadata=True)
-set_initial_state(ts, "000")
+init_op = set_initial_state(ts, "000")
 ts.computingFixedPointPost()
 
 # Specification 1: EF (Zero), where Zero is a zero-dimensional subspace.
@@ -63,8 +101,13 @@ result1 = modelChecking(ts, "EF (Zero)")
 print("Spec 1: EF (Zero)")
 print("  satisfied:", result1['satisfied'])
 if result1.get('analysis'):
-    from qctl import _format_counterexample_analysis
-    print(_format_counterexample_analysis(result1['analysis']))
+    print(
+        _format_counterexample_analysis(
+            result1['analysis'],
+            show_support=args.cex_support,
+            show_dimensions=not args.hide_cex_dims,
+        )
+    )
 
 # Specification 2: AF (outloop -> s), where s is the subspace of
 # (|001> + i\sqrt(2)|011>), and outloop is the first location exiting the loop.
@@ -88,8 +131,27 @@ tsLabelling(ts, target_s, "s")
 
 # AG (outloop -> s): at the outloop location, the quantum state must satisfy s.
 result2 = modelChecking(ts, "AG (outloop -> s)")
-print("Spec 2: AF (outloop -> s)")
+print("Spec 2: AG (outloop -> s)")
 print("  satisfied:", result2['satisfied'])
 if result2.get('analysis'):
-    from qctl import _format_counterexample_analysis
-    print(_format_counterexample_analysis(result2['analysis']))
+    print(
+        _format_counterexample_analysis(
+            result2['analysis'],
+            show_support=args.cex_support,
+            show_dimensions=not args.hide_cex_dims,
+        )
+    )
+if result2.get('satisfied') is False:
+    sp_trace = collect_forward_sp_trace(
+        ts,
+        initial_annotations=[(ts.getInitLocation(), init_op)],
+    )
+    if args.sp_trace != "off":
+        print(
+            format_forward_sp_trace_with_options(
+                sp_trace,
+                mode=args.sp_trace,
+                limit=args.sp_limit,
+                only_growth=args.sp_only_growth,
+            )
+        )

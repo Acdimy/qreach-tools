@@ -866,6 +866,7 @@ def parse_qiskit_cir(qc: QuantumCircuit, qnum: int, ts: pyqreach.TransitionSyste
                 # 2. Apply an init gate to the qubit indexes;
                 # Assert the indexes are sequential ordered
                 assert all(qubits[i] + 1 == qubits[i + 1] for i in range(len(qubits) - 1)), "For now, initialize operation can only be applied to sequential qubits."
+                assert len(qubits) == 1, "For now, initialize operation is only supported on a single qubit."
                 tempNewCurrLoc = []
                 for cLoc in currLoc:
                     indexNum = len(qubits)

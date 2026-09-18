@@ -441,6 +441,19 @@ def _config_payload(config: QasmRunConfig) -> dict[str, Any]:
     }
 
 
+def _format_worker_exit(proc: mp.Process) -> str:
+    if proc.exitcode is None:
+        return "worker exited without an exit code"
+    if proc.exitcode >= 0:
+        return f"worker exited with code {proc.exitcode} without returning a result"
+    signum = -proc.exitcode
+    try:
+        sig_name = signal.Signals(signum).name
+    except ValueError:
+        sig_name = f"SIG{signum}"
+    return f"worker exited with signal {sig_name} ({proc.exitcode}) without returning a result"
+
+
 def run_qasm_file_with_timeout(qasm_path: Path, config: QasmRunConfig, *, file_index: int = 0) -> dict[str, Any]:
     ctx = mp.get_context("spawn")
     out_queue = ctx.Queue()
@@ -482,7 +495,7 @@ def run_qasm_file_with_timeout(qasm_path: Path, config: QasmRunConfig, *, file_i
         row.update(
             {
                 "status": "error",
-                "error": f"worker exited with code {proc.exitcode} without returning a result",
+                "error": _format_worker_exit(proc),
                 "error_injection": bool(config.error_injection),
                 "debug_enabled": bool(config.debug),
                 "lazy": bool(config.lazy),

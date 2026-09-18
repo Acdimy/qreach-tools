@@ -11,7 +11,9 @@ Dependencies: matplotlib (already in .venv).
 """
 from __future__ import annotations
 
+import argparse
 import csv
+from datetime import date
 import re
 from pathlib import Path
 
@@ -29,7 +31,7 @@ SCALE_DEBUG_DIR = PYTHON_PKG / "eval" / "scale_debug"
 OUTPUT_DIR = PYTHON_PKG / "output"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-TIMEOUT_S = 600.0  # mark rows at/above this as timed out
+TIMEOUT_S = 3600.0  # mark rows at/above this as timed out
 
 FAMILY_LABEL: dict[str, str] = {
     "dqc_pe": "DQC-PE",
@@ -71,16 +73,34 @@ def _extract_n(filename: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def _load_data(csv_dir: Path, mode_label: str) -> dict[str, list[dict]]:
-    """Return {family: [sorted rows]} for all CSVs in *csv_dir*."""
+def _output_path(stem: str, output_date_tag: str) -> Path:
+    return OUTPUT_DIR / f"{stem}_{output_date_tag}"
+
+
+def _resolve_csv_path(csv_dir: Path, family: str, mode_label: str, date_tag: str | None) -> Path | None:
+    stem = f"{family}_lazy_injected_results" if mode_label == "injected" else f"{family}_lazy_results"
+    candidates = []
+    if date_tag:
+        candidates.append(csv_dir / f"{stem}_{date_tag}.csv")
+    candidates.append(csv_dir / f"{stem}.csv")
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _load_data(csv_dir: Path, mode_label: str, date_tag: str | None) -> dict[str, list[dict]]:
+    """Return {family: [sorted rows]} for known families in *csv_dir*."""
     data: dict[str, list[dict]] = {}
-    for csv_path in sorted(csv_dir.glob("*_lazy*results.csv")):
-        fam = csv_path.stem.replace("_lazy_injected_results", "").replace("_lazy_results", "")
+    for fam in FAMILY_LABEL:
+        csv_path = _resolve_csv_path(csv_dir, fam, mode_label, date_tag)
+        if csv_path is None:
+            continue
         rows: list[dict] = []
         with csv_path.open() as f:
             for r in csv.DictReader(f):
                 rows.append(r)
-        # sort by n
         rows.sort(key=lambda r: _extract_n(r.get("relative_filename", "")))
         data[fam] = rows
     return data
@@ -92,6 +112,7 @@ def _load_data(csv_dir: Path, mode_label: str) -> dict[str, list[dict]]:
 def plot_scaling(
     clean_data: dict[str, list[dict]],
     injected_data: dict[str, list[dict]],
+    output_date_tag: str,
 ) -> Path:
     fig, (ax_clean, ax_inj) = plt.subplots(
         1, 2, figsize=(11, 5), sharey=True,
@@ -137,7 +158,7 @@ def plot_scaling(
 
         # timeout reference line
         ax.axhline(y=TIMEOUT_S, color="grey", linestyle="--", linewidth=0.7, alpha=0.6)
-        ax.text(0.5, TIMEOUT_S * 1.02, "timeout (600s)", color="grey",
+        ax.text(0.68, TIMEOUT_S * 1.02, f"timeout ({int(TIMEOUT_S)}s)", color="grey",
                 fontsize=7, ha="right", transform=ax.get_yaxis_transform())
 
         ax.set_yscale("log")
@@ -150,9 +171,9 @@ def plot_scaling(
                     fontsize=7.5)
 
     fig.suptitle("VeriQ-bench — QisMC Scaling", fontsize=13, y=0.99)
-    path = OUTPUT_DIR / "veriq_scaling.pdf"
+    path = _output_path("veriq_scaling", output_date_tag).with_suffix(".pdf")
     fig.savefig(path)
-    fig.savefig(OUTPUT_DIR / "veriq_scaling.png")
+    fig.savefig(_output_path("veriq_scaling", output_date_tag).with_suffix(".png"))
     plt.close(fig)
     return path
 
@@ -163,6 +184,7 @@ def plot_scaling(
 def plot_breakdown(
     clean_data: dict[str, list[dict]],
     injected_data: dict[str, list[dict]],
+    output_date_tag: str,
 ) -> Path:
     families = [f for f in FAMILY_LABEL if f in clean_data]
 
@@ -226,9 +248,9 @@ def plot_breakdown(
                framealpha=0.9, edgecolor="grey")
 
     fig.suptitle("VeriQ-bench — Time Breakdown", fontsize=13, y=1.00)
-    path = OUTPUT_DIR / "veriq_breakdown.pdf"
+    path = _output_path("veriq_breakdown", output_date_tag).with_suffix(".pdf")
     fig.savefig(path)
-    fig.savefig(OUTPUT_DIR / "veriq_breakdown.png")
+    fig.savefig(_output_path("veriq_breakdown", output_date_tag).with_suffix(".png"))
     plt.close(fig)
     return path
 
@@ -236,9 +258,35 @@ def plot_breakdown(
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--date-tag",
+        default=None,
+        help="Optional data date tag, for example 20260909.",
+    )
+    parser.add_argument(
+        "--output-date-tag",
+        default=date.today().strftime("%Y%m%d"),
+        help="Date tag appended to output plot filenames.",
+    )
+    parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=TIMEOUT_S,
+        help="Timeout value shown in the plot.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    clean_data = _load_data(SCALE_DIR, "clean")
-    injected_data = _load_data(SCALE_DEBUG_DIR, "injected")
+    global TIMEOUT_S
+
+    args = _parse_args()
+    TIMEOUT_S = args.timeout_seconds
+
+    clean_data = _load_data(SCALE_DIR, "clean", args.date_tag)
+    injected_data = _load_data(SCALE_DEBUG_DIR, "injected", args.date_tag)
 
     # report what was found
     for label, data in [("clean", clean_data), ("injected", injected_data)]:
@@ -247,9 +295,9 @@ def main() -> None:
             to = sum(1 for r in rows if r.get("status") == "timeout")
             print(f"  {label:8s} {fam:8s}  {ok:3d} ok  {to:3d} timeout")
 
-    p1 = plot_scaling(clean_data, injected_data)
+    p1 = plot_scaling(clean_data, injected_data, args.output_date_tag)
     print(f"\nscaling plot  → {p1}")
-    p2 = plot_breakdown(clean_data, injected_data)
+    p2 = plot_breakdown(clean_data, injected_data, args.output_date_tag)
     print(f"breakdown plot → {p2}")
 
 
